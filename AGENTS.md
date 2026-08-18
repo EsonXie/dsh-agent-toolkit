@@ -2,9 +2,15 @@
 
 ## 仓库性质
 
-本仓库是 DeepSeek Harness（dsh）插件的开发工作区。当前**没有任何代码**——只有 `docs/refer/` 下的 dsh 官方文档本地镜像（2026-08 抓取自 <https://deepseek-harness.github.io/deepseek-harness/> 中文站，共 87 篇）。
+本仓库是 DeepSeek Harness（dsh）插件的开发工作区。包含 `docs/refer/` 下的 dsh 官方文档本地镜像（2026-08 抓取自 <https://deepseek-harness.github.io/deepseek-harness/> 中文站，共 87 篇），以及 `packages/token-usage` 插件（第一个实现：Node 半 + 浏览器半 bundle，20/20 测试通过）。
 
-已是 git 仓库（2026-08-18 初始化）；`deepseek-harness/` 被 .gitignore 排除（它自带独立 .git）。尚无 build/test/lint 工具链，后续加入代码时，需把真实的开发命令补充到本文件。
+已是 git 仓库（2026-08-18 初始化）；`deepseek-harness/` 被 .gitignore 排除（它自带独立 .git）。
+
+## 开发命令
+
+- 单测：`pnpm --filter token-usage test`；类型检查：`pnpm --filter token-usage typecheck`
+- 客户端 bundle：`pnpm --filter token-usage bundle`（开发期 `pnpm --filter token-usage watch`）
+- 开发回路：`cd deepseek-harness && pnpm dsh web --patch D:\work\github\dsh\dsh-agent-toolkit\cordis.yml`（deepseek-harness 首次需 `pnpm install && pnpm run build`）
 
 ## 文档使用（先读这里）
 
@@ -21,16 +27,16 @@
 ## 目录结构（已定案）
 
 ```
-dsh-eson-toolkit/
+dsh-agent-toolkit/
 ├─ deepseek-harness/     ← dsh 源码 checkout（自带 .git；只读使用，不修改其中文件）
 │                           本仓库 git 化时必须 .gitignore 掉它
 ├─ docs/refer/           ← 官方文档镜像（87 篇）
-├─ packages/             ← 三个插件，各自独立 package（待建）
-│   ├─ token-usage/      ← Token 用量统计（第一个实现）
+├─ packages/             ← 插件，各自独立 package
+│   ├─ token-usage/      ← Token 用量统计（第一个实现，已建成）
 │   ├─ feishu-bot/       ← 飞书机器人
 │   └─ agent-team/       ← Agent 团队（presets/team/ 随包发行"团队模式"）
 ├─ cordis.yml            ← 开发用 patch（插件 name 写绝对路径）
-└─ package.json + pnpm-workspace.yaml（待建；workspace 只含 packages/*，不含 deepseek-harness）
+└─ package.json + pnpm-workspace.yaml（workspace 只含 packages/*，不含 deepseek-harness）
 ```
 
 插件包内部统一照 `deepseek-harness/packages/acp/acp` 蓝本：`package.json`（peerDeps 拷贝 ACP 依赖集）+ `src/index.ts`（命名导出 `name`/`inject`/`Config`/`apply`，无 default export）。
