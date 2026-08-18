@@ -885,6 +885,10 @@ plugins:
 
 - [ ] **Step 4: 手动验证开发回路**
 
+先选 home 姿态（`resolveDshHome`：显式配置 ?? `$DSH_HOME` ?? `~/.dsh`）：
+- **共享真实 home（默认）**：直接跑下述命令，模型配置/凭据与已装 CLI 共用；发消息是真实调用、消耗真实额度，且测试消耗会被本插件统计进真实数据。不要与已装 dsh 同时运行。
+- **隔离 home**：先 `$env:DSH_HOME='D:\work\github\dsh\dsh-eson-toolkit\.dev-home'`（该目录加进 .gitignore）再跑；全新空环境，无模型配置，只能验证空态/400/弹窗，真实用量验证跳过。
+
 Run: `pnpm dsh web --patch D:\work\github\dsh\dsh-eson-toolkit\cordis.yml`（workdir: `deepseek-harness`）
 Expected:
 1. 启动无 token-usage 相关报错
