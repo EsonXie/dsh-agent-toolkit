@@ -1,8 +1,9 @@
 # 开发用 patch：dsh web --patch 叠加到 web profile。
 # 顶层必须是 loader patch 条目（PatchOptions）数组；insert 追加行。
-# 插件 name 必须是 file:// URL（Windows 绝对路径不是合法 ESM specifier）。
+# 插件行 name 用裸包名：包已通过 `dsh plugin --profile web add link:<本包路径>` 装进 profile，
+# loader 导入与 client-modules 扫描都以 profile 目录（~/.dsh/profiles/web）为解析锚点。
 - insert:
     - id: token-usage
-      name: file:///D:/work/github/dsh/dsh-agent-toolkit/packages/token-usage/src/index.ts
+      name: token-usage
       config:
         timezone: Asia/Shanghai
