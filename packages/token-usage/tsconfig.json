@@ -9,7 +9,7 @@
     "noImplicitAny": true,
     "jsx": "react-jsx",
     "skipLibCheck": true,
-    "types": []
+    "types": ["node"]
   },
   "include": ["src", "tests", "tsdown.config.ts"]
 }

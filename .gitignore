@@ -4,6 +4,7 @@ deepseek-harness/
 # 依赖与产物
 node_modules/
 dist/
+packages/*/lib/
 *.tsbuildinfo
 
 # 日志与临时文件
