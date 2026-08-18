@@ -1,6 +1,9 @@
 /* Usage modal: 24h bar chart + totals + breakdowns. Bar fill uses the
    business-primary state alias (defined for both themes in ui-theme). */
-.root { min-width: 560px; max-width: 720px; }
+/* Wide dialog: Modal's own .dialog caps at 380px with overflow:hidden, which
+   clips the chart and rows. The doubled class beats it regardless of
+   stylesheet order (same pattern as DirectoryBrowser's 680px dialog). */
+.dialog.dialog { width: min(720px, 100%); }
 .pager { display: flex; align-items: center; gap: 8px; justify-content: center; }
 .pagerButton {
   display: inline-flex;
@@ -62,7 +65,7 @@
   line-height: 18px;
   color: var(--dsw-alias-label-primary);
 }
-.rowName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rowName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rowCalls { color: var(--dsw-alias-label-tertiary); }
 .compaction {
   margin-top: 8px;

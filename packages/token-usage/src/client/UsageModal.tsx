@@ -63,7 +63,7 @@ export function UsageModal({ open, onClose, initialDate }: UsageModalProps) {
   const peak = record === undefined ? 1 : Math.max(1, ...record.hours.map(billedOf))
 
   return (
-    <Modal open={open} onClose={onClose} title="Token 用量" closeLabel="关闭" contentClassName={css.root}>
+    <Modal open={open} onClose={onClose} title="Token 用量" closeLabel="关闭" className={css.dialog}>
       <div className={css.pager}>
         <button type="button" className={css.pagerButton} aria-label="前一天" disabled={current === ''} onClick={() => setDate(shiftDate(current, -1))}>←</button>
         <span className={css.dateLabel}>{current}</span>
