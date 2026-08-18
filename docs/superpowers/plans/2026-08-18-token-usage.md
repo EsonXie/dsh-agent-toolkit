@@ -21,6 +21,7 @@
 - 浏览器半禁跨插件值导入（`@deepseek-ai/*` 仅 external 白名单 + INLINE_SAFE 可过 purity gate）；同包相对导入不受限
 - 样式：CSS Modules + `--dsw-alias-*` 语义 token，禁止字面色值；组件文案中文
 - 不修改 `deepseek-harness/` 内任何文件
+- 手动验证产生真实调用时，模型一律切换为用户本地已配置的 `sense-nova` / `Deepseek-flash`（低成本，且 byModel 细分中可一眼识别测试数据）
 - 环境：Windows 11 + PowerShell；Node ≥22.19；pnpm
 
 ---
@@ -892,9 +893,9 @@ plugins:
 Run: `pnpm dsh web --patch D:\work\github\dsh\dsh-eson-toolkit\cordis.yml`（workdir: `deepseek-harness`）
 Expected:
 1. 启动无 token-usage 相关报错
-2. 浏览器发一条消息产生真实用量（需 `DEEPSEEK_API_KEY`；无 key 则跳过，验证空态）
-3. 会话输入 `/token-usage` → 返回今日+近 7 日文本
-4. `curl "http://127.0.0.1:<port>/token-usage/api/daily"` → 200 JSON 含 today/record；`?date=bad` → 400
+2. 浏览器打开/新建会话，在输入框模型选择器中把 provider/model 切到 `sense-nova` / `Deepseek-flash`（用户本地 home 已配置），发一条消息产生真实用量；无可用模型则跳过，验证空态
+3. 会话输入 `/token-usage` → 返回今日+近 7 日文本，"按模型"细分含 `sense-nova/Deepseek-flash`
+4. `curl "http://127.0.0.1:<port>/token-usage/api/daily"` → 200 JSON 含 today/record，record.byModel 键含 `sense-nova/Deepseek-flash`；`?date=bad` → 400
 5. 改 cordis.yml 的 timezone → HMR 热替换不重启
 验证后 Ctrl+C。
 
