@@ -2,8 +2,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
-import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 // Type-only 激活对应包对 cordis Context 的声明合并（inject 的 service 属性）。
+import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-commands'
 import { addSample, dayParts, emptyDaily, sampleFromEvent } from './aggregate.ts'
@@ -69,27 +69,32 @@ export function apply(ctx: Context, config: Config): void {
     },
   })
 
-  // webServer 是可选能力（headless/CLI 无此服务），用 ctx.get 而非 inject。
-  const webServer = ctx.get('webServer') as WebServer | undefined
-  webServer?.register({
-    kind: 'exact',
-    path: '/token-usage/api/daily',
-    handler: async (req, res) => {
-      if (req.method !== 'GET') {
-        res.writeHead(405).end()
-        return
-      }
-      const date = new URL(req.url ?? '', 'http://127.0.0.1').searchParams.get('date')
-      if (date !== null && !DATE_RE.test(date)) {
-        res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'bad date, want YYYY-MM-DD' }))
-        return
-      }
-      const table = await domainReady.then(() => daily!)
-      const today = dayParts(Date.now(), config.timezone).date
-      const key = date ?? today
-      res.writeHead(200, { 'content-type': 'application/json' })
-        .end(JSON.stringify({ today, record: table.get(key) ?? emptyDaily(key) }))
-    },
+  // webServer 是可选能力（headless/CLI 无此服务），不进入顶层 inject。经 ctx.inject
+  // 子 fiber 等待其挂载后再注册：子 fiber 未激活时惰性、随父 fiber 卸载而清理（宿主
+  // 对可选服务的既有模式，见 client/connection 对可选 apiProxy 的处理）；headless 下
+  // webServer 永不出现，任何分支都不注册。注册走 ctx.effect 接线 disposer
+  // （"Registrations are effects"），HMR 重挂不会因重复 exact 路径抛错。
+  ctx.inject(['webServer'], (webCtx) => {
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/token-usage/api/daily',
+      handler: async (req, res) => {
+        if (req.method !== 'GET') {
+          res.writeHead(405).end()
+          return
+        }
+        const date = new URL(req.url ?? '', 'http://127.0.0.1').searchParams.get('date')
+        if (date !== null && !DATE_RE.test(date)) {
+          res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'bad date, want YYYY-MM-DD' }))
+          return
+        }
+        const table = await domainReady.then(() => daily!)
+        const today = dayParts(Date.now(), config.timezone).date
+        const key = date ?? today
+        res.writeHead(200, { 'content-type': 'application/json' })
+          .end(JSON.stringify({ today, record: table.get(key) ?? emptyDaily(key) }))
+      },
+    }), 'token-usage: /token-usage/api/daily route')
   })
 
   ctx.effect(() => async () => {
