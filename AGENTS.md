@@ -43,3 +43,7 @@ dsh-eson-toolkit/
 ## 文档镜像的刷新
 
 上游源文件在 GitHub 仓库 `deepseek-ai/deepseek-harness` 的 `docs/**/*.zh.md`；如需更新镜像，重新拉取该目录并按现有结构覆盖 `docs/refer/`（链接转换规则：站内相对链接 → 本地相对路径，指向仓库其他位置的链接 → GitHub blob URL）。
+
+## 设计文档
+
+插件设计 spec 统一放 `docs/superpowers/specs/YYYY-MM-DD-<主题>-design.md`。
