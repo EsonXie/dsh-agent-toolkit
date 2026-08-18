@@ -48,7 +48,7 @@ packages/token-usage/
 ```ts
 // src/store.ts
 defineDomain({
-  name: 'token-usage', version: 1,
+  name: 'token_usage', version: 1,   // UNIT_NAME_RE = /^[a-z][a-z0-9_]*$/，不允许连字符
   tables: { daily: domainTable<string, DailyRecord>(DailyRecordSchema) },
 })
 
