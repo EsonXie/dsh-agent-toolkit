@@ -1,15 +1,72 @@
-/* UsageModal.module.css：用量模态框；柱条强调色用 --dsw-alias-state-business-primary
-   （--dsw-alias-accent 不存在，深/浅色均定义于 design-platform.css）。 */
+/* Usage modal: 24h bar chart + totals + breakdowns. Bar fill uses the
+   business-primary state alias (defined for both themes in ui-theme). */
 .root { min-width: 560px; max-width: 720px; }
 .pager { display: flex; align-items: center; gap: 8px; justify-content: center; }
-.dateLabel { font-variant-numeric: tabular-nums; }
+.pagerButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 20px;
+}
+.pagerButton:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.pagerButton:disabled { color: var(--dsw-alias-label-dimmed); cursor: default; }
+.dateLabel {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+}
 .chart { display: flex; align-items: flex-end; gap: 2px; height: 120px; margin-top: 12px; }
-.barSlot { flex: 1; height: 100%; display: flex; align-items: flex-end; }
-.bar { width: 100%; min-height: 1px; background: var(--dsw-alias-state-business-primary, currentColor); border-radius: 1px; }
-.hourLabels { display: flex; justify-content: space-between; opacity: 0.6; font-size: 11px; }
-.total { margin-top: 12px; font-weight: 600; }
-.sectionTitle { margin: 12px 0 4px; font-size: 12px; opacity: 0.7; }
-.row { display: flex; gap: 12px; justify-content: space-between; font-size: 12px; }
+.barSlot { flex: 1; height: 100%; display: flex; align-items: flex-end; border-radius: 1px; }
+.barSlot:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.bar {
+  width: 100%;
+  min-height: 1px;
+  background: var(--dsw-alias-state-business-primary, currentColor);
+  border-radius: 1px;
+}
+.hourLabels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.total {
+  margin-top: 12px;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+}
+.sectionTitle {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+.row {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
 .rowName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rowCalls { opacity: 0.6; }
-.compaction { margin-top: 8px; font-size: 12px; opacity: 0.7; }
+.rowCalls { color: var(--dsw-alias-label-tertiary); }
+.compaction {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}

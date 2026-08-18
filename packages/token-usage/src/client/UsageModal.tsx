@@ -65,9 +65,9 @@ export function UsageModal({ open, onClose, initialDate }: UsageModalProps) {
   return (
     <Modal open={open} onClose={onClose} title="Token 用量" closeLabel="关闭" contentClassName={css.root}>
       <div className={css.pager}>
-        <button type="button" disabled={current === ''} onClick={() => setDate(shiftDate(current, -1))}>←</button>
+        <button type="button" className={css.pagerButton} aria-label="前一天" disabled={current === ''} onClick={() => setDate(shiftDate(current, -1))}>←</button>
         <span className={css.dateLabel}>{current}</span>
-        <button type="button" disabled={today === undefined || shiftDate(current, 1) > today}
+        <button type="button" className={css.pagerButton} aria-label="后一天" disabled={today === undefined || shiftDate(current, 1) > today}
           onClick={() => setDate(shiftDate(current, 1))}>→</button>
       </div>
       {state.status === 'loading' && <p>加载中…</p>}
