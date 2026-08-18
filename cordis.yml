@@ -1,0 +1,6 @@
+# 开发用 patch：dsh web --patch 叠加到 web profile。
+# 插件 name 必须是绝对路径（相对路径不会从 profile 目录解析）。
+plugins:
+  - name: D:/work/github/dsh/dsh-agent-toolkit/packages/token-usage
+    config:
+      timezone: Asia/Shanghai
