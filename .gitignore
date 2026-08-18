@@ -1,0 +1,10 @@
+# dsh 源码 checkout（独立 git 仓库，只读使用）
+deepseek-harness/
+
+# 依赖与产物
+node_modules/
+dist/
+*.tsbuildinfo
+
+# 日志与临时文件
+*.log
