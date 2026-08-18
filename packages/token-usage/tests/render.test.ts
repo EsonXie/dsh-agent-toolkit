@@ -17,6 +17,12 @@ describe('renderDay', () => {
     expect(text).toContain('D:/proj')
   })
 
+  test('不输出按会话细分（维度已下线，仅保留采集）', () => {
+    const text = renderDay(addSample(emptyDaily('2026-08-18'), s))
+    expect(text).not.toContain('按会话')
+    expect(text).not.toContain('s1')
+  })
+
   test('估算标注', () => {
     const e: UsageSample = { ...s, input: 0, output: 0, estimated: 500, estimatedCall: true }
     expect(renderDay(addSample(emptyDaily('2026-08-18'), e))).toContain('估算')

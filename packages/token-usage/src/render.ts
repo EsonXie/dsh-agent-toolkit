@@ -6,7 +6,7 @@ function line(name: string, b: Bucket): string {
   return `  ${name}  ${formatTokens(billedOf(b))}  ${b.calls} 次调用`
 }
 
-/** 当日详情：总量（含估算标注）+ 三维细分 + compaction 单列。 */
+/** 当日详情：总量（含估算标注）+ 模型/项目二维细分 + compaction 单列。 */
 export function renderDay(rec: DailyRecord): string {
   const est = rec.totals.estimated > 0 ? `（含估算 ${formatTokens(rec.totals.estimated)}）` : ''
   const rows: string[] = [
@@ -16,8 +16,6 @@ export function renderDay(rec: DailyRecord): string {
   if (models.length > 0) rows.push('按模型：', ...models.map(([k, v]) => line(k, v)))
   const projects = Object.entries(rec.byProject).sort((a, b) => billedOf(b[1]) - billedOf(a[1]))
   if (projects.length > 0) rows.push('按项目：', ...projects.map(([k, v]) => line(k, v)))
-  const sessions = Object.entries(rec.bySession).sort((a, b) => billedOf(b[1]) - billedOf(a[1]))
-  if (sessions.length > 0) rows.push('按会话：', ...sessions.map(([k, v]) => line(`${k} (${v.cwd})`, v)))
   if (rec.compaction.calls > 0) rows.push(`上下文压缩：${formatTokens(billedOf(rec.compaction))} ${rec.compaction.calls} 次调用`)
   return rows.join('\n')
 }

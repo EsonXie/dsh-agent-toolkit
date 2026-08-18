@@ -1,4 +1,4 @@
-/** Token 用量模态框：翻页头 + 24 小时柱状图 + 总量 + 三维细分。 */
+/** Token 用量模态框：翻页头 + 24 小时柱状图 + 总量 + 模型/项目二维细分。 */
 import { useEffect, useState } from 'react'
 import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { billedOf, formatTokens, shiftDate } from '../aggregate.ts'
@@ -91,7 +91,6 @@ export function UsageModal({ open, onClose, initialDate }: UsageModalProps) {
           </p>
           <Breakdown title="按模型" rows={Object.entries(record.byModel).sort((a, b) => billedOf(b[1]) - billedOf(a[1]))} />
           <Breakdown title="按项目" rows={Object.entries(record.byProject).sort((a, b) => billedOf(b[1]) - billedOf(a[1]))} />
-          <Breakdown title="按会话" rows={Object.entries(record.bySession).map(([k, v]) => [`${k} (${v.cwd})`, v] as [string, typeof v]).sort((a, b) => billedOf(b[1]) - billedOf(a[1]))} />
           {record.compaction.calls > 0 && (
             <p className={css.compaction}>上下文压缩 {formatTokens(billedOf(record.compaction))} · {record.compaction.calls} 次</p>
           )}
