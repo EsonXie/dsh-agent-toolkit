@@ -1,2 +1,15 @@
-/* UsageModal.module.css：Task 10 填充；先放空占位保持构建管线通畅。 */
-.root { min-width: 560px; }
+/* UsageModal.module.css：用量模态框；柱条强调色用 --dsw-alias-state-business-primary
+   （--dsw-alias-accent 不存在，深/浅色均定义于 design-platform.css）。 */
+.root { min-width: 560px; max-width: 720px; }
+.pager { display: flex; align-items: center; gap: 8px; justify-content: center; }
+.dateLabel { font-variant-numeric: tabular-nums; }
+.chart { display: flex; align-items: flex-end; gap: 2px; height: 120px; margin-top: 12px; }
+.barSlot { flex: 1; height: 100%; display: flex; align-items: flex-end; }
+.bar { width: 100%; min-height: 1px; background: var(--dsw-alias-state-business-primary, currentColor); border-radius: 1px; }
+.hourLabels { display: flex; justify-content: space-between; opacity: 0.6; font-size: 11px; }
+.total { margin-top: 12px; font-weight: 600; }
+.sectionTitle { margin: 12px 0 4px; font-size: 12px; opacity: 0.7; }
+.row { display: flex; gap: 12px; justify-content: space-between; font-size: 12px; }
+.rowName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rowCalls { opacity: 0.6; }
+.compaction { margin-top: 8px; font-size: 12px; opacity: 0.7; }
