@@ -6,9 +6,9 @@ import type { UserConfig } from 'tsdown'
 
 const ID = 'token-usage'
 
-/** 平台模块由 loader 模块表提供，保持 external（对照 dsh web/src/platform.ts + runtime 豁免）。 */
+/** 平台模块由 loader 模块表提供，保持 external（对照 dsh web/src/platform.ts:9 + runtime 豁免）。 */
 const CLIENT_EXTERNALS = [
-  'react', 'react-dom', '@deepseek-ai/cordis',
+  'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
   '@deepseek-ai/dsh-client-ui-slots', '@deepseek-ai/dsh-client-web-react',
   '@deepseek-ai/dsh-client-ui-primitives', '@deepseek-ai/dsh-client-ui-attachment',
   '@deepseek-ai/dsh-client-schema-form', '@deepseek-ai/dsh-client-runtime/client',
