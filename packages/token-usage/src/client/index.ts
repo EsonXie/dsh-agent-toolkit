@@ -1,16 +1,16 @@
-/** token-usage 浏览器半：注册会话头按钮。 */
+/** token-usage 浏览器半：注册侧边栏底栏入口。 */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-// 触发 ui-conversation 对 SlotMap 的声明合并（conversation.session.header.actions 键）。
-import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { UsageButton } from './UsageButton.tsx'
+// 触发 ui-sidebar 对 SlotMap 的声明合并（sidebar.footer.action 键）。
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import { UsageEntry } from './UsageEntry.tsx'
 
 export const inject = ['slots']
 
 export function apply(ctx: ClientContext): void {
-  // inject() 等 slot 被 ui-conversation 声明后再注册，声明消失自动回滚。
-  ctx.slots.inject('conversation.session.header.actions', () =>
+  // inject() 等 slot 被 ui-sidebar 声明后再注册，声明消失自动回滚。
+  ctx.slots.inject('sidebar.footer.action', () =>
     ctx.slots.register(
-      { name: 'conversation.session.header.actions', id: 'token-usage', order: 30 },
-      UsageButton,
+      { name: 'sidebar.footer.action', id: 'token-usage', order: 0 },
+      UsageEntry,
     ))
 }
