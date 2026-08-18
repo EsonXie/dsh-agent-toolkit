@@ -1,7 +1,7 @@
 # token-usage 侧边栏入口迁移与样式规范化设计
 
-日期：2026-08-18
-状态：已确认（入口位置、折叠态呈现、图表方案、自动弹窗取舍均已与用户确认）
+日期：2026-08-18（当日两次修订：弹窗宽度修复、按会话维度下线）
+状态：已实施完成
 
 ## 背景与目标
 
@@ -65,8 +65,22 @@ Node 半（`src/index.ts`、`aggregate.ts`、`store.ts`、`render.ts`）不动�
 | `opacity: 0.6/0.7` 模拟次要文字 | `--dsw-alias-label-secondary` / `--dsw-alias-label-tertiary` |
 | 裸 `font-size: 11px/12px` 无行高 | 字号配对行高；有匹配角色时用主题排版变量 |
 | 柱色 `--dsw-alias-state-business-primary`（已合规） | 保留 |
-| pager 的 `<button>` 无样式 | 用 ui-primitives `Button` 或 token 化 hover（`--dsw-alias-interactive-bg-hover`） |
-| 柱条仅 `title` 提示 | 增加 hover 高亮（`--dsw-alias-interactive-bg-hover` 或柱色加深经 token 表达）；保键盘焦点可见 |
+| pager 的 `<button>` 无样式 | token 化 hover（`--dsw-alias-interactive-bg-hover`），补 `aria-label="前一天"/"后一天"` |
+| 柱条仅 `title` 提示 | 增加 hover 高亮（`--dsw-alias-interactive-bg-hover`）；保键盘焦点可见 |
+
+### 弹窗宽度（实施期修订）
+
+`Modal` 原语的 `.dialog` 硬编码 `width: min(380px, 100%)` 且 `overflow: hidden`（`ui-primitives/src/Modal.module.css:28`）——宽度约束写在内层 `contentClassName` 上无效，超出 380px 的内容（图表右半、18:00 刻度、行尾数值、翻页钮）会被裁切。正确做法照 DirectoryBrowser 680px 弹窗先例：通过 Modal 的 `className` prop（作用于 `.dialog`）传入覆盖类，**双写类名提权**对抗样式表加载顺序：
+
+```css
+.dialog.dialog { width: min(720px, 100%); }
+```
+
+另：`.rowName` 需 `flex: 1; min-width: 0`，否则 flex 项 min-content 下限使长名称被硬裁而非省略号。
+
+### 维度范围（实施期修订）
+
+细分展示只保留**按模型 / 按项目**两维。"按会话"维度在展示层下线：Modal 不渲染该 section，`/token-usage` 命令文字输出（render.ts）同样移除；**采集与持久化 schema 保留**（`store.ts` 的 `bySession` 字段不动，旧数据零迁移风险，将来恢复展示无需补数据）。
 
 其余规则核验：不写字面颜色、不引入主题选择器（明暗由 ui-theme 负责）、表现全在 CSS（柱条高度的 inline `style` 属"组件局部自定义属性值"范畴，合规）、中文文案/英文注释保持不变。
 
@@ -93,6 +107,6 @@ Node 半（`src/index.ts`、`aggregate.ts`、`store.ts`、`render.ts`）不动�
 
 1. 侧边栏底栏出现"Token 用量"入口，宽/窄栏均可用，窄栏有 Tooltip。
 2. 会话头不再显示 📊 按钮。
-3. `/token-usage` 命令仍在对话中输出文字报告，不再自动弹窗。
-4. Modal 视觉：无字面颜色、无裸 opacity 灰阶文字、柱图颜色随明暗主题正确切换。
+3. `/token-usage` 命令仍在对话中输出文字报告，不再自动弹窗；报告与 Modal 均无"按会话"细分。
+4. Modal 视觉：对话框宽 `min(720px, 100%)` 不裁切内容；无字面颜色、无裸 opacity 灰阶文字；长行省略号正常；柱图颜色随明暗主题正确切换。
 5. test / typecheck / bundle 全绿。
