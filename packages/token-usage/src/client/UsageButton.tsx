@@ -33,7 +33,7 @@ export function UsageButton({ useSession }: UsageButtonProps): ReactNode {
 
   return (
     <>
-      <button type="button" title="Token 用量" onClick={() => { setDate(null); setOpen(true) }}>📊</button>
+      <button type="button" title="Token 用量" aria-label="Token 用量" onClick={() => { setDate(null); setOpen(true) }}>📊</button>
       <UsageModal open={open} onClose={() => setOpen(false)} initialDate={date} />
     </>
   )

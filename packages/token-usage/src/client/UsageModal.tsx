@@ -71,7 +71,7 @@ export function UsageModal({ open, onClose, initialDate }: UsageModalProps) {
           onClick={() => setDate(shiftDate(current, 1))}>→</button>
       </div>
       {state.status === 'loading' && <p>加载中…</p>}
-      {state.status === 'error' && <p>加载失败，请翻页重试</p>}
+      {state.status === 'error' && <p>加载失败，请重试</p>}
       {record !== undefined && (
         <>
           <div className={css.chart}>

@@ -34,6 +34,13 @@ export function apply(ctx: Context, config: Config): void {
     daily = domain.table('daily')
     return domain
   })
+  // open 失败（version-mismatch/malformed-medium/invalid-record）时创建即挂
+  // rejection handler：避免 unhandled rejection 崩掉宿主进程（Node 默认 throw）。
+  // domainReady 仍保持 reject，写链（tail 吞掉）/命令（宿主转 kind:'error'）/
+  // 端点（宿主 500）/卸载（cordis 记录）均感知失败而不次生崩溃。
+  domainReady.catch((error) => {
+    ctx.logger.warn(`[token-usage] 存储域打开失败，token 统计不可用：${error instanceof Error ? error.message : String(error)}`)
+  })
 
   ctx.on('session/event', (session, event) => {
     const sample = sampleFromEvent(session, event, config.timezone, (m) => ctx.tokenMeter.estimateMessage(m))
