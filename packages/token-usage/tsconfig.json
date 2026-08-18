@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": ["src", "tests", "tsdown.config.ts"]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "dsh-eson-toolkit",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "token-usage": "workspace:*"
+  },
+  "scripts": {
+    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r run typecheck",
+    "bundle": "pnpm --filter token-usage run bundle"
+  }
+}
