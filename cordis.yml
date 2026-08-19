@@ -7,3 +7,7 @@
       name: token-usage
       config:
         timezone: Asia/Shanghai
+    - id: agent-team
+      name: agent-team
+      config:
+        clientOnly: true
