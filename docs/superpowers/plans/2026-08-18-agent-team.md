@@ -480,6 +480,7 @@ git commit -m "feat(agent-team): 成员提示词两层三段拼装"
   - `interface DelegateToolDeps { roles: readonly Role[]; provider: string; templates?: PromptTemplates; startRun: (provider: string, request: SubagentStartRequest) => Promise<SubagentRun> }`
   - `createDelegateTool(toolName: string, deps: DelegateToolDeps): Tool`（`defineTool` 产物，`ctx.tools.register` 直接消费）
   - 工具返回值类型：`{ kind: 'foreground'; role: string; runId: string; output: JsonValue[] }`
+  - host 端 UI presenter：`presentCall(args) → GenericCallView`、`presentResult(args, { isError }) → GenericResultView | undefined`（spec §6.5.1；host 在 tool/call、tool/result 时调用，回放安全纯函数）
 
 - [ ] **Step 1: 写失败测试**
 
@@ -594,6 +595,23 @@ test('工具 description 编入名册', () => {
   const tool = createDelegateTool('team_delegate', depsWith(okRun([]), [])) as { description: string }
   expect(tool.description).toContain('reviewer: 代码审查员')
   expect(tool.description).toContain('researcher: 资料调研')
+})
+
+test('presentCall 生成「委派 · role: 短标签」卡片，rawInput 为任务书', () => {
+  const tool = createDelegateTool('team_delegate', depsWith(okRun([]), [])) as {
+    presentCall: (args: Record<string, unknown>) => unknown
+  }
+  expect(tool.presentCall({ role: 'reviewer', description: '审查登录模块', prompt: '请审查 src/auth/' }))
+    .toEqual({ card: 'generic', title: '委派 · reviewer: 审查登录模块', rawInput: '请审查 src/auth/' })
+})
+
+test('presentResult 成功保留 generic 卡，isError 返回 undefined 走默认错误卡', () => {
+  const tool = createDelegateTool('team_delegate', depsWith(okRun([]), [])) as {
+    presentResult: (args: Record<string, unknown>, result: { isError: boolean }) => unknown
+  }
+  const args = { role: 'reviewer', description: 'x', prompt: 'y' }
+  expect(tool.presentResult(args, { isError: false })).toEqual({ card: 'generic' })
+  expect(tool.presentResult(args, { isError: true })).toBeUndefined()
 })
 ```
 
@@ -712,6 +730,13 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
     },
     // 成员不改父会话；父方无写操作。与内置 subagent 工具同款。
     isConcurrencySafe: () => true,
+    // UI 卡片（spec §6.5.1）：host 端纯函数，回放安全；成功保留待定态标题，失败回退默认错误卡。
+    presentCall: (args) => ({
+      card: 'generic' as const,
+      title: `委派 · ${args.role}: ${args.description}`,
+      rawInput: args.prompt,
+    }),
+    presentResult: (_args, result) => (result.isError ? undefined : { card: 'generic' as const }),
     async execute(args, exec) {
       const parent: Agent | undefined = exec.agent
       if (!parent) throw new Error('team_delegate 需要调用方 agent（exec.agent 为空）')
@@ -739,12 +764,12 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
 }
 ```
 
-> 注：`SubagentStartRequest`/`SubagentResult`/`SubagentRun` 的确切字段以 `@deepseek-ai/dsh-subagent` 的 `src/types.ts` 为准；若类型报错（如 `signal` 在 Omit 列表、`output` 类型差异），按源码字段名微调，不得改变测试断言的行为语义。
+> 注：`SubagentStartRequest`/`SubagentResult`/`SubagentRun` 的确切字段以 `@deepseek-ai/dsh-subagent` 的 `src/types.ts` 为准；若类型报错（如 `signal` 在 Omit 列表、`output` 类型差异），按源码字段名微调，不得改变测试断言的行为语义。presenter 的视图类型以 `@deepseek-ai/dsh-tools` 的 `src/presentation.ts` 为准（`GenericCallView`/`GenericResultView`，字段 `card`/`title`/`rawInput`；内置样板见 `packages/workflow/tool-workflow/src/index.ts:164-177`）。
 
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `pnpm --filter agent-team test`
-Expected: PASS（tool 7 个测试）
+Expected: PASS（tool 9 个测试）
 
 - [ ] **Step 5: 类型检查 + Commit**
 
@@ -1002,8 +1027,11 @@ Run: `cd deepseek-harness; pnpm dsh web --patch D:\work\github\dsh\dsh-agent-too
 - [ ] 新建会话 hero 区出现"团队模式" chip
 - [ ] 选"团队模式"开会话，会话头显示团队名标签
 - [ ] 对话中让主 Agent "请 reviewer 审查一下当前目录的某个文件" → 主 Agent 调用 team_delegate，成员以 deepseek 默认模型（roles.yml 未配 provider/model）执行，结果回到主对话
+- [ ] **委派卡片（§6.5.1）**：待定态卡片标题显示「委派 · reviewer: <短标签>」，展开 IN 区显示任务书原文；完成后标题保留、OUT 区显示成员最终文本
+- [ ] **子代理目录（§6.5.2）**：成员运行期间会话页头子代理目录按钮出现 `role:reviewer: <短标签>` 条目，父会话行带蓝色活动指示器；点击条目进入子会话可见成员完整工具流
+- [ ] **错误行（§6.5.1）**：让主 Agent 委派不存在的角色（如"请 nobody 干活"或直接构造调用）→ 红色错误行，首行显示"未知角色 … 可用角色：reviewer, researcher"
 - [ ] 修改 `$DSH_HOME/.agent-presets/team/roles.yml`（如加一个角色）→ **新建**会话后工具 description 含新角色（旧会话不变，generation 语义）
-- [ ] 把 roles.yml 改坏（删 persona）→ 新建"团队模式"会话立即报错（挂载被拒）
+- [ ] 把 roles.yml 改坏（删 persona）→ 新建"团队模式"会话立即报错；设置→管理区"团队模式"卡片变红框 + "加载失败"徽标，hero chip 菜单中消失（§6.5.3 失败反馈）；改回后恢复
 
 - [ ] **Step 4: Commit**
 
@@ -1040,6 +1068,6 @@ git commit -m "docs: AGENTS.md 记录 agent-team 插件与团队模式接入方�
 
 ## Self-Review 记录
 
-- **spec 覆盖**：spec §2 包结构 → Task 1/5/6；§3 Config → Task 5；§4 roles.yml → Task 2；§5 两层提示词 → Task 3；§6 工具契约 → Task 4；§7 错误处理 → Task 2/4/5 测试逐条对应；§8 发行 → Task 6（开发回路采用 user root，patch-roots 路径因 CLI overlay 重置而弃用，已在 Task 6 注明）；§9 测试策略 → Task 2/4/5 单测 + 集成测试（结构化 fake ctx 直接调 apply，替代 heavyweight REAL-composition——与 token-usage 的务实先例一致，E2E 真实委派走 Task 6 手动清单）；§10 范围之外 → 计划中无对应任务。
+- **spec 覆盖**：spec §2 包结构 → Task 1/5/6；§3 Config → Task 5；§4 roles.yml → Task 2；§5 两层提示词 → Task 3；§6 工具契约 → Task 4；§6.5 界面交互 → Task 4（§6.5.1 presenter 实现+单测）+ Task 6 Step 3（§6.5.1/§6.5.2/§6.5.3 的 UI 手动验证清单；本版无浏览器 bundle，无客户端代码任务）；§7 错误处理 → Task 2/4/5 测试逐条对应；§8 发行 → Task 6（开发回路采用 user root，patch-roots 路径因 CLI overlay 重置而弃用，已在 Task 6 注明）；§9 测试策略 → Task 2/4/5 单测 + 集成测试（结构化 fake ctx 直接调 apply，替代 heavyweight REAL-composition——与 token-usage 的务实先例一致，E2E 真实委派走 Task 6 手动清单）；§10 范围之外 → 计划中无对应任务。
 - **类型一致性**：`Role`/`PromptTemplates`/`DelegateToolDeps`/`buildMemberPersona(role, model, templates)`/`createDelegateTool(toolName, deps)` 在 Task 2-5 间签名一致。
 - **已知实现期核实点**（非占位符，均有确切位置）：①`SubagentStartRequest` 字段微调（tool.ts 注）；②`ctx.baseUrl` 类型（index.ts 注）；③`$DSH_HOME` 实际布局（Task 6 Step 2）。
