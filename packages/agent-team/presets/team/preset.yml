@@ -1,0 +1,3 @@
+name: 团队模式
+description: 主 Agent + 可委派的成员团队（会话开始前在输入框上方选择团队；名册见本目录 teams/）
+order: 10

@@ -1,0 +1,5 @@
+# 团队模式组合：挂载 agent-team 插件。
+# 注意：name 为绝对路径——preset 行的裸包名相对 harness 解析，本地包必须给绝对路径；
+# 部署方 copy 本 preset 后需把路径改为自己机器上的包位置。
+- name: D:/work/github/dsh/dsh-agent-toolkit/packages/agent-team
+  # config 全省略 → teamsDir 默认 ./teams（相对本 preset 目录）
