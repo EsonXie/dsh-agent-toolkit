@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { expect, test, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
@@ -7,6 +7,8 @@ import type { Config } from '../src/index.ts'
 import type { TeamStateView } from '../src/types.ts'
 
 const FIXTURE_DIR = join(import.meta.dirname, 'fixtures', 'team-preset')
+/** 夹具 preset id = preset 目录名（宿主 discovery.ts:160 id: child.name）。 */
+const FIXTURE_PRESET_ID = basename(FIXTURE_DIR)
 
 interface RegisteredTool { name: string; description: string }
 type RouteRes = {
@@ -17,12 +19,17 @@ type Handler = (req: { method?: string; url?: string } & AsyncIterable<unknown>,
 type Disposer = () => void | Promise<void>
 type ProviderCaps = { outputSchema: boolean; depthLimit: boolean; toolFilter: boolean; persona: boolean }
 const FULL_CAPS: ProviderCaps = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
+type FakeSessionRecord = {
+  events?: SessionEvent[]
+  /** 会话所属 preset id；缺省按本 preset（fixture 目录名）。 */
+  agentPreset?: string
+}
 type FakeCtxOptions = {
   webServer?: boolean
   kv?: Map<string, string>
   failPut?: boolean
-  /** sid → 会话事件；缺失的 sid 视为"会话不存在"。 */
-  sessions?: Map<string, SessionEvent[]>
+  /** sid → 会话记录；提供后未列出的 sid 视为"会话不存在"。缺省则任意 sid 都是本 preset 的 blank 会话。 */
+  sessions?: Map<string, FakeSessionRecord>
   providerCapabilities?: Partial<ProviderCaps>
   providerAbsent?: boolean
 }
@@ -42,7 +49,9 @@ function fakeCtx(baseUrl?: string, opts: FakeCtxOptions = {}) {
   const disposers: Disposer[] = []
   const listeners: { event: string; cb: (payload: unknown) => void }[] = []
   const kv = opts.kv ?? new Map<string, string>()
-  const sessions = opts.sessions ?? new Map<string, SessionEvent[]>()
+  const sessions = opts.sessions
+  const errors: string[] = []                                     // logger.error 记录（provider 后到 fail loud 断言用）
+  const reads: string[] = []                                      // table.get 调用记录（"不建 TeamState" 反证用）
   let openCount = 0
   let closeCount = 0
   const services: Record<string, unknown> = {
@@ -58,7 +67,7 @@ function fakeCtx(baseUrl?: string, opts: FakeCtxOptions = {}) {
     }),
   }
   const table = {
-    get: (k: string) => kv.get(k),
+    get: (k: string) => { reads.push(k); return kv.get(k) },
     put: async (k: string, v: string) => {
       if (opts.failPut === true) throw new Error('kv write failed')
       kv.set(k, v)
@@ -95,8 +104,14 @@ function fakeCtx(baseUrl?: string, opts: FakeCtxOptions = {}) {
     },
     sessions: {
       get: (id: SessionId) => {
-        const events = sessions.get(String(id))
-        return events === undefined ? undefined : { id, events }
+        const sid = String(id)
+        const rec = sessions?.get(sid)
+        if (sessions !== undefined && rec === undefined) return undefined
+        return {
+          id,
+          events: rec?.events ?? [],
+          header: { agentPreset: rec?.agentPreset ?? FIXTURE_PRESET_ID },
+        }
       },
     },
     storageDomain: {
@@ -117,7 +132,7 @@ function fakeCtx(baseUrl?: string, opts: FakeCtxOptions = {}) {
       const disposer = fn()
       if (typeof disposer === 'function') disposers.push(disposer as Disposer)
     },
-    logger: { info: () => {}, warn: () => {} },
+    logger: { info: () => {}, warn: () => {}, error: (msg: string) => { errors.push(String(msg)) } },
   }
   return {
     ctx: ctx as unknown as Context,
@@ -127,6 +142,8 @@ function fakeCtx(baseUrl?: string, opts: FakeCtxOptions = {}) {
     routes,
     kv,
     sessions,
+    reads,
+    errors,
     disposers,
     emit: (event: string, payload: unknown) => {
       for (const l of listeners) if (l.event === event) l.cb(payload)
@@ -235,7 +252,7 @@ test('两个不同 sid 各自独立切换互不影响', async () => {
 test('已发 turn/start 的会话 POST select：409 锁定，不写 KV', async () => {
   const mod = await load()
   const { ctx, routes, kv } = fakeCtx(presetUrl(), {
-    sessions: new Map([['s1', [{ type: 'turn/start', data: {} } as SessionEvent]]]),
+    sessions: new Map([['s1', { events: [{ type: 'turn/start', data: {} } as SessionEvent] }]]),
   })
   await mod.apply(ctx, {} as Config)
   const { status, json } = await callRoute(routes, '/agent-team/s1/select', 'POST', { team: 'beta' })
@@ -296,13 +313,43 @@ test('POST select 同团队：200 但不写 KV', async () => {
   expect(kv.has('s1')).toBe(false)
 })
 
-test('会话不存在（ctx.sessions 无该 sid）按 blank 处理：POST select 允许', async () => {
+test('会话不存在（sessions 无该 sid）按非本 preset 处理：GET/POST 均 404，不建 TeamState', async () => {
+  const mod = await load()
+  const { ctx, routes, reads } = fakeCtx(presetUrl(), { sessions: new Map() })
+  await mod.apply(ctx, {} as Config)
+  expect((await callRoute(routes, '/agent-team/ghost/state', 'GET')).status).toBe(404)
+  expect((await callRoute(routes, '/agent-team/ghost/select', 'POST', { team: 'beta' })).status).toBe(404)
+  expect(reads).not.toContain('ghost')
+})
+
+test('非本 preset 的会话：GET/POST 均 404，不为其建 TeamState（不触发 KV 读）', async () => {
+  const mod = await load()
+  const { ctx, routes, reads } = fakeCtx(presetUrl(), {
+    sessions: new Map([['s1', { agentPreset: 'other-preset' }]]),
+  })
+  await mod.apply(ctx, {} as Config)
+  expect((await callRoute(routes, '/agent-team/s1/state', 'GET')).status).toBe(404)
+  expect((await callRoute(routes, '/agent-team/s1/select', 'POST', { team: 'beta' })).status).toBe(404)
+  expect(reads).not.toContain('s1')
+})
+
+test('blank 期切到其他 preset 的会话：按最新 selected 事件判定非本 preset，GET 404', async () => {
+  const mod = await load()
+  const { ctx, routes } = fakeCtx(presetUrl(), {
+    sessions: new Map([['s1', {
+      events: [{ type: 'agent-preset/selected', data: { agentPreset: 'other-preset' } } as SessionEvent],
+    }]]),
+  })
+  await mod.apply(ctx, {} as Config)
+  expect((await callRoute(routes, '/agent-team/s1/state', 'GET')).status).toBe(404)
+})
+
+test('畸形 % 编码的 sessionId：GET/POST 均 404（decodeURIComponent 不抛）', async () => {
   const mod = await load()
   const { ctx, routes } = fakeCtx(presetUrl())
   await mod.apply(ctx, {} as Config)
-  const { status, json } = await callRoute(routes, '/agent-team/unknown-sid/select', 'POST', { team: 'beta' })
-  expect(status).toBe(200)
-  expect(json?.currentId).toBe('beta')
+  expect((await callRoute(routes, '/agent-team/%zz/state', 'GET')).status).toBe(404)
+  expect((await callRoute(routes, '/agent-team/%zz/select', 'POST', { team: 'beta' })).status).toBe(404)
 })
 
 test('非 state/select 路径与方法：404', async () => {
@@ -413,6 +460,21 @@ test('provider 尚未注册：激活成功但工具延迟挂载，provider-added
   const { ctx, tools, emit } = fakeCtx(presetUrl(), { providerAbsent: true })
   await mod.apply(ctx, {} as Config)
   expect(tools).toHaveLength(0)
+  emit('subagent/provider-added', { name: 'spawn', capabilities: FULL_CAPS, inheritsParentContext: false })
+  expect(tools.map(t => t.name)).toEqual(['team_delegate'])
+})
+
+test('provider 后到但缺能力：provider-added 不注册工具、logger.error 响亮记录，移除后重加全能力可恢复', async () => {
+  const mod = await load()
+  const { ctx, tools, errors, emit } = fakeCtx(presetUrl(), { providerAbsent: true })
+  await mod.apply(ctx, {} as Config)
+  expect(tools).toHaveLength(0)
+  emit('subagent/provider-added', {
+    name: 'spawn', capabilities: { ...FULL_CAPS, persona: false }, inheritsParentContext: false,
+  })
+  expect(tools).toHaveLength(0)                                   // 缺能力：不挂载
+  expect(errors.join('\n')).toContain('persona')                  // fail loud：错误进 logger.error
+  emit('subagent/provider-removed', 'spawn')                      // 移除后再加：失败态复位，可恢复
   emit('subagent/provider-added', { name: 'spawn', capabilities: FULL_CAPS, inheritsParentContext: false })
   expect(tools.map(t => t.name)).toEqual(['team_delegate'])
 })

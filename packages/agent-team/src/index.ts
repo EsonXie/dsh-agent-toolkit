@@ -3,7 +3,8 @@ import { isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
-import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { defineDomain, domainTable, type Domain, type KvTable } from '@deepseek-ai/dsh-storage-domain'
@@ -105,6 +106,19 @@ function resolveTeamsPath(teamsDir: string, baseUrl: string | undefined): string
   return fileURLToPath(new URL(teamsDir, baseUrl))
 }
 
+/**
+ * 从插件 ctx.baseUrl 推导本实例所属 preset id：preset 挂载时 baseUrl 指向 preset 目录内
+ * 的组装文件（agent-presets/src/mount.ts:340 pathToFileURL(preset.path)，preset.path 即组装
+ * 文件，preset.ts:26-27），dirname 即 preset 目录，目录名即 preset id
+ * （agent-presets/src/preset.ts:22、discovery.ts:160 id: child.name）。baseUrl 缺省（非常规
+ * preset 挂载）返回 undefined，归属门控将一律 404。
+ */
+function presetIdOfBaseUrl(baseUrl: string | undefined): string | undefined {
+  if (baseUrl === undefined) return undefined
+  const segments = new URL('./', baseUrl).pathname.split('/').filter(Boolean)
+  return segments[segments.length - 1]
+}
+
 /** 当前团队视图：GET/POST 的响应体。 */
 function viewOf(state: TeamState): TeamStateView {
   return { currentId: state.current.id, options: state.teams.map(teamOption) }
@@ -139,6 +153,7 @@ type RouteRes = {
  */
 function installTeamRoutes(
   ctx: Context,
+  presetId: string | undefined,
   stateFor: (sid: string) => TeamState,
   table: KvTable<string, string>,
 ): void {
@@ -151,10 +166,25 @@ function installTeamRoutes(
         const rest = pathname.startsWith('/agent-team/') ? pathname.slice('/agent-team/'.length) : ''
         const slash = rest.indexOf('/')
         if (rest === '' || slash < 0) { res.writeHead(404).end(); return }
-        const sid = decodeURIComponent(rest.slice(0, slash))
+        let sid: string
+        try {
+          sid = decodeURIComponent(rest.slice(0, slash))
+        } catch {
+          // 畸形 % 编码（URIError）属未知会话：404，不依赖宿主 webserver 兜底 400。
+          res.writeHead(404).end()
+          return
+        }
         const action = rest.slice(slash + 1)
         const fail = (status: number, error: string) =>
           res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify({ error }))
+        // 归属门控（spec §7.1）：仅服务本 preset 的会话——会话不存在或当前 preset 非本
+        // preset（resolveSessionPreset 取 header 或最新 agent-preset/selected 事件）一律 404，
+        // 且不懒建 TeamState；dock 据 404 判定"非团队会话不渲染"。
+        const session = ctx.sessions.get(SessionId(sid))
+        if (presetId === undefined || session === undefined || resolveSessionPreset(session) !== presetId) {
+          res.writeHead(404).end()
+          return
+        }
         if (action === 'state' && req.method === 'GET') {
           const state = stateFor(sid)
           res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(viewOf(state)))
@@ -164,19 +194,18 @@ function installTeamRoutes(
           const body = await readJsonBody(req)
           const team = (body as Partial<SelectTeamRequest> | undefined)?.team
           if (typeof team !== 'string') { fail(400, '请求体缺 team 字段或不是 JSON'); return }
-          // blank 判定经 ctx.sessions 读会话事件；会话不存在按 blank 处理（尚无事件）。
-          const events: readonly SessionEvent[] | undefined = ctx.sessions.get(SessionId(sid))?.events
-          if (!isSessionBlank(events ?? [])) { fail(409, '会话已开始，团队已锁定'); return }
+          // blank 判定经 ctx.sessions 读会话事件（门控已保证会话存在）。
+          if (!isSessionBlank(session.events)) { fail(409, '会话已开始，团队已锁定'); return }
           const state = stateFor(sid)
           const prevId = state.current.id
-          const outcome = state.trySelect(team, events ?? [])
+          const outcome = state.trySelect(team, session.events)
           if (!outcome.ok) { fail(400, outcome.error); return }
           if (outcome.changed) {
             // 先落盘（提交点）再发布：put 失败时回滚状态机，返回非 2xx。
             try {
               await table.put(sid, team)
             } catch (error) {
-              if (state.current.id !== prevId) state.trySelect(prevId, events ?? [])
+              if (state.current.id !== prevId) state.trySelect(prevId, session.events)
               fail(500, `团队切换持久化失败：${error instanceof Error ? error.message : String(error)}`)
               return
             }
@@ -230,6 +259,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // 生命周期：兄弟 fiber 加载顺序与 HMR 替换都可能改变 provider 可用性，工具随 provider
   // 在场与否挂载/摘除；工具注册一次、跨会话共享，切换团队不重注册。
   let disposeTool: (() => void) | undefined
+  let providerFailed = false
   const mountTool = (p: SubagentProvider): void => {
     const missing: string[] = []
     if (!p.capabilities.persona) missing.push('persona')
@@ -249,12 +279,23 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     }
   }
   ctx.on('subagent/provider-added', (p) => {
-    if (p.name === provider) mountTool(p)
+    if (p.name !== provider || providerFailed) return
+    try {
+      mountTool(p)
+    } catch (error) {
+      // emitter 会吞掉回调内抛错；显式 error 记录 + 失败态，避免每次 add 重复报。provider
+      // 移除后失败态复位，重加具备能力时仍可挂载（HMR 修复路径）。
+      providerFailed = true
+      ctx.logger.error(error instanceof Error ? error.message : String(error))
+    }
   })
   ctx.on('subagent/provider-removed', (name) => {
-    if (name !== provider || disposeTool === undefined) return
-    disposeTool()
-    disposeTool = undefined
+    if (name !== provider) return
+    providerFailed = false
+    if (disposeTool !== undefined) {
+      disposeTool()
+      disposeTool = undefined
+    }
   })
   const present = ctx.subagents.getProvider(provider)
   if (present !== undefined) {
@@ -262,7 +303,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   } else {
     ctx.logger.info(`agent-team: subagent provider "${provider}" 尚未注册；team_delegate 将等它出现时挂载`)
   }
-  installTeamRoutes(ctx, stateFor, table)
+  installTeamRoutes(ctx, presetIdOfBaseUrl(ctx.baseUrl), stateFor, table)
   ctx.on('session/disposed', (session) => {
     states.delete(String(session.id))
   })

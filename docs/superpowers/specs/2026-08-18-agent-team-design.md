@@ -136,8 +136,8 @@ roles:
 - **当前团队 = 每会话 TeamState**（v3 修正）：`Map<sessionId, TeamState>`（standing 实例级），首次触碰（GET/POST/工具/prompt）时惰性创建：初值 = KV 命中（按 sessionId）?? `Config.defaultTeam` ?? 字典序首个团队。`ctx.on('session/disposed')` 时删除对应条目（KV 记录保留，供重载/跨进程恢复）。
 - **HTTP 端点**（webServer 可选能力，`ctx.inject(['webServer'], …)` 条件注册；headless/CLI 无 webServer 时整个团队切换面不存在，工具仍按初始团队工作）：
   - 注册**一条 prefix 路由**（`webServer.register({ kind: 'prefix', path: '/agent-team', handler })`，`webserver/src/index.ts:24-33,241-249`：`path` 无尾斜杠，匹配 `/agent-team` 及 `/agent-team/<任意>`，最长前缀优先；v3 修正：standing 实例跨会话共享，无法按会话注册 exact 路由；handler 从 `req.url` 解析 `<sessionId>/state|select`，方法/路径不符 → 404）。
-  - GET state：惰性建/取该 sessionId 的 TeamState → 200 `{ currentId, options }`；未知 sessionId 不 404（惰性建态即"该 preset 下任意会话都有团队态"——dock 的非团队 preset 判定由"路由是否被挂载"承担，与本端点无关）。
-  - POST select：① team 未命中团队集 → 400 + 列出可用团队；② 经 `ctx.sessions.get(sessionId)` 取会话，`isSessionBlank(session.events)` 为 false（存在 `turn/start` 事件）→ 409 "会话已开始，团队已锁定"；③ 更新该会话 TeamState → 写 KV（`sessionId → teamId`）→ 200 返回新 state。**不再有工具重注册**（名册可见性在 prompt section，§6）。
+  - GET state：**归属门控**——先经 `ctx.sessions.get(sessionId)` 取会话，会话不存在或 `resolveSessionPreset(session)`（creation header 或最新 `agent-preset/selected` 事件，见 `agent-presets/src/session.ts:48-54`）非本插件所属 preset id（由 `ctx.baseUrl` 的 preset 目录名推导，`agent-presets/src/mount.ts:340` + `preset.ts:22`）→ 404 且**不懒建 TeamState**（dock 据 404 判定"非团队会话不渲染"，与 §7.1 契约一致）；通过门控才惰性建/取该 sessionId 的 TeamState → 200 `{ currentId, options }`。
+  - POST select：**归属门控先行**（同 GET：会话不存在或非本 preset → 404）；然后 ① team 未命中团队集 → 400 + 列出可用团队；② 经 `ctx.sessions.get(sessionId)` 取会话，`isSessionBlank(session.events)` 为 false（存在 `turn/start` 事件）→ 409 "会话已开始，团队已锁定"；③ 更新该会话 TeamState → 写 KV（`sessionId → teamId`）→ 200 返回新 state。**不再有工具重注册**（名册可见性在 prompt section，§6）。
 - **无会话事件、无会话投影**：切换的"可重放性"由 KV 承担。
 - **实现期核实点**：① prefix 路由的注册/摘除与 fiber 生命周期对齐（HMR 安全测试覆盖）；② prompt section 函数 text 在 agent 缺省（非 agent 组装场景）时返回通用文案不抛错。
 
@@ -187,6 +187,8 @@ presentResult: (args, { isError }) => (isError ? undefined : { card: 'generic' }
 | 插件 HMR 卸载 | 任意 | cordis 自动清理注册（工具/HTTP 路由/提示段/槽位）；团队状态是纯内存数据 + KV，无手动资源 |
 
 ## 9. preset 发行（两条官方路径 + 浏览器半接入，文档化安装步骤）
+
+**单团队 preset 约束**：一个 dsh 实例只挂一个团队 preset——多个团队 preset 并发挂载时，第二个的 `/agent-team` prefix 路由注册会抛 duplicate route（`webserver/src/index.ts:96-97`），在激活期响亮失败（misconfiguration fails loud，符合预期，但请勿多挂）。
 
 1. 部署方 patch：把 `presets/team` 加进 `agentPresets.config.roots`（`trust: 'system'`）——dsh CLI 发行内置 preset 的同款做法。
 2. 用户 copy：团队模式在 UI 出现后，用户在设置管理区复制派生自己的 preset（整目录拷贝含 teams/，复制后自动打开目录），在文件系统改 `preset.yml` 显示名、增改 `teams/*.yml` 名册，下个新会话生效（详见 §7.5）。
