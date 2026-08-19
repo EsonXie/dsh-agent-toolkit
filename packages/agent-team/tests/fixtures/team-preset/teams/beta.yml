@@ -1,0 +1,4 @@
+roles:
+  - name: researcher
+    description: 资料调研与分析
+    persona: 你是调研分析员。
