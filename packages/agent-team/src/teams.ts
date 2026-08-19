@@ -1,24 +1,7 @@
-/** 团队状态机：当前团队 ref、fold 冷恢复、blank 锁定——全部纯逻辑，不含 ctx 接线。 */
+/** 团队状态机：当前团队 ref、trySelect、blank 锁定——全部纯逻辑，不含 ctx 接线。 */
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Team } from './roles.ts'
-import { TEAM_SELECTED_EVENT, type TeamOption } from './types.ts'
-
-/**
- * 冷恢复：从会话日志取最新团队选择。
- * @param events - 会话事件（日志序）。
- * @returns 最新 team/selected 的 team；无事件返回 undefined。
- */
-export function foldSelectedTeam(events: readonly SessionEvent[]): string | undefined {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i]
-    const type: string = event.type
-    if (type === TEAM_SELECTED_EVENT) {
-      const team = (event.data as { team?: unknown }).team
-      return typeof team === 'string' ? team : undefined
-    }
-  }
-  return undefined
-}
+import type { TeamOption } from './types.ts'
 
 /**
  * 会话是否仍处于 blank 期（可切团队的唯一时间窗）。
@@ -54,7 +37,7 @@ export interface TeamState {
  * 创建团队状态机。
  * @param options.teams - 激活时加载的全部团队（非空，loadTeams 保证）。
  * @param options.defaultTeamId - Config.defaultTeam（激活期已校验命中）。
- * @param options.initialId - 冷恢复 fold 结果。
+ * @param options.initialId - KV 冷恢复结果（按 sessionId 读回）。
  */
 export function createTeamState(options: {
   teams: readonly Team[]

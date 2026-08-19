@@ -1,7 +1,6 @@
 import { expect, test } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { createTeamState, foldSelectedTeam, isSessionBlank, teamOption } from '../src/teams.ts'
-import { TEAM_SELECTED_EVENT } from '../src/types.ts'
+import { createTeamState, isSessionBlank, teamOption } from '../src/teams.ts'
 import type { Team } from '../src/roles.ts'
 
 const teams: Team[] = [
@@ -10,15 +9,6 @@ const teams: Team[] = [
 ]
 
 const ev = (type: string, data: unknown = {}) => ({ type, data }) as SessionEvent
-
-test('foldSelectedTeam 取最新 team/selected，无事件返回 undefined', () => {
-  expect(foldSelectedTeam([])).toBeUndefined()
-  expect(foldSelectedTeam([ev('user/message'), ev(TEAM_SELECTED_EVENT, { team: 'alpha' })])).toBe('alpha')
-  expect(foldSelectedTeam([
-    ev(TEAM_SELECTED_EVENT, { team: 'alpha' }),
-    ev(TEAM_SELECTED_EVENT, { team: 'beta' }),
-  ])).toBe('beta')
-})
 
 test('isSessionBlank：无 turn/start 为 true，有则为 false', () => {
   expect(isSessionBlank([])).toBe(true)
