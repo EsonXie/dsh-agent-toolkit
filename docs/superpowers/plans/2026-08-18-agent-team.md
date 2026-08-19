@@ -1694,9 +1694,9 @@ git commit -m "docs: AGENTS.md 记录 agent-team 插件与团队模式接入方�
 - Modify: `packages/agent-team/src/tool.ts`
 - Modify: `packages/agent-team/tests/tool.spec.ts`（或现有工具测试文件名）
 
-- [ ] **Step 1: 失败测试**——① description 为静态常量：含委派语义（成员看不到本对话、任务须自包含、`role` 须命中当前会话团队、可用成员见系统提示团队段）且**不含任何具体名册**；② execute 经 `deps.currentTeamFor(agent)` 取该会话团队校验 role：未命中 → 报错列出**该团队**角色名；③ 两个不同 agent 返回不同团队时各自按自己团队校验。
+- [x] **Step 1: 失败测试**——① description 为静态常量：含委派语义（成员看不到本对话、任务须自包含、`role` 须命中当前会话团队、可用成员见系统提示团队段）且**不含任何具体名册**；② execute 经 `deps.currentTeamFor(agent)` 取该会话团队校验 role：未命中 → 报错列出**该团队**角色名；③ 两个不同 agent 返回不同团队时各自按自己团队校验。
 
-- [ ] **Step 2: 改 `DelegateToolDeps`**——`roles: readonly Role[]` 替换为：
+- [x] **Step 2: 改 `DelegateToolDeps`**——`roles: readonly Role[]` 替换为：
 
 ```ts
 /** 返回调用方会话的当前团队（standing 共享注册下按 exec.agent 解析；懒建保证不空）。 */
@@ -1706,7 +1706,7 @@ currentTeamFor: (agent: Agent) => Team
 - execute 内：`const agent = exec.agent; if (!agent) throw …`（原断言保留）→ `const team = deps.currentTeamFor(agent)` → `team.roles.find(r => r.name === args.role)`，未命中报错列 `team.roles` 名字。persona 拼装、spawn、结果收集不变。
 - description 静态文本（单常量，中文或英文与现有风格一致），要点：委派给当前团队成员；成员看不到本对话、任务书须自包含；`role` 必须命中当前会话团队的成员；可用成员名单见系统提示的团队段。
 
-- [ ] **Step 3: 跑测试至绿；Step 4: `pnpm --filter agent-team test && pnpm --filter agent-team typecheck`；Step 5: Commit** `refactor(agent-team): team_delegate 静态 description 与按会话团队校验`
+- [x] **Step 3: 跑测试至绿；Step 4: `pnpm --filter agent-team test && pnpm --filter agent-team typecheck`；Step 5: Commit** `refactor(agent-team): team_delegate 静态 description 与按会话团队校验`
 
 ### Task 6b: index.ts standing 语义重写
 
@@ -1714,9 +1714,9 @@ currentTeamFor: (agent: Agent) => Team
 - Modify: `packages/agent-team/src/index.ts`、`packages/agent-team/tests/*.spec.ts`（集成测试重写）
 - Modify: `packages/agent-team/package.json`（Config 说明注释，如有）
 
-- [ ] **Step 1: 失败集成测试**——① 挂载后工具仅注册一次、description 静态；② 注册的 prompt section 的 `text` 为函数：以带 `agent` 的 AssembleContext 调用 → 文案含该会话当前团队名册（每角色一行 `name: description`）；无 `agent` 时返回通用介绍不抛错；③ GET `/agent-team/<sid>/state` 惰性建态返回 200；④ POST select 切 team2 → 同 sid 再调 section text → 名册变为 team2，工具注册不变；⑤ 两个不同 sid 各自独立切换互不影响；⑥ 已发 `turn/start` 的会话 POST → 409；⑦ 模拟 `session/disposed` → 该 sid 状态清除（再 GET 重新懒建）；⑧ KV 冷恢复：写 KV 后新挂载代 GET 返回已选团队；⑨ `clientOnly: true` 挂载 → 无工具/路由/提示段注册。
+- [x] **Step 1: 失败集成测试**——① 挂载后工具仅注册一次、description 静态；② 注册的 prompt section 的 `text` 为函数：以带 `agent` 的 AssembleContext 调用 → 文案含该会话当前团队名册（每角色一行 `name: description`）；无 `agent` 时返回通用介绍不抛错；③ GET `/agent-team/<sid>/state` 惰性建态返回 200；④ POST select 切 team2 → 同 sid 再调 section text → 名册变为 team2，工具注册不变；⑤ 两个不同 sid 各自独立切换互不影响；⑥ 已发 `turn/start` 的会话 POST → 409；⑦ 模拟 `session/disposed` → 该 sid 状态清除（再 GET 重新懒建）；⑧ KV 冷恢复：写 KV 后新挂载代 GET 返回已选团队；⑨ `clientOnly: true` 挂载 → 无工具/路由/提示段注册。
 
-- [ ] **Step 2: 重写 apply**：
+- [x] **Step 2: 重写 apply**：
 
 ```ts
 export function apply(ctx: Context, config: Config) {
@@ -1732,7 +1732,7 @@ export function apply(ctx: Context, config: Config) {
 - 保留：KV 模块级共享单例 + refcount、provider 能力 mount 期校验、loadTeams fail loud。
 - 移除：`ctx.agent!` 用法、每会话 exact 路由、切换时工具重注册。
 
-- [ ] **Step 3: 跑测试至绿；Step 4: 全量 `test` + `typecheck`；Step 5: Commit** `fix(agent-team): standing scope 语义——按会话懒建态、prefix 路由、prompt 段动态名册`
+- [x] **Step 3: 跑测试至绿；Step 4: 全量 `test` + `typecheck`；Step 5: Commit** `fix(agent-team): standing scope 语义——按会话懒建态、prefix 路由、prompt 段动态名册`
 
 ### Task 8b: 默认名册 opencode 化 + 双挂载点接入
 
@@ -1742,11 +1742,11 @@ export function apply(ctx: Context, config: Config) {
 - Modify: `cordis.yml`（仓库根，开发 patch）
 - 文件系统：重新同步 `C:\Users\Eson\.dsh\.agent-presets\team\`（含删旧 review.yml）
 
-- [ ] **Step 1: default.yml 重写为两角色**（persona 用中文，与 spec §4 格式一致；description 为主 Agent 选角唯一依据，写清分工边界）：
+- [x] **Step 1: default.yml 重写为两角色**（persona 用中文，与 spec §4 格式一致；description 为主 Agent 选角唯一依据，写清分工边界）：
   - `explorer`：快速只读代码库探索——定位文件/符号、回答结构与调用关系问题，不修改文件；persona 强调只读、结论附路径行号。
   - `general`：通用多步骤任务执行——可读可写、跑命令，完成实现/修复类任务；persona 强调动手前读 AGENTS.md、完成后跑相关检查。
-- [ ] **Step 2: 删 review.yml**；grep 全仓确认无残留引用（文档中提及示例名册处同步更新）。
-- [ ] **Step 3: cordis.yml 追加全局挂载行**：
+- [x] **Step 2: 删 review.yml**；grep 全仓确认无残留引用（文档中提及示例名册处同步更新）。
+- [x] **Step 3: cordis.yml 追加全局挂载行**：
 
 ```yaml
 - name: D:\work\github\dsh\dsh-agent-toolkit\packages\agent-team
@@ -1754,14 +1754,14 @@ export function apply(ctx: Context, config: Config) {
     clientOnly: true
 ```
 
-- [ ] **Step 4: 同步 user preset root**（覆盖复制 presets/team → `C:\Users\Eson\.dsh\.agent-presets\team`，删除其中旧 review.yml）；手动验证清单更新：dock 打开页面即在（无需建会话后刷新）；激活失败反馈看 chip hover title。
-- [ ] **Step 5: Commit** `feat(agent-team): 默认团队 explorer+general；cordis.yml 全局 clientOnly 挂载`
+- [x] **Step 4: 同步 user preset root**（覆盖复制 presets/team → `C:\Users\Eson\.dsh\.agent-presets\team`，删除其中旧 review.yml）；手动验证清单更新：dock 打开页面即在（无需建会话后刷新）；激活失败反馈看 chip hover title。
+- [x] **Step 5: Commit** `feat(agent-team): 默认团队 explorer+general；cordis.yml 全局 clientOnly 挂载`
 
 ### Task 9b: 文档增量
 
-- [ ] AGENTS.md：agent-team 条目补——双挂载点（preset 行真实工作 + cordis.yml 全局 `clientOnly: true` 行供浏览器半进 boot 清单）；默认团队 explorer/general；激活失败反馈位置（chip hover title）。
-- [ ] 插件 README（如已有）：Config 增 `clientOnly` 行；安装步骤加 cordis.yml 全局行。
-- [ ] Commit `docs: agent-team v3 接入方式与默认名册`
+- [x] AGENTS.md：agent-team 条目补——双挂载点（preset 行真实工作 + cordis.yml 全局 `clientOnly: true` 行供浏览器半进 boot 清单）；默认团队 explorer/general；激活失败反馈位置（chip hover title）。
+- [x] 插件 README（如已有）：Config 增 `clientOnly` 行；安装步骤加 cordis.yml 全局行。
+- [x] Commit `docs: agent-team v3 接入方式与默认名册`
 
 ## v3 Self-Review 记录
 
