@@ -5,7 +5,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { z as zod } from 'zod'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { defineDomain, domainTable, type KvTable } from '@deepseek-ai/dsh-storage-domain'
+import { defineDomain, domainTable, type Domain, type KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -55,6 +55,41 @@ const teamDomain = defineDomain({
   version: 1,
   tables: { selected_team: domainTable<string, string>(zod.string()) },
 })
+
+type TeamDomain = Domain<typeof teamDomain>
+
+// storage-domain 的 DomainFacility 是宿主平面单例，同一 domain 名二次 open 抛
+// already-open（storage-domain/src/index.ts:101-103）。agent-team 按会话挂载，故模块级
+// 缓存首个 open 的 Promise，后续会话激活复用同一 Promise；引用计数归零（最后一次会话卸载）
+// 才 close，并重置缓存让下一次激活重新 open。
+let openPromise: Promise<TeamDomain> | undefined
+let openDomain: TeamDomain | undefined
+let openRefs = 0
+
+/** 获取共享 domain：首次调用 open，后续复用同一 Promise；await 成功后 +1 引用。 */
+async function acquireTeamDomain(ctx: Context): Promise<TeamDomain> {
+  if (openPromise === undefined) {
+    openPromise = ctx.storageDomain.open(teamDomain).then(
+      (domain) => { openDomain = domain; return domain },
+      (error) => { openPromise = undefined; throw error },
+    )
+  }
+  const domain = await openPromise
+  openRefs++
+  return domain
+}
+
+/** 释放一份引用（对应一次成功激活）；归零时 close 并重置缓存。 */
+async function releaseTeamDomain(): Promise<void> {
+  if (openRefs === 0) return
+  openRefs--
+  if (openRefs === 0) {
+    const domain = openDomain
+    openDomain = undefined
+    openPromise = undefined
+    if (domain !== undefined) await domain.close()
+  }
+}
 
 /** 把 teamsDir 解析为绝对路径：绝对路径原样，相对路径基于 preset 目录（ctx.baseUrl）。 */
 function resolveTeamsPath(teamsDir: string, baseUrl: string | undefined): string {
@@ -128,11 +163,19 @@ function installTeamRoutes(ctx: Context, sessionId: string, state: TeamState, ta
         if (typeof team !== 'string') { fail(400, '请求体缺 team 字段或不是 JSON'); return }
         const events = ctx.agent!.session.events
         if (!isSessionBlank(events)) { fail(409, '会话已开始，团队已锁定'); return }
+        const prevId = state.current.id
         const outcome = state.trySelect(team, events)
         if (!outcome.ok) { fail(400, outcome.error); return }
         if (outcome.changed) {
+          // 先落盘（提交点）再发布：put 失败时回滚状态机、不重注册，返回非 2xx。
+          try {
+            await table.put(sessionId, team)
+          } catch (error) {
+            if (state.current.id !== prevId) state.trySelect(prevId, events)
+            fail(500, `团队切换持久化失败：${error instanceof Error ? error.message : String(error)}`)
+            return
+          }
           reinstall()
-          await table.put(sessionId, team)
         }
         res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(viewOf(state)))
       },
@@ -141,7 +184,8 @@ function installTeamRoutes(ctx: Context, sessionId: string, state: TeamState, ta
 }
 
 /**
- * 激活：读名册 → 开 KV → 建团队状态（KV 冷恢复）→ 注册委派工具、HTTP 路由与团队介绍段。
+ * 激活：读名册 → 取共享 KV（首次 open，多会话复用同一 domain）→ 建团队状态（KV 冷恢复）
+ * → 注册委派工具、HTTP 路由与团队介绍段。卸载时按引用计数释放，归零才 close domain。
  * 直接 apply() 绕过 Schemastery 默认值，这里手动补默认（内置 tool-subagent 同款防御）。
  * teams/ 缺失/非法、defaultTeam 未命中或 storageDomain 打开失败时抛错：
  * fiber FAILED，preset 挂载被拒并标记 broken。
@@ -154,9 +198,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.defaultTeam !== undefined && !teams.some(t => t.id === config.defaultTeam)) {
     throw new Error(`agent-team: defaultTeam "${config.defaultTeam}" 不在名册中（可用：${teams.map(t => t.id).join(', ')}）`)
   }
-  const domain = await ctx.storageDomain.open(teamDomain)
+  const domain = await acquireTeamDomain(ctx)
   const table: KvTable<string, string> = domain.table('selected_team')
-  ctx.effect(() => async () => { await domain.close() })
+  ctx.effect(() => releaseTeamDomain)
   const sessionId = String(ctx.agent!.session.id)
   const state = createTeamState({
     teams,
