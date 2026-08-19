@@ -2,11 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **2026-08-19 v2 修订**：设计第二次修订（spec 同日版）——取消 `/team` 命令与 `team/selected` 会话事件（宿主 `assertEventsSupported` 拒载含未知非 ignorable 事件的日志，`session-persistence/src/coordinator.ts:1061-1066`；外部插件事件进不了生成的 `KNOWN_SESSION_EVENT_TYPES` 且 `Session.append` 不写 ignorable）。团队选择改走插件自建 HTTP 端点（GET/POST，路径含 sessionId）+ 插件自有 KV（storageDomain）持久化；dock 数据源从会话投影改为 HTTP GET。Task 1-4 已按 v1 落地且不受影响；Task 5-8 为修订后版本。
+
 **Goal:** 实现 `packages/agent-team` 插件：preset 作为"团队模式"入口（内含 `teams/*.yml` 多名册），用户在输入框上方 dock 下拉于会话 blank 期选择团队（首条消息后锁定），主 Agent 通过 `team_delegate` 工具把自包含任务前台同步委派给一次性 spawn 子 Agent。
 
-**Architecture:** 设计 spec 见 `docs/superpowers/specs/2026-08-18-agent-team-design.md`（2026-08-19 修订版）。Node 半：激活时读 teams/ 全部名册 → 注册 team_delegate（名册编入 description）+ systemPrompt 段 + `/team` 命令 + `team` 会话投影；切换时 dispose 旧工具注册并以新名册重注册。浏览器半：`conversation.input.dock` 注册 TeamDock 下拉（order -10），读投影回显、`session.command('/team <id>')` 提交。
+**Architecture:** 设计 spec 见 `docs/superpowers/specs/2026-08-18-agent-team-design.md`（2026-08-19 第二版）。Node 半：激活时读 teams/ 全部名册 + KV 冷恢复 → 注册 team_delegate（名册编入 description）+ systemPrompt 段 + 每会话两条 HTTP 路由（GET state / POST select）；切换时 dispose 旧工具注册并以新名册重注册 + 写 KV。浏览器半：`conversation.input.dock` 注册 TeamDock 下拉（order -10），GET 读状态、POST 提交选择。
 
-**Tech Stack:** TypeScript ESM（strict）、cordis 插件、Schemastery（Config 与名册校验）、zod（会话投影 schema，token-usage 先例）、js-yaml、vitest、React 18 + tsdown + lightningcss（浏览器半 bundle，照 token-usage 先例）、`link:` 依赖指向 `deepseek-harness/` 内包源码。
+**Tech Stack:** TypeScript ESM（strict）、cordis 插件、Schemastery（Config 与名册校验）、zod（KV 记录 schema，token-usage 先例）、js-yaml、@deepseek-ai/dsh-storage-domain（KV）、@deepseek-ai/dsh-host-webserver（HTTP 路由）、vitest、React 18 + tsdown + lightningcss（浏览器半 bundle，照 token-usage 先例）、`link:` 依赖指向 `deepseek-harness/` 内包源码。
 
 ## Global Constraints
 
@@ -17,8 +19,9 @@
 - 成员**禁止套娃**：委派请求固定携带 `maxDepth: 1`（`resolveChildDepth` = 父深度+1，`childDepth > maxDepth` 抛 `SubagentDepthError`，见 `deepseek-harness/packages/subagent/subagent/src/child-agent.ts:48-57`）。
 - 前台收集/异常语义照抄内置 `tool-subagent`（`deepseek-harness/packages/subagent/tool-subagent/src/index.ts:124-199`）。
 - cordis 支持异步 `apply`：fiber 在 `await this._execute(...)` 后才 ACTIVE，apply 抛错 → fiber FAILED → preset 挂载被拒（`vendor/cordis/src/fiber.ts:646-673`）。
-- **团队锁定**：会话存在 `turn/start` 事件即不可切换（`sessionBlank` 定义照抄 `api-proxy.ts:476-478`）；UI 层禁用 + 宿主命令层拒绝，双层。
-- 浏览器半守 client 规范：组件纯 props（四 shares）、无订阅机器、CSS Modules + `--dsw-*` token、中文文案。
+- **禁止自定义会话事件**：宿主拒绝加载含未知非 ignorable 事件类型的日志（`session-persistence/src/coordinator.ts:1061-1066`），外部插件事件进不了生成的 `KNOWN_SESSION_EVENT_TYPES`；团队选择持久化一律走 storageDomain KV，不 append 任何插件事件。
+- **团队锁定**：会话存在 `turn/start` 事件即不可切换（`isSessionBlank` 定义照抄 `api-proxy.ts:476-478`）；UI 层禁用 + 宿主 POST 层 409 拒绝，双层。
+- 浏览器半守 client 规范：组件纯 props（fetch 封装经 inject 面注入，组件不直接 fetch）、无订阅机器、CSS Modules + `--dsw-*` token、中文文案。
 - 提交信息风格照 git log：`feat(agent-team): …` / `test(agent-team): …` / `docs: …`。
 - 每个 Task 结束跑 `pnpm --filter agent-team test` 与 `pnpm --filter agent-team typecheck`，全绿再 commit。
 
@@ -885,212 +888,60 @@ git commit -m "feat(agent-team): team_delegate 委派工具（含 UI presenter�
 
 ---
 
-### Task 5: 团队状态机（src/teams.ts + src/types.ts）
+### Task 5: 团队状态机修订——去会话事件化（src/types.ts + src/teams.ts）
 
 **Files:**
-- Create: `packages/agent-team/src/types.ts`（纯类型，投影/事件契约的单一来源）
-- Create: `packages/agent-team/src/teams.ts`
-- Test: `packages/agent-team/tests/teams.test.ts`
+- Modify: `packages/agent-team/src/types.ts`（事件/投影契约改为 HTTP wire 契约）
+- Modify: `packages/agent-team/src/teams.ts`（删 foldSelectedTeam；其余不动）
+- Test: `packages/agent-team/tests/teams.test.ts`（删 fold 测试块；其余不动）
 
 **Interfaces:**
-- Consumes: `Team`（`./roles.ts`）。
 - Produces:
-  - `TEAM_SELECTED_EVENT = 'team/selected'`
-  - `interface TeamOption { readonly id: string; readonly summary: string }`、`interface TeamProjection { readonly currentId: string; readonly options: readonly TeamOption[] }`（src/types.ts；会话投影视图与浏览器半共用）
-  - `foldSelectedTeam(events: readonly SessionEvent[]): string | undefined` — 冷恢复：取最新 `team/selected` 事件的 team
-  - `isSessionBlank(events: readonly SessionEvent[]): boolean` — 无 `turn/start` 事件
-  - `teamOption(team: Team): TeamOption` — summary 取首角色 description，无角色回退 id
-  - `createTeamState(options: { teams: readonly Team[]; defaultTeamId?: string; initialId?: string }): TeamState`
-  - `interface TeamState { readonly current: Team; readonly teams: readonly Team[]; trySelect(id: string, events: readonly SessionEvent[]): SelectOutcome }`
-  - `type SelectOutcome = { ok: true; changed: boolean } | { ok: false; error: string }`
+  - `interface TeamOption { readonly id: string; readonly summary: string }`（src/types.ts）
+  - `interface TeamStateView { readonly currentId: string; readonly options: readonly TeamOption[] }`（GET/POST 响应体）
+  - `interface SelectTeamRequest { readonly team: string }`（POST 请求体）
+  - `isSessionBlank(events: readonly SessionEvent[]): boolean`、`teamOption(team: Team): TeamOption`、`createTeamState(options: { teams; defaultTeamId?; initialId? }): TeamState`、`type SelectOutcome`、`interface TeamState`（teams.ts，签名不变；`initialId` 语义改注：KV 冷恢复结果）
+- Removed: `TEAM_SELECTED_EVENT`、`TeamProjection`、`foldSelectedTeam`（设计 v2：不再写自定义会话事件，冷恢复走 KV）。
 
-- [ ] **Step 1: 写失败测试**
+- [ ] **Step 1: 改测试（先失败）**
 
-```ts
-// packages/agent-team/tests/teams.test.ts
-import { expect, test } from 'vitest'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { createTeamState, foldSelectedTeam, isSessionBlank, teamOption } from '../src/teams.ts'
-import { TEAM_SELECTED_EVENT } from '../src/types.ts'
-import type { Team } from '../src/roles.ts'
-
-const teams: Team[] = [
-  { id: 'alpha', roles: [{ name: 'reviewer', description: '代码审查员', persona: 'p' }] },
-  { id: 'beta', roles: [{ name: 'researcher', description: '资料调研', persona: 'q' }] },
-]
-
-const ev = (type: string, data: unknown = {}) => ({ type, data }) as SessionEvent
-
-test('foldSelectedTeam 取最新 team/selected，无事件返回 undefined', () => {
-  expect(foldSelectedTeam([])).toBeUndefined()
-  expect(foldSelectedTeam([ev('user/message'), ev(TEAM_SELECTED_EVENT, { team: 'alpha' })])).toBe('alpha')
-  expect(foldSelectedTeam([
-    ev(TEAM_SELECTED_EVENT, { team: 'alpha' }),
-    ev(TEAM_SELECTED_EVENT, { team: 'beta' }),
-  ])).toBe('beta')
-})
-
-test('isSessionBlank：无 turn/start 为 true，有则为 false', () => {
-  expect(isSessionBlank([])).toBe(true)
-  expect(isSessionBlank([ev('agent-preset/selected')])).toBe(true)
-  expect(isSessionBlank([ev('turn/start')])).toBe(false)
-})
-
-test('teamOption 摘要取首角色 description', () => {
-  expect(teamOption(teams[0])).toEqual({ id: 'alpha', summary: '代码审查员' })
-  expect(teamOption({ id: 'empty', roles: [] })).toEqual({ id: 'empty', summary: 'empty' })
-})
-
-test('默认团队：initialId 优先，其次 defaultTeamId，再次字典序首个', () => {
-  expect(createTeamState({ teams }).current.id).toBe('alpha')
-  expect(createTeamState({ teams, defaultTeamId: 'beta' }).current.id).toBe('beta')
-  expect(createTeamState({ teams, defaultTeamId: 'beta', initialId: 'alpha' }).current.id).toBe('alpha')
-  // initialId/defaultTeamId 未命中名册时回退首个（激活期已对 defaultTeam 单独响亮失败，此处是防御）
-  expect(createTeamState({ teams, defaultTeamId: 'ghost', initialId: 'ghost' }).current.id).toBe('alpha')
-})
-
-test('trySelect 成功：切换并报告 changed', () => {
-  const state = createTeamState({ teams })
-  expect(state.trySelect('beta', [])).toEqual({ ok: true, changed: true })
-  expect(state.current.id).toBe('beta')
-  expect(state.trySelect('beta', [])).toEqual({ ok: true, changed: false })
-})
-
-test('trySelect 未知团队：报错列出可用团队，状态不变', () => {
-  const state = createTeamState({ teams })
-  const outcome = state.trySelect('ghost', [])
-  expect(outcome).toMatchObject({ ok: false })
-  expect((outcome as { error: string }).error).toContain('alpha, beta')
-  expect(state.current.id).toBe('alpha')
-})
-
-test('trySelect 会话已开始：拒绝锁定，状态不变', () => {
-  const state = createTeamState({ teams })
-  const outcome = state.trySelect('beta', [ev('turn/start')])
-  expect(outcome).toMatchObject({ ok: false })
-  expect((outcome as { error: string }).error).toContain('锁定')
-  expect(state.current.id).toBe('alpha')
-})
-```
+`tests/teams.test.ts`：删除 `foldSelectedTeam` 的 import 与整个 `test('foldSelectedTeam …')` 块；删除 `TEAM_SELECTED_EVENT` 的 import（`../src/types.ts` 不再导出，编译即失败 = RED）。其余 6 个测试原样保留。
 
 - [ ] **Step 2: 跑测试确认失败**
 
 Run: `pnpm --filter agent-team test`
-Expected: FAIL（`Cannot find module '../src/teams.ts'`）
+Expected: FAIL（`TEAM_SELECTED_EVENT`/`foldSelectedTeam` 无导出）
 
-- [ ] **Step 3: 实现 src/types.ts 与 src/teams.ts**
+- [ ] **Step 3: 改 src/types.ts 与 src/teams.ts**
 
 ```ts
-// packages/agent-team/src/types.ts
-/** 团队选择的持久事件与投影契约（纯类型，Node 半/浏览器半/测试共用）。 */
+// packages/agent-team/src/types.ts（整体替换）
+/** 团队选择的 HTTP wire 契约（纯类型，Node 半/浏览器半/测试共用）。 */
 
-/** 团队切换成功时追加的会话事件类型。 */
-export const TEAM_SELECTED_EVENT = 'team/selected'
-
-/** 投影中的可选项：id + 一句话摘要（首角色 description）。 */
+/** 可选团队：id + 一句话摘要（首角色 description）。 */
 export interface TeamOption {
   readonly id: string
   readonly summary: string
 }
 
-/** `team` 会话投影的视图：dock 下拉的唯一数据源。 */
-export interface TeamProjection {
+/** GET /agent-team/<sessionId>/state 与 POST /agent-team/<sessionId>/select 的响应体。 */
+export interface TeamStateView {
   readonly currentId: string
   readonly options: readonly TeamOption[]
 }
-```
 
-```ts
-// packages/agent-team/src/teams.ts
-/** 团队状态机：当前团队 ref、fold 冷恢复、blank 锁定——全部纯逻辑，不含 ctx 接线。 */
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { Team } from './roles.ts'
-import { TEAM_SELECTED_EVENT, type TeamOption } from './types.ts'
-
-/**
- * 冷恢复：从会话日志取最新团队选择。
- * @param events - 会话事件（日志序）。
- * @returns 最新 team/selected 的 team；无事件返回 undefined。
- */
-export function foldSelectedTeam(events: readonly SessionEvent[]): string | undefined {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i]
-    if (event.type === TEAM_SELECTED_EVENT) {
-      const team = (event.data as { team?: unknown }).team
-      return typeof team === 'string' ? team : undefined
-    }
-  }
-  return undefined
-}
-
-/**
- * 会话是否仍处于 blank 期（可切团队的唯一时间窗）。
- * 定义照抄宿主 sessionBlank（api-proxy.ts:476-478）：无 turn/start 事件。
- */
-export function isSessionBlank(events: readonly SessionEvent[]): boolean {
-  return !events.some(event => event.type === 'turn/start')
-}
-
-/** 团队的投影选项：摘要取首角色 description，空名册回退 id。 */
-export function teamOption(team: Team): TeamOption {
-  return { id: team.id, summary: team.roles[0]?.description ?? team.id }
-}
-
-/** trySelect 的结果。 */
-export type SelectOutcome =
-  | { readonly ok: true; readonly changed: boolean }
-  | { readonly ok: false; readonly error: string }
-
-/** 团队状态：当前团队 + 切换入口。 */
-export interface TeamState {
-  readonly current: Team
-  readonly teams: readonly Team[]
-  /**
-   * 尝试切换团队。
-   * @param id - 目标团队 id。
-   * @param events - 当前会话事件（blank 判定用）。
-   */
-  trySelect(id: string, events: readonly SessionEvent[]): SelectOutcome
-}
-
-/**
- * 创建团队状态机。
- * @param options.teams - 激活时加载的全部团队（非空，loadTeams 保证）。
- * @param options.defaultTeamId - Config.defaultTeam（激活期已校验命中）。
- * @param options.initialId - 冷恢复 fold 结果。
- */
-export function createTeamState(options: {
-  teams: readonly Team[]
-  defaultTeamId?: string
-  initialId?: string
-}): TeamState {
-  const { teams } = options
-  const byId = new Map(teams.map(t => [t.id, t]))
-  const pick = (id: string | undefined): string | undefined =>
-    id !== undefined && byId.has(id) ? id : undefined
-  let currentId = pick(options.initialId) ?? pick(options.defaultTeamId) ?? teams[0].id
-  return {
-    teams,
-    get current() { return byId.get(currentId)! },
-    trySelect(id, events) {
-      if (!byId.has(id)) {
-        return { ok: false, error: `未知团队 "${id}"。可用团队：${teams.map(t => t.id).join(', ')}` }
-      }
-      if (!isSessionBlank(events)) {
-        return { ok: false, error: '会话已开始，团队已锁定' }
-      }
-      const changed = id !== currentId
-      currentId = id
-      return { ok: true, changed }
-    },
-  }
+/** POST /agent-team/<sessionId>/select 的请求体。 */
+export interface SelectTeamRequest {
+  readonly team: string
 }
 ```
+
+`src/teams.ts`：删除 `TEAM_SELECTED_EVENT` 的 import 与 `foldSelectedTeam` 函数；`createTeamState` 的 `@param options.initialId` 注释改为"KV 冷恢复结果（按 sessionId 读回）"；文件头注释改为"团队状态机：当前团队 ref、trySelect、blank 锁定——全部纯逻辑，不含 ctx 接线"。其余代码不动。
 
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `pnpm --filter agent-team test`
-Expected: PASS（teams 7 个测试）
+Expected: PASS（teams 6 个测试 + 既有全部）
 
 - [ ] **Step 5: 类型检查 + Commit**
 
@@ -1098,122 +949,177 @@ Run: `pnpm --filter agent-team typecheck`
 
 ```bash
 git add packages/agent-team/src/types.ts packages/agent-team/src/teams.ts packages/agent-team/tests/teams.test.ts
-git commit -m "feat(agent-team): 团队状态机（fold 冷恢复 + blank 锁定）"
+git commit -m "feat(agent-team): 团队状态机去会话事件化，types.ts 改 HTTP wire 契约"
 ```
+
+> 注：本 Task 会暂时打破 `src/index.ts`（import 了已删除的符号）与 `tests/integration.test.ts` 的类型检查——Task 6 紧随其后整体重写两者。若 typecheck 因此失败属预期，在报告中说明并直接继续 Task 6，Task 6 结束时两者必须全绿。
 
 ---
 
-### Task 6: 插件入口组装（src/index.ts）+ 集成测试
+### Task 6: 插件入口组装 v2（HTTP 路由 + KV 持久化）+ 集成测试重写
 
 **Files:**
-- Modify: `packages/agent-team/src/index.ts`（Task 1 的占位改为完整入口）
-- Create: `packages/agent-team/tests/fixtures/team-preset/teams/alpha.yml`
-- Create: `packages/agent-team/tests/fixtures/team-preset/teams/beta.yml`
-- Test: `packages/agent-team/tests/integration.test.ts`
+- Modify: `packages/agent-team/package.json`（devDependencies 增 `"@deepseek-ai/dsh-storage-domain": "link:../../deepseek-harness/packages/support/storage-domain"` 与 `"@deepseek-ai/dsh-host-webserver": "link:../../deepseek-harness/packages/host/webserver"`——确切相对路径先 `Test-Path` 核实，照 token-usage 的 package.json 抄）
+- Modify: `packages/agent-team/src/index.ts`（整体重写）
+- Test: `packages/agent-team/tests/integration.test.ts`（整体重写；fixtures 不变）
 
 **Interfaces:**
-- Consumes: `loadTeams` / `Team`（`./roles.ts`）；`createDelegateTool`（`./tool.ts`）；`createTeamState` / `foldSelectedTeam` / `teamOption`（`./teams.ts`）；`TEAM_SELECTED_EVENT` / `TeamProjection`（`./types.ts`）。
+- Consumes: `loadTeams`/`Team`（`./roles.ts`）；`createDelegateTool`（`./tool.ts`）；`createTeamState`/`isSessionBlank`/`teamOption`/`TeamState`（`./teams.ts`）；`TeamStateView`/`SelectTeamRequest`（`./types.ts`）。
 - Produces:
-  - `name = 'agent-team'`、`inject = ['tools', 'subagents', 'systemPrompt']`
-  - `Config`：`{ teamsDir?: string（默认 './teams'）; defaultTeam?: string; provider?: string（默认 'spawn'）; toolName?: string（默认 'team_delegate'）; promptTemplates?: { default?: string; families?: Record<string,string> } }`
-  - `apply(ctx, config): Promise<void>`（异步；teams/ 读不到或 defaultTeam 未命中即抛错 → preset 挂载被拒）
-  - `/team` 命令（经 `ctx.inject(['commands'], …)`，handler 语义见测试）；`team` 会话投影（经 `ctx.inject(['sessionProjections'], …)`）
+  - `name = 'agent-team'`、`inject = ['tools', 'subagents', 'systemPrompt', 'storageDomain']`
+  - `Config` 不变（teamsDir/defaultTeam/provider/toolName/promptTemplates）
+  - `apply(ctx, config): Promise<void>`（异步；teams/ 读不到、defaultTeam 未命中、storageDomain 打开失败即抛错 → preset 挂载被拒）
+  - 每会话两条 HTTP 路由（路径含 sessionId）：`GET /agent-team/<sid>/state` → 200 `TeamStateView`；`POST /agent-team/<sid>/select`（body `SelectTeamRequest`）→ 200 `TeamStateView` / 400 未知团队 / 409 已锁定
 
-**实现期核实点**（spec §7.2 同款，集成测试即为钉死手段）：
-1. preset scope 下 `ctx.inject(['commands'], …)` 是否拿到命令注册表；拿不到则退 Typert Remote RPC（dock onSelect 同步改）。
-2. 激活时读取会话事件的途径：先试 `ctx.agent.session.events`；不存在则以 cordis agent scope 实际属性为准（集成测试的 fake ctx 按最终选择接线）。
-3. 会话进行中重注册工具后下步请求拿到新 description：集成测试断言重注册产物 description 含新名册。
+**已钉死的宿主 API**（照抄先例，非占位）：
+- KV：`ctx.storageDomain.open(domain)` → `domain.table('selectedTeam')` 得 `KvTable<string,string>`（`get` 同步、`put` 返回 Promise）；domain 声明 `defineDomain({ name, version, tables: { selectedTeam: domainTable<string, string>(zod.string()) } })`，**domain 名受 `^[a-z][a-z0-9_]*$` 约束，禁用连字符**（先例：`packages/token-usage/src/store.ts:32-37`、用法 `packages/token-usage/src/index.ts:33-36`）。
+- webServer：`ctx.inject(['webServer'], webCtx => { webCtx.effect(() => webCtx.webServer.register({ kind: 'exact', path, handler }), 'label') })`；handler 是原生 Node `(req, res)`，`res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body))`（先例：`packages/token-usage/src/index.ts:84-105`）。webServer 是可选服务，**不进顶层 inject**。
+- 会话身份与事件：`ctx.agent.session.id`（`SessionId`，`String()` 化进路径）、`ctx.agent.session.events`（`core/session/src/index.ts:446` 起）。
 
-- [ ] **Step 1: 写 fixture 与失败测试**
-
-```yaml
-# packages/agent-team/tests/fixtures/team-preset/teams/alpha.yml
-roles:
-  - name: reviewer
-    description: 代码审查员
-    persona: 你是资深代码审查员。
-```
-
-```yaml
-# packages/agent-team/tests/fixtures/team-preset/teams/beta.yml
-roles:
-  - name: researcher
-    description: 资料调研与分析
-    persona: 你是调研分析员。
-```
+- [ ] **Step 1: 重写集成测试（先失败）**
 
 ```ts
-// packages/agent-team/tests/integration.test.ts
+// packages/agent-team/tests/integration.test.ts（整体替换）
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { expect, test } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { apply, type Config } from '../src/index.ts'
-import { TEAM_SELECTED_EVENT, type TeamProjection } from '../src/types.ts'
+import type { TeamStateView } from '../src/types.ts'
 
 const FIXTURE_DIR = join(import.meta.dirname, 'fixtures', 'team-preset')
 
 interface RegisteredTool { name: string; description: string }
-interface CommandDef {
-  name: string
-  handler: (inv: { agent: unknown; rawInput: string }) => { kind: string; text: string }
-}
-interface ProjectionDef {
-  key: string
-  init: () => TeamProjection
-  apply: (state: TeamProjection, event: SessionEvent) => TeamProjection
-}
+type Handler = (req: unknown, res: unknown) => Promise<void>
 
-function fakeCtx(events: SessionEvent[], baseUrl?: string) {
+function fakeCtx(events: SessionEvent[], baseUrl?: string, opts: { webServer?: boolean; kv?: Map<string, string> } = {}) {
   const tools: RegisteredTool[] = []
-  const toolDisposers: (() => void)[] = []
   const sections: { name: string; order: number; text: unknown }[] = []
-  const commands: CommandDef[] = []
-  const projections: ProjectionDef[] = []
-  const appended: SessionEvent[] = []
-  const agent = {
-    session: {
-      events,
-      append: (type: string, data: unknown) => {
-        const event = { type, data } as SessionEvent
-        events.push(event)
-        appended.push(event)
-      },
-    },
-  }
+  const routes = new Map<string, Handler>()
+  const kv = opts.kv ?? new Map<string, string>()
+  const agent = { session: { id: 's1', events } }
   const services: Record<string, unknown> = {
-    commands: { register: (def: CommandDef) => { commands.push(def); return () => {} } },
-    sessionProjections: { register: (def: ProjectionDef) => { projections.push(def); return () => {} } },
+    ...(opts.webServer === false ? {} : {
+      webServer: {
+        register: (route: { kind: string; path: string; handler: Handler }) => {
+          routes.set(route.path, route.handler)
+          return () => { routes.delete(route.path) }
+        },
+      },
+    }),
   }
+  const table = { get: (k: string) => kv.get(k), put: async (k: string, v: string) => { kv.set(k, v) } }
   const ctx = {
     baseUrl,
     agent,
-    tools: { register: (tool: RegisteredTool) => { tools.push(tool); const d = () => {}; toolDisposers.push(d); return d } },
+    tools: { register: (tool: RegisteredTool) => { tools.push(tool); return () => {} } },
     systemPrompt: { section: (s: { name: string; order: number; text: unknown }) => { sections.push(s); return () => {} } },
     subagents: { start: async () => { throw new Error('integration test 不发起真实委派') } },
-    inject: (names: string[], cb: (c: unknown) => void) => { cb({ ...ctx, [names[0]]: services[names[0]] }) },
+    storageDomain: { open: async () => ({ table: () => table, close: async () => {} }) },
+    inject: (names: string[], cb: (c: unknown) => void) => {
+      const service = services[names[0]]
+      if (service !== undefined) cb({ ...ctx, [names[0]]: service })
+    },
     logger: { info: () => {}, warn: () => {} },
   }
-  return { ctx: ctx as unknown as Context, tools, sections, commands, projections, appended, agent }
+  return { ctx: ctx as unknown as Context, tools, sections, routes, kv, agent }
 }
 
 const presetUrl = () => pathToFileURL(FIXTURE_DIR + '/').href
 
-test('激活：注册 team_delegate（默认团队名册入 description）、/team 命令、team 投影与提示段', async () => {
-  const { ctx, tools, sections, commands, projections } = fakeCtx([], presetUrl())
+function fakeReqRes(method: string, body?: unknown) {
+  const req = {
+    method,
+    [Symbol.asyncIterator]: async function* () {
+      if (body !== undefined) yield Buffer.from(JSON.stringify(body))
+    },
+  }
+  const res = {
+    status: 0,
+    body: '',
+    writeHead(status: number) { res.status = status; return res },
+    end(chunk?: string) { if (chunk !== undefined) res.body += chunk; return res },
+  }
+  return { req, res }
+}
+
+async function callRoute(routes: Map<string, Handler>, path: string, method: string, body?: unknown) {
+  const handler = routes.get(path)
+  expect(handler, `路由已注册：${path}`).toBeDefined()
+  const { req, res } = fakeReqRes(method, body)
+  await handler!(req, res)
+  return { status: res.status, json: res.body === '' ? undefined : JSON.parse(res.body) as TeamStateView & { error?: string } }
+}
+
+test('激活：注册 team_delegate（默认团队名册入 description）、state/select 路由与提示段', async () => {
+  const { ctx, tools, sections, routes } = fakeCtx([], presetUrl())
   await apply(ctx, {} as Config)
   expect(tools.map(t => t.name)).toEqual(['team_delegate'])
   expect(tools[0].description).toContain('reviewer: 代码审查员')   // 默认团队 = 字典序首个 alpha
   expect(tools[0].description).not.toContain('researcher')
-  expect(commands.map(c => c.name)).toEqual(['team'])
-  expect(projections.map(p => p.key)).toEqual(['team'])
-  expect(projections[0].init()).toEqual({
+  expect([...routes.keys()].sort()).toEqual(['/agent-team/s1/select', '/agent-team/s1/state'])
+  expect(sections).toHaveLength(1)
+  expect(String(sections[0].text)).toContain('team_delegate')
+})
+
+test('GET state：返回当前团队与选项摘要', async () => {
+  const { ctx, routes } = fakeCtx([], presetUrl())
+  await apply(ctx, {} as Config)
+  const { status, json } = await callRoute(routes, '/agent-team/s1/state', 'GET')
+  expect(status).toBe(200)
+  expect(json).toEqual({
     currentId: 'alpha',
     options: [{ id: 'alpha', summary: '代码审查员' }, { id: 'beta', summary: '资料调研与分析' }],
   })
-  expect(sections).toHaveLength(1)
-  expect(String(sections[0].text)).toContain('team_delegate')
+})
+
+test('POST select 成功：工具重注册（description 含新名册）、KV 写入、返回新视图', async () => {
+  const { ctx, tools, routes, kv } = fakeCtx([], presetUrl())
+  await apply(ctx, {} as Config)
+  const { status, json } = await callRoute(routes, '/agent-team/s1/select', 'POST', { team: 'beta' })
+  expect(status).toBe(200)
+  expect(json?.currentId).toBe('beta')
+  expect(tools).toHaveLength(2)                                   // 重注册产物
+  expect(tools[1].description).toContain('researcher: 资料调研与分析')
+  expect(kv.get('s1')).toBe('beta')
+})
+
+test('POST select 同团队：200 但不重注册、不写 KV', async () => {
+  const { ctx, tools, routes, kv } = fakeCtx([], presetUrl())
+  await apply(ctx, {} as Config)
+  const { status } = await callRoute(routes, '/agent-team/s1/select', 'POST', { team: 'alpha' })
+  expect(status).toBe(200)
+  expect(tools).toHaveLength(1)
+  expect(kv.has('s1')).toBe(false)
+})
+
+test('POST select 未知团队：400 列出可用团队，不重注册', async () => {
+  const { ctx, tools, routes } = fakeCtx([], presetUrl())
+  await apply(ctx, {} as Config)
+  const { status, json } = await callRoute(routes, '/agent-team/s1/select', 'POST', { team: 'ghost' })
+  expect(status).toBe(400)
+  expect(json?.error).toContain('alpha, beta')
+  expect(tools).toHaveLength(1)
+})
+
+test('POST select 会话已开始：409 锁定，不重注册、不写 KV', async () => {
+  const events = [{ type: 'turn/start', data: {} } as SessionEvent]
+  const { ctx, tools, routes, kv } = fakeCtx(events, presetUrl())
+  await apply(ctx, {} as Config)
+  const { status, json } = await callRoute(routes, '/agent-team/s1/select', 'POST', { team: 'beta' })
+  expect(status).toBe(409)
+  expect(json?.error).toContain('锁定')
+  expect(tools).toHaveLength(1)
+  expect(kv.has('s1')).toBe(false)
+})
+
+test('冷恢复：KV 已有选择时初始团队跟随（工具名册与 GET state）', async () => {
+  const { ctx, tools, routes } = fakeCtx([], presetUrl(), { kv: new Map([['s1', 'beta']]) })
+  await apply(ctx, {} as Config)
+  expect(tools[0].description).toContain('researcher')
+  const { json } = await callRoute(routes, '/agent-team/s1/state', 'GET')
+  expect(json?.currentId).toBe('beta')
 })
 
 test('defaultTeam 命中时作为初始团队；未命中时激活失败', async () => {
@@ -1224,74 +1130,26 @@ test('defaultTeam 命中时作为初始团队；未命中时激活失败', async
   await expect(apply(bad.ctx, { defaultTeam: 'ghost' } as Config)).rejects.toThrowError(/ghost/)
 })
 
-test('/team 无参数：返回当前团队与可用列表', async () => {
-  const { ctx, commands, agent } = fakeCtx([], presetUrl())
-  await apply(ctx, {} as Config)
-  const result = commands[0].handler({ agent, rawInput: '' })
-  expect(result.kind).toBe('success')
-  expect(result.text).toContain('alpha')
-})
-
-test('/team 切换成功：旧工具注册被 dispose、新工具 description 含新名册、事件入日志', async () => {
-  const { ctx, tools, commands, appended, agent } = fakeCtx([], presetUrl())
-  await apply(ctx, {} as Config)
-  const result = commands[0].handler({ agent, rawInput: 'beta' })
-  expect(result.kind).toBe('success')
-  expect(tools).toHaveLength(2)                                   // 重注册产物
-  expect(tools[1].description).toContain('researcher: 资料调研与分析')
-  expect(appended.map(e => e.type)).toEqual([TEAM_SELECTED_EVENT])
-  expect((appended[0].data as { team: string }).team).toBe('beta')
-})
-
-test('/team 未知团队：error 且列出可用团队，不重注册', async () => {
-  const { ctx, tools, commands, agent } = fakeCtx([], presetUrl())
-  await apply(ctx, {} as Config)
-  const result = commands[0].handler({ agent, rawInput: 'ghost' })
-  expect(result.kind).toBe('error')
-  expect(result.text).toContain('alpha, beta')
-  expect(tools).toHaveLength(1)
-})
-
-test('/team 会话已开始：拒绝锁定，不重注册、不入日志', async () => {
-  const events = [{ type: 'turn/start', data: {} } as SessionEvent]
-  const { ctx, tools, commands, appended, agent } = fakeCtx(events, presetUrl())
-  await apply(ctx, {} as Config)
-  const result = commands[0].handler({ agent, rawInput: 'beta' })
-  expect(result.kind).toBe('error')
-  expect(result.text).toContain('锁定')
-  expect(tools).toHaveLength(1)
-  expect(appended).toHaveLength(0)
-})
-
-test('冷恢复：日志含 team/selected 时初始团队与投影 currentId 跟随', async () => {
-  const events = [{ type: TEAM_SELECTED_EVENT, data: { team: 'beta' } } as SessionEvent]
-  const { ctx, tools, projections } = fakeCtx(events, presetUrl())
-  await apply(ctx, {} as Config)
-  expect(tools[0].description).toContain('researcher')
-  expect(projections[0].init().currentId).toBe('beta')
-})
-
-test('投影 apply：team/selected 事件更新 currentId，其他事件原样', async () => {
-  const { ctx, projections } = fakeCtx([], presetUrl())
-  await apply(ctx, {} as Config)
-  const init = projections[0].init()
-  const next = projections[0].apply(init, { type: TEAM_SELECTED_EVENT, data: { team: 'beta' } } as SessionEvent)
-  expect(next.currentId).toBe('beta')
-  expect(projections[0].apply(init, { type: 'user/message', data: {} } as SessionEvent)).toBe(init)
-})
-
 test('teamsDir 指向缺失目录时激活失败', async () => {
   const { ctx } = fakeCtx([], presetUrl())
   await expect(apply(ctx, { teamsDir: './missing' } as Config)).rejects.toThrowError(/missing/)
+})
+
+test('无 webServer 服务（headless）：激活成功，无路由，工具与提示段在', async () => {
+  const { ctx, tools, sections, routes } = fakeCtx([], presetUrl(), { webServer: false })
+  await apply(ctx, {} as Config)
+  expect(tools.map(t => t.name)).toEqual(['team_delegate'])
+  expect(sections).toHaveLength(1)
+  expect(routes.size).toBe(0)
 })
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `pnpm --filter agent-team test`
-Expected: FAIL（apply/Config 未导出）
+Run: `pnpm install; pnpm --filter agent-team test`
+Expected: FAIL（新符号未导出/旧断言引用已删除的 /team 命令与投影）
 
-- [ ] **Step 3: 实现完整 src/index.ts**
+- [ ] **Step 3: 整体重写 src/index.ts**
 
 ```ts
 /** agent-team 插件：团队 = preset 内 teams/ 名册，主 Agent 经 team_delegate 一次性委派角色成员。 */
@@ -1300,21 +1158,19 @@ import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { z as zod } from 'zod'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-commands'
-import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import { defineDomain, domainTable, type KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { buildMemberPersona } from './prompt.ts'
 import { loadTeams, type Team } from './roles.ts'
-import { createTeamState, foldSelectedTeam, teamOption, type TeamState } from './teams.ts'
-import { createDelegateTool } from './tool.ts'
-import { TEAM_SELECTED_EVENT, type TeamProjection } from './types.ts'
+import { createTeamState, isSessionBlank, teamOption, type TeamState } from './teams.ts'
+import type { SelectTeamRequest, TeamStateView } from './types.ts'
 
 export const name = 'agent-team'
 
-export const inject = ['tools', 'subagents', 'systemPrompt']
+export const inject = ['tools', 'subagents', 'systemPrompt', 'storageDomain']
 
 /** 团队介绍段在 prompt 中的位置：紧随内置 subagent 段（116.5）之后。 */
 const TEAM_SECTION_ORDER = 116.6
@@ -1346,11 +1202,12 @@ export const Config: z<Config> = z.object({
   }),
 })
 
-/** team 投影的 wire schema（zod，permission-presets/token-usage 先例）。 */
-const TeamProjectionSchema = zod.object({
-  currentId: zod.string(),
-  options: zod.array(zod.object({ id: zod.string(), summary: zod.string() })),
-}) as unknown as zod.ZodType<TeamProjection>
+/** 团队选择存储域：key = sessionId，value = teamId。domain 名受 ^[a-z][a-z0-9_]*$ 约束（禁用连字符）。 */
+const teamDomain = defineDomain({
+  name: 'agent_team',
+  version: 1,
+  tables: { selectedTeam: domainTable<string, string>(zod.string()) },
+})
 
 /** 把 teamsDir 解析为绝对路径：绝对路径原样，相对路径基于 preset 目录（ctx.baseUrl）。 */
 function resolveTeamsPath(teamsDir: string, baseUrl: string | undefined): string {
@@ -1361,10 +1218,9 @@ function resolveTeamsPath(teamsDir: string, baseUrl: string | undefined): string
   return fileURLToPath(new URL(teamsDir, baseUrl))
 }
 
-/** 激活时读会话事件（冷恢复 fold 用）；agent scope 的实际属性名以 cordis 类型为准微调。 */
-function sessionEventsOf(ctx: Context): readonly SessionEvent[] {
-  const agent = (ctx as { agent?: { session?: { events?: readonly SessionEvent[] } } }).agent
-  return agent?.session?.events ?? []
+/** 当前团队视图：GET/POST 的响应体。 */
+function viewOf(state: TeamState): TeamStateView {
+  return { currentId: state.current.id, options: state.teams.map(teamOption) }
 }
 
 /** 以指定团队注册 team_delegate，返回 disposer（切换时先 dispose 再重注册）。 */
@@ -1377,47 +1233,62 @@ function registerDelegateTool(ctx: Context, toolName: string, provider: string, 
   }))
 }
 
-/** 注册 /team 命令与 team 投影（服务仅在对应注册表被组合时存在，故走条件 inject）。 */
-function installTeamSwitch(ctx: Context, state: TeamState, reinstall: () => void): void {
-  ctx.inject(['commands'], (commandCtx: Context) => {
-    commandCtx.commands.register({
-      name: 'team',
-      description: '切换当前团队（仅会话开始前可用）',
-      input: { hint: '<team>' },
-      handler: ({ agent, rawInput }: { agent: { session: { events: SessionEvent[]; append(type: string, data: unknown): void } }; rawInput: string }) => {
-        const id = rawInput.trim()
-        if (id === '') {
-          return { kind: 'success' as const, text: `当前团队 ${state.current.id}（可用：${state.teams.map(t => t.id).join(', ')}）` }
-        }
-        const outcome = state.trySelect(id, agent.session.events)
-        if (!outcome.ok) return { kind: 'error' as const, text: outcome.error }
+/** 读 POST 请求的 JSON body；解析失败返回 undefined。 */
+async function readJsonBody(req: AsyncIterable<unknown>): Promise<unknown> {
+  const chunks: string[] = []
+  for await (const chunk of req) chunks.push(String(chunk))
+  try {
+    return JSON.parse(chunks.join(''))
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 注册每会话的 state/select 两条 HTTP 路由（路径含 sessionId，多会话互不干扰，
+ * fiber 卸载时 cordis 自动摘除）。webServer 是可选能力（headless 无此服务），
+ * 走 ctx.inject 条件注册，token-usage 同款（packages/token-usage/src/index.ts:84-105）。
+ */
+function installTeamRoutes(ctx: Context, sessionId: string, state: TeamState, table: KvTable<string, string>, reinstall: () => void): void {
+  ctx.inject(['webServer'], (webCtx: Context) => {
+    const base = `/agent-team/${encodeURIComponent(sessionId)}`
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: `${base}/state`,
+      handler: async (req: { method?: string }, res: { writeHead(s: number, h?: Record<string, string>): unknown; end(c?: string): unknown }) => {
+        if (req.method !== 'GET') { res.writeHead(405).end(); return }
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(viewOf(state)))
+      },
+    }), 'agent-team: state route')
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: `${base}/select`,
+      handler: async (req: { method?: string } & AsyncIterable<unknown>, res: { writeHead(s: number, h?: Record<string, string>): unknown; end(c?: string): unknown }) => {
+        if (req.method !== 'POST') { res.writeHead(405).end(); return }
+        const fail = (status: number, error: string) =>
+          res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify({ error }))
+        const body = await readJsonBody(req)
+        const team = (body as Partial<SelectTeamRequest> | undefined)?.team
+        if (typeof team !== 'string') { fail(400, '请求体缺 team 字段或不是 JSON'); return }
+        const events = ctx.agent.session.events
+        if (!isSessionBlank(events)) { fail(409, '会话已开始，团队已锁定'); return }
+        const outcome = state.trySelect(team, events)
+        if (!outcome.ok) { fail(400, outcome.error); return }
         if (outcome.changed) {
           reinstall()
-          agent.session.append(TEAM_SELECTED_EVENT, { team: id })
+          await table.put(sessionId, team)
         }
-        return { kind: 'success' as const, text: `团队 ${id}` }
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(viewOf(state)))
       },
-    })
-  })
-  ctx.inject(['sessionProjections'], (projectionCtx: Context) => {
-    projectionCtx.sessionProjections.register({
-      key: 'team',
-      schema: TeamProjectionSchema,
-      init: (): TeamProjection => ({ currentId: state.current.id, options: state.teams.map(teamOption) }),
-      apply: (projection: TeamProjection, event: SessionEvent): TeamProjection =>
-        event.type === TEAM_SELECTED_EVENT
-          ? { ...projection, currentId: (event.data as { team: string }).team }
-          : projection,
-      view: (projection: TeamProjection) => projection,
-      stateVersion: 1,
-    })
+    }), 'agent-team: select route')
   })
 }
 
 /**
- * 激活：读名册 → 建团队状态（冷恢复 fold）→ 注册委派工具、/team 命令、team 投影与团队介绍段。
+ * 激活：读名册 → 开 KV → 建团队状态（KV 冷恢复）→ 注册委派工具、HTTP 路由与团队介绍段。
  * 直接 apply() 绕过 Schemastery 默认值，这里手动补默认（内置 tool-subagent 同款防御）。
- * teams/ 缺失/非法或 defaultTeam 未命中时抛错：fiber FAILED，preset 挂载被拒并标记 broken。
+ * teams/ 缺失/非法、defaultTeam 未命中或 storageDomain 打开失败时抛错：
+ * fiber FAILED，preset 挂载被拒并标记 broken。
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
   const teamsDir = config.teamsDir ?? './teams'
@@ -1427,13 +1298,17 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.defaultTeam !== undefined && !teams.some(t => t.id === config.defaultTeam)) {
     throw new Error(`agent-team: defaultTeam "${config.defaultTeam}" 不在名册中（可用：${teams.map(t => t.id).join(', ')}）`)
   }
+  const domain = await ctx.storageDomain.open(teamDomain)
+  const table: KvTable<string, string> = domain.table('selectedTeam')
+  ctx.effect(() => async () => { await domain.close() })
+  const sessionId = String(ctx.agent.session.id)
   const state = createTeamState({
     teams,
     defaultTeamId: config.defaultTeam,
-    initialId: foldSelectedTeam(sessionEventsOf(ctx)),
+    initialId: table.get(sessionId),
   })
   let disposeTool = registerDelegateTool(ctx, toolName, provider, state.current, config)
-  installTeamSwitch(ctx, state, () => {
+  installTeamRoutes(ctx, sessionId, state, table, () => {
     disposeTool()
     disposeTool = registerDelegateTool(ctx, toolName, provider, state.current, config)
   })
@@ -1448,57 +1323,49 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
 export { buildMemberPersona }
 ```
 
-> 注：① `ctx.baseUrl` / agent scope 的会话访问（`sessionEventsOf`）以 vendor/cordis 与 core/agent 类型为准微调；preset 挂载会把 baseUrl 重写到 preset 目录（`agent-presets/src/mount.ts:48`）。② `commands.register` 的 handler 签名（`{ agent, rawInput }` 及 `{ kind: 'success' | 'error', text }` 返回）以 `interaction/commands/src/index.ts:28-55` 为准。③ `sessionProjections.register` 的 `init/apply/view/stateVersion` 签名以 `session/session-projection/src/index.ts` 为准（`permission-presets/src/index.ts:243-252` 是逐字段先例）。④ `team/selected` 事件的类型化：按"typed events use declaration merging"规约，在 `src/types.ts` 增补 `declare module '@deepseek-ai/dsh-session'` 的 `SessionEventMap`（先例：`session/session-title/src/types.ts`）；若 dsh-session 的合并接口名不同，以 `core/session/src/types.ts` 为准。
+> 注：① `defineDomain`/`domainTable`/`KvTable` 的确切泛型签名以 `deepseek-harness/packages/support/storage-domain/src`（路径先核实）与 token-usage `src/store.ts:32-37` 为准微调。② `ctx.agent.session` 的类型面以 `core/agent/src/index.ts` 为准；若 preset scope 的 `ctx.agent` 需要经别的属性到达，按真实类型修正（集成测试 fake 同步跟随），不得改变断言语义。③ handler 的 req/res 类型：与 token-usage 一致按结构化最小类型声明；若 webServer 包导出了 handler 类型则优先 import。④ `table.get` 同步、`table.put` 返回 Promise（token-usage `src/index.ts:51` 同款用法）。
 
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `pnpm --filter agent-team test`
-Expected: PASS（全部测试）
+Expected: PASS（integration 10 + 既有全部）
 
 - [ ] **Step 5: 类型检查 + Commit**
 
 Run: `pnpm --filter agent-team typecheck`
 
 ```bash
-git add packages/agent-team/src packages/agent-team/tests
-git commit -m "feat(agent-team): 插件入口组装（名册/团队状态机//team 命令/投影/提示段）"
+git add packages/agent-team/package.json packages/agent-team/src packages/agent-team/tests pnpm-lock.yaml
+git commit -m "feat(agent-team): 插件入口 v2——HTTP state/select 路由 + KV 冷恢复（去 /team 命令与投影）"
 ```
 
 ---
 
-### Task 7: 浏览器半 TeamDock（src/client/）
+### Task 7: 浏览器半 TeamDock v2（HTTP 数据源）
 
 **Files:**
-- Modify: `packages/agent-team/src/client/index.ts`（占位改为真实注册）
-- Create: `packages/agent-team/src/client/TeamDock.tsx`
-- Create: `packages/agent-team/src/client/TeamDock.module.css`
-- Test: `packages/agent-team/tests/team-dock.client.spec.tsx`
+- Modify: `packages/agent-team/src/client/index.ts`（改为 fetch 注入）
+- Modify: `packages/agent-team/src/client/TeamDock.tsx`（投影改为 fetchState/selectTeam）
+- Test: `packages/agent-team/tests/team-dock.client.spec.tsx`（整体重写）
+- 不变: `packages/agent-team/src/client/TeamDock.module.css`
 
 **Interfaces:**
-- Consumes: `TeamProjection`（`../types.ts`，type-only）；槽位 `conversation.input.dock`（ui-conversation 声明，type-only 合并 SlotMap）。
-- Produces: 浏览器半 `apply`：dock 注册 `id: 'team'`、`order: -10`；组件 `TeamDock` props = `PropsRuntime<'conversation.input.dock'> & { onSelect: (team: string) => void }`。
+- Consumes: `TeamStateView`/`SelectTeamRequest`（`../types.ts`，type-only）；槽位 `conversation.input.dock`（ui-conversation 声明，type-only 合并 SlotMap）。
+- Produces: 浏览器半 `apply`：dock 注册 `id: 'team'`、`order: -10`；组件 `TeamDock` props = `PropsRuntime<'conversation.input.dock'> & TeamDockInjected`，`TeamDockInjected = { fetchState: () => Promise<TeamStateView | null>; selectTeam: (team: string) => Promise<TeamStateView> }`。
 
-- [ ] **Step 1: 写失败测试（jsdom，props 直接喂桩）**
+- [ ] **Step 1: 重写失败测试（jsdom，props 直接喂桩）**
 
 ```tsx
-// packages/agent-team/tests/team-dock.client.spec.tsx
+// packages/agent-team/tests/team-dock.client.spec.tsx（整体替换）
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { TeamDock, type TeamDockProps } from '../src/client/TeamDock.tsx'
-import type { TeamProjection } from '../src/types.ts'
+import type { TeamStateView } from '../src/types.ts'
 
 afterEach(cleanup)
 
-function propsOf(projection: TeamProjection | undefined, blank: boolean, onSelect = vi.fn()) {
-  return {
-    useProjection: () => projection,
-    useSession: (selector: (s: { blank: boolean }) => unknown) => selector({ blank }),
-    onSelect,
-  } as unknown as TeamDockProps
-}
-
-const PROJECTION: TeamProjection = {
+const STATE: TeamStateView = {
   currentId: 'alpha',
   options: [
     { id: 'alpha', summary: '代码审查员' },
@@ -1506,29 +1373,50 @@ const PROJECTION: TeamProjection = {
   ],
 }
 
-test('无投影（非团队会话）时不渲染', () => {
-  const { container } = render(<TeamDock {...propsOf(undefined, true)} />)
+function propsOf(state: TeamStateView | null, blank: boolean, selectTeam?: TeamDockProps['selectTeam']) {
+  return {
+    useSession: (selector: (s: { blank: boolean }) => unknown) => selector({ blank }),
+    fetchState: vi.fn(async () => state),
+    selectTeam: selectTeam ?? vi.fn(async (team: string) => ({ ...state!, currentId: team })),
+  } as unknown as TeamDockProps
+}
+
+test('非团队会话（fetchState 返回 null）时不渲染', async () => {
+  const props = propsOf(null, true)
+  const { container } = render(<TeamDock {...props} />)
+  await waitFor(() => expect(props.fetchState).toHaveBeenCalled())
   expect(container.firstChild).toBeNull()
 })
 
-test('渲染团队下拉：当前值选中，选项带摘要', () => {
-  render(<TeamDock {...propsOf(PROJECTION, true)} />)
-  const select = screen.getByRole('combobox') as HTMLSelectElement
+test('渲染团队下拉：当前值选中，选项带摘要，blank 期可用', async () => {
+  render(<TeamDock {...propsOf(STATE, true)} />)
+  const select = await screen.findByRole('combobox') as HTMLSelectElement
   expect(select.value).toBe('alpha')
   expect(screen.getByText('beta · 资料调研与分析')).toBeTruthy()
   expect(select.disabled).toBe(false)
 })
 
-test('选择团队时回调 onSelect', () => {
-  const onSelect = vi.fn()
-  render(<TeamDock {...propsOf(PROJECTION, true, onSelect)} />)
-  fireEvent.change(screen.getByRole('combobox'), { target: { value: 'beta' } })
-  expect(onSelect).toHaveBeenCalledWith('beta')
+test('选择团队成功：selectTeam 被调，UI 更新为新团队', async () => {
+  const props = propsOf(STATE, true)
+  render(<TeamDock {...props} />)
+  const select = await screen.findByRole('combobox') as HTMLSelectElement
+  fireEvent.change(select, { target: { value: 'beta' } })
+  await waitFor(() => expect(props.selectTeam).toHaveBeenCalledWith('beta'))
+  await waitFor(() => expect(select.value).toBe('beta'))
 })
 
-test('会话已开始时禁用并提示锁定', () => {
-  render(<TeamDock {...propsOf(PROJECTION, false)} />)
-  const select = screen.getByRole('combobox') as HTMLSelectElement
+test('选择失败（如锁定 409）：回退原值并在 title 显示错误', async () => {
+  const selectTeam = vi.fn(async () => { throw new Error('会话已开始，团队已锁定') })
+  render(<TeamDock {...propsOf(STATE, true, selectTeam)} />)
+  const select = await screen.findByRole('combobox') as HTMLSelectElement
+  fireEvent.change(select, { target: { value: 'beta' } })
+  await waitFor(() => expect(select.title).toContain('锁定'))
+  expect(select.value).toBe('alpha')
+})
+
+test('会话已开始时禁用并提示锁定', async () => {
+  render(<TeamDock {...propsOf(STATE, false)} />)
+  const select = await screen.findByRole('combobox') as HTMLSelectElement
   expect(select.disabled).toBe(true)
   expect(select.title).toContain('锁定')
 })
@@ -1537,39 +1425,59 @@ test('会话已开始时禁用并提示锁定', () => {
 - [ ] **Step 2: 跑测试确认失败**
 
 Run: `pnpm --filter agent-team test`
-Expected: FAIL（`Cannot find module '../src/client/TeamDock.tsx'`）
+Expected: FAIL（props 签名不匹配/元素缺失）
 
-- [ ] **Step 3: 实现 TeamDock.tsx / TeamDock.module.css / client/index.ts**
+- [ ] **Step 3: 重写 TeamDock.tsx 与 client/index.ts**
 
 ```tsx
-// packages/agent-team/src/client/TeamDock.tsx
-/** 团队选择 dock：输入卡片正上方整宽行内的左对齐下拉；blank 期可切，首条消息后锁定。 */
+// packages/agent-team/src/client/TeamDock.tsx（整体替换）
+/** 团队选择 dock：blank 期可切，首条消息后锁定；数据来自插件 HTTP 端点（fetch 封装经 inject 面注入）。 */
+import { useEffect, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { TeamProjection } from '../types.ts'
+import type { TeamStateView } from '../types.ts'
 import css from './TeamDock.module.css'
 
-/** inject 面：提交团队选择。 */
+/** inject 面：团队状态读取与切换提交。 */
 export interface TeamDockInjected {
-  readonly onSelect: (team: string) => void
+  /** 读当前团队状态；非团队会话（插件未挂载）返回 null。 */
+  readonly fetchState: () => Promise<TeamStateView | null>
+  /** 提交团队选择；失败 reject（错误文本为宿主返回的 error）。 */
+  readonly selectTeam: (team: string) => Promise<TeamStateView>
 }
 
 export type TeamDockProps = PropsRuntime<'conversation.input.dock'> & TeamDockInjected
 
-export function TeamDock({ useProjection, useSession, onSelect }: TeamDockProps) {
-  const projection = useProjection('team') as TeamProjection | null | undefined
+export function TeamDock({ useSession, fetchState, selectTeam }: TeamDockProps) {
   const blank = useSession(s => s.blank)
-  if (projection == null) return null
+  const [view, setView] = useState<TeamStateView | null>(null)
+  const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    fetchState()
+      .then(v => { if (live) { setView(v); setLoaded(true) } })
+      .catch(() => { if (live) setLoaded(true) }) // 端点故障等同无团队：不渲染
+      return () => { live = false }
+  }, [fetchState])
+  if (!loaded || view === null) return null
+  const onChange = (team: string) => {
+    setError(null)
+    // select 是受控组件：成功前 view 不变即视觉回退；失败仅提示。
+    selectTeam(team).then(setView).catch((e: unknown) => {
+      setError(e instanceof Error ? e.message : String(e))
+    })
+  }
   return (
     <div className={css.dock}>
       <span className={css.label}>团队</span>
       <select
         className={css.select}
-        value={projection.currentId}
+        value={view.currentId}
         disabled={!blank}
-        title={blank ? '选择本会话使用的团队' : '会话已开始，团队已锁定'}
-        onChange={event => onSelect(event.target.value)}
+        title={blank ? (error ?? '选择本会话使用的团队') : '会话已开始，团队已锁定'}
+        onChange={event => onChange(event.target.value)}
       >
-        {projection.options.map(option => (
+        {view.options.map(option => (
           <option key={option.id} value={option.id}>{option.id} · {option.summary}</option>
         ))}
       </select>
@@ -1578,45 +1486,16 @@ export function TeamDock({ useProjection, useSession, onSelect }: TeamDockProps)
 }
 ```
 
-```css
-/* packages/agent-team/src/client/TeamDock.module.css */
-.dock {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
-}
-
-.label {
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.select {
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--dsw-alias-label-primary);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-}
-
-.select:disabled {
-  color: var(--dsw-alias-label-dimmed);
-  cursor: default;
-}
-```
-
 ```ts
-// packages/agent-team/src/client/index.ts
-/** agent-team 浏览器半：在 conversation.input.dock 注册团队选择下拉。 */
+// packages/agent-team/src/client/index.ts（整体替换）
+/** agent-team 浏览器半：在 conversation.input.dock 注册团队选择下拉（数据走插件 HTTP 端点）。 */
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // 触发 ui-conversation 对 SlotMap 的声明合并（conversation.input.dock 键）。
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { TeamDock } from './TeamDock.tsx'
+import type { SelectTeamRequest, TeamStateView } from '../types.ts'
 
-export const inject = ['slots', 'sessions']
+export const inject = ['slots']
 
 export function apply(ctx: ClientContext): void {
   // inject() 等 ui-conversation 声明该槽位后再注册，声明消失自动回滚。
@@ -1626,23 +1505,39 @@ export function apply(ctx: ClientContext): void {
         name: 'conversation.input.dock',
         id: 'team',
         order: -10, // 现有 occupant：todo=0、goal=10、queue=20；负值栈顶
-        inject: (sessionId: SessionId) => ({
-          onSelect: (team: string) => {
-            void ctx.sessions.binding(sessionId)?.session.command(`/team ${team}`)
-          },
-        }),
+        inject: (sessionId: SessionId) => {
+          const base = `/agent-team/${encodeURIComponent(String(sessionId))}`
+          return {
+            fetchState: async (): Promise<TeamStateView | null> => {
+              const res = await fetch(`${base}/state`)
+              if (res.status === 404) return null // 非团队会话：插件未挂载，路由不存在
+              if (!res.ok) throw new Error(`agent-team state: HTTP ${res.status}`)
+              return await res.json() as TeamStateView
+            },
+            selectTeam: async (team: string): Promise<TeamStateView> => {
+              const res = await fetch(`${base}/select`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ team } satisfies SelectTeamRequest),
+              })
+              const body = await res.json() as TeamStateView & { error?: string }
+              if (!res.ok) throw new Error(body.error ?? `agent-team select: HTTP ${res.status}`)
+              return body
+            },
+          }
+        },
       },
       TeamDock,
     ))
 }
 ```
 
-> 注：① `useProjection`/`useSession` 经 `PropsRuntime<'conversation.input.dock'>` 到达组件（GoalDock 先例：`ui-goal/src/client/GoalBar.tsx:172-176`）；`useProjection('team')` 的键类型依赖 Task 6 注④的投影图合并，若类型未合并成功则先以 `as TeamProjection | null | undefined` 断言（已在组件签名中体现）。② `sessions.binding(sessionId)?.session.command(line)` 以 `client/runtime/src/client/sessions/session.ts:358-362` 为准。③ `--dsw-alias-label-*` token 名以 `ui-theme/src/styles/` 实际清单为准（token-usage 的 UsageModal.module.css 同款用法）。
+> 注：`PropsRuntime<'conversation.input.dock'>` 的 `useSession` 面与 Task 1 占位相同；`SessionId` 的字符串化以 `client/runtime` 的 brand 定义为准（`String()` 兜底）。
 
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `pnpm --filter agent-team test`
-Expected: PASS（team-dock 4 个测试）
+Expected: PASS（team-dock 5 个测试 + 既有全部）
 
 - [ ] **Step 5: 类型检查 + bundle**
 
@@ -1653,7 +1548,7 @@ Expected: 无错误；`lib/client.js` 含 TeamDock 注册代码
 
 ```bash
 git add packages/agent-team/src/client packages/agent-team/tests/team-dock.client.spec.tsx
-git commit -m "feat(agent-team): 浏览器半 TeamDock（input.dock 团队下拉，blank 锁定）"
+git commit -m "feat(agent-team): 浏览器半 TeamDock v2（HTTP fetchState/selectTeam，blank 锁定）"
 ```
 
 ---
@@ -1738,13 +1633,13 @@ Run: `pnpm --filter agent-team bundle; cd deepseek-harness; pnpm dsh web --patch
 逐项确认：
 - [ ] 新建会话 hero 区出现"团队模式" chip
 - [ ] 选"团队模式"开会话，会话头显示团队名标签
-- [ ] **dock 下拉（§7.1）**：输入框正上方出现团队下拉（位于 todo/goal/queue 条之上），当前值 = default（字典序首个），选项带摘要；非团队 preset 会话不出现该下拉
-- [ ] **切换团队**：下拉选 review → 会话流出现 `/team review` 命令行与成功回执；让主 Agent 委派 → 工具 description 已是 review 名册（模型只见到 reviewer/tester）
-- [ ] **锁定**：发送第一条消息后再试下拉 → 禁用且 tooltip 提示锁定；手动输入 `/team default` → 错误回执"会话已开始，团队已锁定"
+- [ ] **dock 下拉（§7.1）**：输入框正上方出现团队下拉（位于 todo/goal/queue 条之上），当前值 = default（字典序首个），选项带摘要；非团队 preset 会话不出现该下拉（GET state 404）
+- [ ] **切换团队**：下拉选 review → 下拉当前值变 review（无命令回执行）；让主 Agent 委派 → 工具 description 已是 review 名册（模型只见到 reviewer/tester）
+- [ ] **锁定**：发送第一条消息后下拉禁用且 tooltip 提示锁定；`curl -X POST http://<host>/agent-team/<sid>/select -d '{"team":"default"}'` 返回 409 "会话已开始，团队已锁定"
 - [ ] **委派卡片（§7.3）**：待定态卡片标题显示「委派 · reviewer: <短标签>」，展开 IN 区显示任务书原文；完成后标题保留、OUT 区显示成员最终文本
 - [ ] **子代理目录（§7.4）**：成员运行期间会话页头子代理目录按钮出现 `role:reviewer: <短标签>` 条目，父会话行带蓝色活动指示器；点击条目进入子会话可见成员完整工具流
 - [ ] **错误行（§7.3）**：让主 Agent 委派不存在的角色 → 红色错误行，首行显示"未知角色 … 可用角色：…"
-- [ ] **冷恢复**：blank 期切到 review → 刷新页面重开会话 → 下拉当前值仍为 review，工具名册跟随
+- [ ] **冷恢复（KV）**：blank 期切到 review → 刷新页面重开会话 → 下拉当前值仍为 review，工具名册跟随；已开始会话刷新后下拉显示锁定团队且禁用
 - [ ] 修改 `$DSH_HOME/.agent-presets/team/teams/`（如加一个名册文件）→ **新建**会话后下拉出现新团队（旧会话不变，generation 语义）
 - [ ] 把某个名册改坏（删 persona）→ 新建"团队模式"会话立即报错；设置→管理区"团队模式"卡片变红框 + "加载失败"徽标，hero chip 菜单中消失（§7.5 失败反馈）；改回后恢复
 
@@ -1756,7 +1651,6 @@ git commit -m "feat(agent-team): 示例团队 preset（团队模式，双名册�
 ```
 
 ---
-
 ### Task 9: 仓库文档同步
 
 **Files:**
@@ -1783,6 +1677,7 @@ git commit -m "docs: AGENTS.md 记录 agent-team 插件与团队模式接入方�
 
 ## Self-Review 记录
 
-- **spec 覆盖**：spec §2 包结构 → Task 1/6/7/8；§3 Config → Task 6；§4 teams/ 名册 → Task 2；§5 两层提示词 → Task 3；§6 工具契约 → Task 4；§7.1 dock → Task 7；§7.2 切换状态机 → Task 5/6（核实点①②③在 Task 6 集成测试钉死，浏览器半加载 spike 在 Task 8 Step 3 首项）；§7.3 presenter → Task 4；§7.4 子代理目录 → Task 8 手动清单；§7.5 旅程 → Task 8 手动清单；§8 错误处理 → Task 2/4/5/6 测试逐条对应；§9 发行 → Task 8（user root 路径）；§10 测试策略 → Task 2/4/5/6 单测 + 集成测试 + Task 7 组件测试 + Task 8 手动清单；§11 范围之外 → 计划中无对应任务。
-- **类型一致性**：`Role`/`Team`/`PromptTemplates`/`DelegateToolDeps`/`TeamState`/`SelectOutcome`/`TeamProjection`/`TEAM_SELECTED_EVENT`/`buildMemberPersona(role, model, templates)`/`createDelegateTool(toolName, deps)`/`createTeamState({teams, defaultTeamId, initialId})` 在 Task 2-7 间签名一致；`TeamDockProps` 消费 `PropsRuntime<'conversation.input.dock'>` + `TeamDockInjected`，与 client/index.ts 的 inject 面一致。
-- **已知实现期核实点**（非占位符，均有确切位置）：①`ctx.inject(['commands'])` 在 preset scope 的可用性 + 激活期会话事件访问途径（Task 6 注）；②`sessionProjections.register` 字段签名与 SessionEventMap/投影图合并接口名（Task 6 注④）；③`SubagentStartRequest` 字段（Task 4 注）；④`PropsRuntime` 钩子面与 `session.command`（Task 7 注）；⑤preset 插件浏览器半加载（Task 8 spike，含备选）；⑥`$DSH_HOME` 实际布局（Task 8 Step 2）。
+- **spec 覆盖**（v2）：spec §2 包结构 → Task 1/6/7/8；§3 Config → Task 6；§4 teams/ 名册 → Task 2；§5 两层提示词 → Task 3；§6 工具契约 → Task 4；§7.1 dock → Task 7；§7.2 状态机 + HTTP 通道 + KV → Task 5/6（工具重注册断言在 Task 6 集成测试钉死，浏览器半加载 spike 在 Task 8 Step 3 首项）；§7.3 presenter → Task 4；§7.4 子代理目录 → Task 8 手动清单；§7.5 旅程 → Task 8 手动清单；§8 错误处理 → Task 2/4/5/6 测试逐条对应；§9 发行 → Task 8（user root 路径）；§10 测试策略 → Task 2/4/5/6 单测 + 集成测试 + Task 7 组件测试 + Task 8 手动清单；§11 范围之外 → 计划中无对应任务。
+- **类型一致性**（v2）：`Role`/`Team`/`PromptTemplates`/`DelegateToolDeps`/`TeamState`/`SelectOutcome`/`TeamOption`/`TeamStateView`/`SelectTeamRequest`/`buildMemberPersona(role, model, templates)`/`createDelegateTool(toolName, deps)`/`createTeamState({teams, defaultTeamId, initialId})` 在 Task 2-7 间签名一致；`TeamDockProps` 消费 `PropsRuntime<'conversation.input.dock'>` + `TeamDockInjected`（`fetchState`/`selectTeam`），与 client/index.ts 的 inject 面一致。
+- **已知实现期核实点**（非占位符，均有确切位置）：①`defineDomain`/`KvTable` 泛型签名与 storage-domain 包相对路径（Task 6 注①，token-usage `src/store.ts:32-37` 先例）；②preset scope 的 `ctx.agent.session` 类型面（Task 6 注②）；③`SubagentStartRequest` 字段（Task 4 注）；④`PropsRuntime` 钩子面与 `SessionId` 字符串化（Task 7 注）；⑤preset 插件浏览器半加载（Task 8 spike，含备选）；⑥`$DSH_HOME` 实际布局（Task 8 Step 2）。
+- **v1 → v2 变更记录**：删除 `/team` 命令、`team/selected` 会话事件、`team` 会话投影、SessionEventMap/投影图合并（v1 Task 5/6 曾落地，v2 Task 5/6 移除）；新增 storageDomain KV 持久化与每会话 HTTP GET/POST 路由；浏览器半从"读投影 + session.command"改为"fetchState/selectTeam 注入"。
