@@ -6,7 +6,7 @@ import z from '@deepseek-ai/schemastery'
 import { z as zod } from 'zod'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { defineDomain, domainTable, type Domain, type KvTable } from '@deepseek-ai/dsh-storage-domain'
-import type {} from '@deepseek-ai/dsh-subagent'
+import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { buildMemberPersona } from './prompt.ts'
@@ -139,6 +139,9 @@ type RouteRes = {
  * 注册每会话的 state/select 两条 HTTP 路由（路径含 sessionId，多会话互不干扰，
  * fiber 卸载时 cordis 自动摘除）。webServer 是可选能力（headless 无此服务），
  * 走 ctx.inject 条件注册，token-usage 同款（packages/token-usage/src/index.ts:84-105）。
+ * 信任边界：与 token-usage 端点一致，这两条端点不做认证——sessionId 是不可猜测的
+ * 不透明 id，POST /select 仅在会话 blank 期改写团队选择；这镜像了宿主 webserver
+ * 的本地-only 信任模型。
  */
 function installTeamRoutes(ctx: Context, sessionId: string, state: TeamState, table: KvTable<string, string>, reinstall: () => void): void {
   ctx.inject(['webServer'], (webCtx: Context) => {
@@ -207,10 +210,44 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     defaultTeamId: config.defaultTeam,
     initialId: table.get(sessionId),
   })
-  let disposeTool = registerDelegateTool(ctx, toolName, provider, state.current, config)
-  installTeamRoutes(ctx, sessionId, state, table, () => {
-    disposeTool()
+  // team_delegate 固定发送 persona 与 maxDepth:1（tool.ts），两者分别要求 provider 具备
+  // persona / depthLimit 能力；缺失时每次委派都在运行时失败，故在最早可得的挂载点响亮
+  // 报错（内置 tool-subagent 同款：tool-subagent/src/index.ts:283-292）。同时镜像 provider
+  // 生命周期：兄弟 fiber 加载顺序与 HMR 替换都可能改变 provider 可用性，工具随 provider
+  // 在场与否挂载/摘除。
+  let disposeTool: (() => void) | undefined
+  const registerForCurrentTeam = (): void => {
+    disposeTool?.()
     disposeTool = registerDelegateTool(ctx, toolName, provider, state.current, config)
+  }
+  const mountTool = (p: SubagentProvider): void => {
+    const missing: string[] = []
+    if (!p.capabilities.persona) missing.push('persona')
+    if (!p.capabilities.depthLimit) missing.push('depthLimit')
+    if (missing.length > 0) {
+      throw new Error(
+        `agent-team: provider "${p.name}" 缺少 team_delegate 委派必需能力 ${missing.join('/')}（固定发送 persona 与 maxDepth:1）——请配置具备 persona 与 depthLimit 能力的 provider（如 spawn/fork）`,
+      )
+    }
+    registerForCurrentTeam()
+  }
+  ctx.on('subagent/provider-added', (p) => {
+    if (p.name === provider && disposeTool === undefined) mountTool(p)
+  })
+  ctx.on('subagent/provider-removed', (name) => {
+    if (name !== provider || disposeTool === undefined) return
+    disposeTool()
+    disposeTool = undefined
+  })
+  const present = ctx.subagents.getProvider(provider)
+  if (present !== undefined) {
+    mountTool(present)
+  } else {
+    ctx.logger.info(`agent-team: subagent provider "${provider}" 尚未注册；team_delegate 将等它出现时挂载`)
+  }
+  installTeamRoutes(ctx, sessionId, state, table, () => {
+    // provider 已卸载时不重注册（provider-removed 已清空 disposeTool）
+    if (ctx.subagents.getProvider(provider) !== undefined) registerForCurrentTeam()
   })
   ctx.systemPrompt.section({
     name: `plugin:${name}`,

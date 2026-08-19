@@ -11,6 +11,18 @@ const FIXTURE_DIR = join(import.meta.dirname, 'fixtures', 'team-preset')
 interface RegisteredTool { name: string; description: string }
 type Handler = (req: unknown, res: unknown) => Promise<void>
 type Disposer = () => void | Promise<void>
+type ProviderCaps = { outputSchema: boolean; depthLimit: boolean; toolFilter: boolean; persona: boolean }
+const FULL_CAPS: ProviderCaps = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
+type FakeCtxOptions = {
+  webServer?: boolean
+  kv?: Map<string, string>
+  sessionId?: string
+  failPut?: boolean
+  /** getProvider 返回的 provider 能力（默认全开，匹配 spawn/fork）。 */
+  providerCapabilities?: Partial<ProviderCaps>
+  /** getProvider 返回 undefined（模拟 provider 尚未注册的延迟挂载）。 */
+  providerAbsent?: boolean
+}
 
 // index.ts 持有模块级共享 domain 单例，每个测试须取全新模块实例以隔离跨测试共享状态。
 type FreshMod = typeof import('../src/index.ts')
@@ -19,11 +31,13 @@ async function load(): Promise<FreshMod> {
   return import('../src/index.ts')
 }
 
-function fakeCtx(events: SessionEvent[], baseUrl?: string, opts: { webServer?: boolean; kv?: Map<string, string>; sessionId?: string; failPut?: boolean } = {}) {
-  const tools: RegisteredTool[] = []
+function fakeCtx(events: SessionEvent[], baseUrl?: string, opts: FakeCtxOptions = {}) {
+  const tools: RegisteredTool[] = []                              // 注册日志：现有测试断言用（重注册追加）
+  const activeTools = new Map<string, RegisteredTool>()           // 生效注册：HMR 卸载断言用（disposer 摘除）
   const sections: { name: string; order: number; text: unknown }[] = []
   const routes = new Map<string, Handler>()
   const disposers: Disposer[] = []
+  const listeners: { event: string; cb: (payload: unknown) => void }[] = []
   const kv = opts.kv ?? new Map<string, string>()
   let openCount = 0
   let closeCount = 0
@@ -49,9 +63,33 @@ function fakeCtx(events: SessionEvent[], baseUrl?: string, opts: { webServer?: b
   const ctx = {
     baseUrl,
     agent,
-    tools: { register: (tool: RegisteredTool) => { tools.push(tool); return () => {} } },
-    systemPrompt: { section: (s: { name: string; order: number; text: unknown }) => { sections.push(s); return () => {} } },
-    subagents: { start: async () => { throw new Error('integration test 不发起真实委派') } },
+    tools: {
+      register: (tool: RegisteredTool) => {
+        tools.push(tool)
+        activeTools.set(tool.name, tool)
+        const disposer: Disposer = () => { activeTools.delete(tool.name) }
+        disposers.push(disposer)
+        return disposer
+      },
+    },
+    systemPrompt: {
+      section: (s: { name: string; order: number; text: unknown }) => {
+        sections.push(s)
+        const disposer: Disposer = () => {
+          const i = sections.indexOf(s)
+          if (i >= 0) sections.splice(i, 1)
+        }
+        disposers.push(disposer)
+        return disposer
+      },
+    },
+    subagents: {
+      start: async () => { throw new Error('integration test 不发起真实委派') },
+      getProvider: (name: string) => {
+        if (opts.providerAbsent === true) return undefined
+        return { name, capabilities: { ...FULL_CAPS, ...opts.providerCapabilities }, inheritsParentContext: false }
+      },
+    },
     storageDomain: {
       open: async () => {
         openCount++
@@ -62,6 +100,10 @@ function fakeCtx(events: SessionEvent[], baseUrl?: string, opts: { webServer?: b
       const service = services[names[0]]
       if (service !== undefined) cb({ ...ctx, [names[0]]: service })
     },
+    on: (event: string, cb: (payload: unknown) => void) => {
+      listeners.push({ event, cb })
+      return () => {}
+    },
     effect: (fn: () => unknown) => {
       const disposer = fn()
       if (typeof disposer === 'function') disposers.push(disposer as Disposer)
@@ -71,11 +113,15 @@ function fakeCtx(events: SessionEvent[], baseUrl?: string, opts: { webServer?: b
   return {
     ctx: ctx as unknown as Context,
     tools,
+    activeTools,
     sections,
     routes,
     kv,
     disposers,
     agent,
+    emit: (event: string, payload: unknown) => {
+      for (const l of listeners) if (l.event === event) l.cb(payload)
+    },
     get openCount() { return openCount },
     get closeCount() { return closeCount },
   }
@@ -250,4 +296,43 @@ test('POST select：KV 写失败时返回非 200、不重注册、状态不变',
   expect(tools).toHaveLength(1)                                   // 不重注册
   const { json } = await callRoute(routes, '/agent-team/s1/state', 'GET')
   expect(json?.currentId).toBe('alpha')                           // state.current 不变（回滚）
+})
+
+test('HMR 安全：卸载后工具/路由/提示段全部摘除，fresh ctx 重挂载成功', async () => {
+  const mod = await load()
+  const first = fakeCtx([], presetUrl())
+  await mod.apply(first.ctx, {} as Config)
+  expect(first.tools.map(t => t.name)).toEqual(['team_delegate'])
+  expect(first.routes.size).toBe(2)
+  expect(first.sections).toHaveLength(1)
+  for (const dispose of first.disposers) await dispose()          // 模拟 fiber 卸载
+  expect(first.activeTools.size).toBe(0)                          // 工具已摘除
+  expect(first.routes.size).toBe(0)
+  expect(first.sections).toHaveLength(0)
+  const second = fakeCtx([], presetUrl())                          // HMR 重挂载
+  await mod.apply(second.ctx, {} as Config)
+  expect(second.tools.map(t => t.name)).toEqual(['team_delegate'])
+  expect([...second.routes.keys()].sort()).toEqual(['/agent-team/s1/select', '/agent-team/s1/state'])
+  expect(second.sections).toHaveLength(1)
+})
+
+test('provider 缺 persona 能力：激活响亮失败（挂载点能力校验）', async () => {
+  const mod = await load()
+  const { ctx } = fakeCtx([], presetUrl(), { providerCapabilities: { persona: false } })
+  await expect(mod.apply(ctx, {} as Config)).rejects.toThrowError(/persona/)
+})
+
+test('provider 缺 depthLimit 能力：激活响亮失败（挂载点能力校验）', async () => {
+  const mod = await load()
+  const { ctx } = fakeCtx([], presetUrl(), { providerCapabilities: { depthLimit: false } })
+  await expect(mod.apply(ctx, {} as Config)).rejects.toThrowError(/depthLimit/)
+})
+
+test('provider 尚未注册：激活成功但工具延迟挂载，provider-added 后注册', async () => {
+  const mod = await load()
+  const { ctx, tools, emit } = fakeCtx([], presetUrl(), { providerAbsent: true })
+  await mod.apply(ctx, {} as Config)
+  expect(tools).toHaveLength(0)
+  emit('subagent/provider-added', { name: 'spawn', capabilities: FULL_CAPS, inheritsParentContext: false })
+  expect(tools.map(t => t.name)).toEqual(['team_delegate'])
 })

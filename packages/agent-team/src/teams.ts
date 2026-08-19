@@ -11,7 +11,7 @@ export function isSessionBlank(events: readonly SessionEvent[]): boolean {
   return !events.some(event => event.type === 'turn/start')
 }
 
-/** 团队的投影选项：摘要取首角色 description，空名册回退 id。 */
+/** 团队的状态视图选项：摘要取首角色 description，空名册回退 id。 */
 export function teamOption(team: Team): TeamOption {
   return { id: team.id, summary: team.roles[0]?.description ?? team.id }
 }
