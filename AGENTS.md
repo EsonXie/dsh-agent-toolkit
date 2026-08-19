@@ -23,6 +23,7 @@
 - 本地开发回路：在 dsh 源码 checkout 中运行 `pnpm dsh web --patch ./cordis.yml`（或已装 CLI 时用 `dsh web --patch`）。**patch 中插件路径必须是绝对路径**，相对路径不会被解析。
 - 修改 `cordis.yml` 中的插件 config 会触发 HMR 热替换，无需重启。
 - agent-team 例外：经 user preset root（`$DSH_HOME/.agent-presets/team`）接入开发回路，不走 cordis.yml patch（CLI overlay 会重置 roots）；含浏览器半，改动后需 `bundle`。
+- agent-team 双挂载点：preset 内挂载跑 Node 半真实工作；cordis.yml 另需一行全局挂载 `config: { clientOnly: true }`（Node 半空转，仅让浏览器半 bundle 进 boot 清单，否则 dock 要等"建会话后刷新页面"）。激活失败反馈在 preset chip hover title / select RPC reason，不标 broken、不进服务端控制台。
 - 从一开始就遵守的约定：可调参数进 Config schema（不硬编码）；工具 `execute` 返回规范 JSON 值、args 只读且已校验；策略/权限逻辑放 `tools/*` 事件钩子，不内建进工具。
 
 ## 目录结构（已定案）
@@ -36,7 +37,7 @@ dsh-agent-toolkit/
 │   ├─ token-usage/      ← Token 用量统计（第一个实现，已建成）
 │   ├─ feishu-bot/       ← 飞书机器人
 │   └─ agent-team/       ← Agent 团队（已建成；presets/team/ 随包发行"团队模式"）
-│                           含 teams/ 多名册（default/review）
+│                           teams/default.yml（explorer + general）
 ├─ cordis.yml            ← 开发用 patch（插件 name 写绝对路径）
 └─ package.json + pnpm-workspace.yaml（workspace 只含 packages/*，不含 deepseek-harness）
 ```
