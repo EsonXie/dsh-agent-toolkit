@@ -1,14 +1,15 @@
 # Agent 团队插件设计（团队模式 preset + 会话内团队选择）
 
-> 日期：2026-08-18（2026-08-19 重大修订：团队 = preset 内名册文件，输入框上方 dock 下拉在会话 blank 期切换团队；此前版本为"团队 = preset 单名册"）
-> 依据：`docs/2026-08-18-插件组技术可行性评估.md`（源码闭环）+ 两轮设计讨论确认（委派卡片、团队切换交互均经 dsh 源码逐项核实）
+> 日期：2026-08-18（2026-08-19 第二次重大修订：取消 /team 命令与 team/selected 会话事件——宿主 `assertEventsSupported` 拒绝加载含未知非 ignorable 事件的会话日志（session-persistence/src/coordinator.ts:1061-1066），外部插件的事件类型进不了生成的 KNOWN_SESSION_EVENT_TYPES 目录且 `Session.append` 不写 ignorable，自定义事件会让整个会话无法恢复。团队选择改走插件自建 HTTP 端点 + 插件自有 KV 持久化；dock 数据源从会话投影改为 HTTP GET。上一版：团队 = preset 内名册文件，dock 下拉 + /team 命令）
+> 依据：`docs/2026-08-18-插件组技术可行性评估.md`（源码闭环）+ 三轮设计讨论确认（委派卡片、团队切换交互、HTTP/KV 通道均经 dsh 源码逐项核实）
 > 状态：设计已获用户确认，待实现
 
 ## 1. 核心命题
 
 - **preset = "团队模式"入口**：preset 的选择/复制/删除/设默认全部复用原生 preset 机制与 Web UI，插件不自建团队管理界面。
 - **团队 = preset 目录内 `teams/` 下的名册文件**：每团队一个 `teams/<id>.yml`（格式见 §4），一个 preset 可装多个团队；无全局 `Config.teams`，无合并语义。
-- **会话内团队选择（blank 期限定）**：会话为空（无 `turn/start` 事件）时，用户经输入框上方 dock 下拉切换团队；**首条消息发出后锁定**（UI 禁用 + 宿主拒绝，双层强制）——与官方 preset chip"A control that spends most of its life disabled belongs on the screen where it still works"同哲学。
+- **会话内团队选择（blank 期限定）**：会话为空（无 `turn/start` 事件）时，用户经输入框上方 dock 下拉切换团队；**首条消息发出后锁定**（UI 禁用 + 宿主 POST 拒绝，双层强制）——与官方 preset chip"A control that spends most of its life disabled belongs on the screen where it still works"同哲学。**无 /team 命令**：锁定语义下命令唯一的用途就是 blank 期切换，UI 下拉已完全覆盖，命令只会带来第二条需要守护的写路径。
+- **选择结果持久化 = 插件自有 KV**（`storageDomain` KvTable，key = sessionId，value = teamId；token-usage `ctx.storageDomain.open` 先例）：**不写任何自定义会话事件**。blank 期刷新恢复已选团队；已开始会话重载/跨进程恢复时名册与锁定团队一致。
 - **委派 = 一次性 spawn 子 Agent**：主 Agent 自主决策，前台同步等待结果。不做后台并行、不做长期队友、不做角色 scoped 注入（评估报告 §1.4）。
 - **插件 = Node 半 + 浏览器半 bundle**（token-usage 同款结构）：Node 半管名册/工具/切换状态机，浏览器半管 dock 下拉。
 
@@ -21,14 +22,14 @@ packages/agent-team/
 ├─ tsdown.config.ts      ← 浏览器半 bundle（照 token-usage 先例）
 ├─ src/
 │   ├─ index.ts          ← Node 半入口：命名导出 name/inject/Config/apply（无 default export）
-│   ├─ types.ts          ← 纯类型：team/selected 事件与 team 投影契约（Node 半/浏览器半/测试共用）
+│   ├─ types.ts          ← 纯类型：HTTP GET/POST 的 wire 契约（Node 半/浏览器半/测试共用）
 │   ├─ roles.ts          ← teams/*.yml 加载 + Schemastery 校验（多文件）
 │   ├─ prompt.ts         ← 两层提示词拼装
 │   ├─ tool.ts           ← team_delegate 工具（含 presenter）
-│   ├─ teams.ts          ← 团队状态机：per-agent ref、/team 命令、会话投影、锁定
+│   ├─ teams.ts          ← 团队状态机：当前团队 ref、trySelect、blank 锁定（纯逻辑）
 │   └─ client/
 │       ├─ index.ts      ← 浏览器半入口：slots.inject 注册 TeamDock
-│       └─ TeamDock.tsx  ← 团队下拉组件（纯 props）
+│       └─ TeamDock.tsx  ← 团队下拉组件（纯 props，fetch 由 inject 面注入）
 └─ presets/team/         ← 随包发行的示例"团队模式" preset
     ├─ agent.cordis.yml  ← 挂载本插件（config 可全省略）
     ├─ preset.yml        ← name/description/order（仅展示文本）
@@ -120,21 +121,21 @@ roles:
 
 - **槽位**：`conversation.input.dock`（list/session，owner `InputZone`，渲染点 `ConversationRoot.tsx:164`，输入卡片正上方整宽行；hero 新会话页同样渲染）。注册 `id: 'team'`、`order: -10`（现有 occupant：todo=0、goal=10、queue=20；order 升序，负值栈顶——`ui-slots/src/index.ts:861-868` + `web-react/src/scoped-slots.tsx:839`）。组件内下拉左对齐。
 - **为何不放 hero 行**：heroWorkspaceRow 构成硬编码（WorkspaceChip + hero.workspace + hero.agentPreset 两 single 槽位，`ConversationRoot.tsx:100-124`），preset chip 右侧无可插槽位；dock 是不改上游条件下离目标最近的位置。
-- **数据源**：宿主注册的 `team` 会话投影（permission-presets 的 `permissions` 投影样板，`permission-presets/src/index.ts:243-252`），内容 = 当前团队 id + 可选团队列表（id + 首角色描述摘要）；**非团队 preset 的会话投影为空 → dock 不渲染**。
+- **数据源**：插件自建 HTTP 端点 `GET /agent-team/<sessionId>/state` 返回 `{ currentId, options: [{ id, summary }] }`（summary = 首角色 description）；**非团队 preset 的会话该路由不存在（404）→ dock 不渲染**。不用会话投影：投影只能由会话事件 fold 驱动（session-projection 公开面无写入口，`session-projection/src/index.ts:194-385`），本设计不产生会话事件，投影无法反映切换。
 - **锁定 UI**：`useSession(s => s.blank)`（`ConversationSnapshot.blank`，`conversation.ts:475`——首个被接受的 prompt 后翻 false）；`!blank` 时下拉 disabled（沿用 `.chip:disabled` opacity 先例），tooltip 说明"会话已开始，团队已锁定"。
-- **选中提交**：`session.command('/team <id>')`（权限 chip 样板，`ui-conversation/apply.ts:348-352` → `session.ts:358-362` → `commands.execute`）。
-- 组件守 client 规范：纯 props（四 shares）、无订阅机器、中文文案、CSS Modules + `--dsw-*` token。
+- **选中提交**：inject 面回调 → `POST /agent-team/<sessionId>/select`（body `{ team }`）→ 200 后组件本地更新当前值；409/400 时回退选中值并展示错误文本。会话事件投影不存在，组件对切换结果的即时回显靠 POST 响应 + 本地 state。
+- 组件守 client 规范：纯 props（fetch 封装经 inject 面注入，组件不直接 fetch）、无订阅机器、中文文案、CSS Modules + `--dsw-*` token。
 
-### 7.2 团队切换状态机（Node 半，teams.ts）
+### 7.2 团队切换状态机与 HTTP 通道（Node 半）
 
-- **当前团队 = per-agent 可变 ref**（模型选择器 `selectionFor` 样板，`api-proxy.ts:1123-1150`）：初值 = `Config.defaultTeam` ?? 字典序首个团队；冷恢复时 fold 会话事件取最新 `team/selected` 重建。
-- **`/team <id>` 命令 handler**（`/permission` 样板，`permission-presets/src/index.ts:257-277`）：
-  1. id 未命中团队集 → 返回错误并列出可用团队
-  2. `sessionBlank(agent.session)` 为 false（存在 `turn/start` 事件，`api-proxy.ts:476-478` 同一定义）→ 返回错误"会话已开始，团队已锁定"（宿主层强制兜底；命令生命周期 `command/run`/`command/done` 落日志，拒绝可重放）
-  3. 更新 ref → **dispose 旧 team_delegate 注册、以新名册重注册**（description 含新名册）→ `session.append('team/selected', { team: id })`（持久、可重放，符合"model-visible ⟺ logged"）
+- **当前团队 = per-agent 可变 ref**（模型选择器 `selectionFor` 样板，`api-proxy.ts:1123-1150`）：初值 = KV 命中（按 sessionId）?? `Config.defaultTeam` ?? 字典序首个团队。
+- **HTTP 端点**（webServer 可选能力，`ctx.inject(['webServer'], …)` 条件注册，token-usage `ctx.inject(['webServer'])` + `webServer.register({ kind: 'exact', … })` 先例；headless/CLI 无 webServer 时整个团队切换面不存在，工具仍按初始团队工作）：
+  - 每个会话的插件实例注册**自己会话专属**的两条 exact 路由（路径含 sessionId，多会话互不干扰，fiber 卸载时 cordis 自动摘除）：`GET /agent-team/<sessionId>/state` 与 `POST /agent-team/<sessionId>/select`。
+  - POST handler 语义：① team 未命中团队集 → 400 + 列出可用团队；② `isSessionBlank(agent.session.events)` 为 false（存在 `turn/start` 事件，`api-proxy.ts:476-478` 同一定义）→ 409 "会话已开始，团队已锁定"（宿主层强制兜底）；③ 更新 ref → **dispose 旧 team_delegate 注册、以新名册重注册**（description 含新名册）→ 写 KV（`sessionId → teamId`）→ 200 返回新 state。
+- **无会话事件、无会话投影**：`team/selected` 事件与 `team` 投影在本版移除（废弃原因见文头修订注）。切换的"可重放性"由 KV 承担：激活时按 sessionId 读回。
 - **实现期核实点**（均有确切备选，非占位）：
-  1. preset scope 挂载的插件能否注册 slash 命令——若 commands 服务在 agent scope 不可用，退到 Typert Remote RPC（`api/remotes` 聚合先例；dock onSelect 改调 RPC）。
-  2. 会话进行中重注册工具后，下一步模型请求是否拿到新 description——tools 按请求组装，预期成立，集成测试钉死。
+  1. 会话进行中重注册工具后，下一步模型请求是否拿到新 description——tools 按请求组装，预期成立，集成测试钉死。
+  2. webServer 路由的注册/摘除与 fiber 生命周期对齐（HMR 安全测试覆盖）。
 
 ### 7.3 委派卡片（host 端纯函数 presenter，仿 tool-workflow 样板）
 
@@ -174,11 +175,12 @@ presentResult: (args, { isError }) => (isError ? undefined : { card: 'generic' }
 | teams/ 缺失/为空/任一文件解析或校验失败 | 插件激活 | 抛错 → preset 挂载被拒并标记 broken（管理区红框可见、选择器隐藏），新建会话立即失败 |
 | 角色 provider 无适配器 | 首次委派该角色 | `resolveChildAgentOptions` 响亮失败 |
 | role 未命中当前团队 | 委派时 | 报错 + 列出当前团队可用角色名 |
-| `/team` id 未命中 | 切换时 | 命令返回错误 + 列出可用团队 |
-| 首条消息后 `/team` 切换 | 切换时 | 命令返回错误"会话已开始，团队已锁定"（`turn/start` 判定） |
+| POST select team 未命中 | 切换时 | 400 + 列出可用团队 |
+| 首条消息后切换 | 切换时 | POST 409 "会话已开始，团队已锁定"（`turn/start` 判定）；UI 层下拉同时 disabled |
 | 成员异常终止 | 结果收集 | 报错 + 附部分产出文本 |
 | 成员试图再委派 | 成员执行时 | provider 按 maxDepth 拒绝 |
-| 插件 HMR 卸载 | 任意 | cordis 自动清理注册（工具/命令/提示段/槽位）；团队状态是纯内存数据 + 会话事件，无手动资源 |
+| KV/webServer 不可用 | 激活/切换 | storageDomain 在顶层 inject（激活即失败）；webServer 缺失时切换面不存在，工具按初始团队工作 |
+| 插件 HMR 卸载 | 任意 | cordis 自动清理注册（工具/HTTP 路由/提示段/槽位）；团队状态是纯内存数据 + KV，无手动资源 |
 
 ## 9. preset 发行（两条官方路径，文档化安装步骤）
 
@@ -187,11 +189,11 @@ presentResult: (args, { isError }) => (isError ? undefined : { card: 'generic' }
 
 ## 10. 测试策略
 
-1. **单测**（vitest）：teams/ 解析/校验（合法多文件、缺字段、重名、缺目录、空目录）；两层提示词拼装（模型族模板选择、Config 覆盖）；presenter 纯函数（presentCall 标题与 rawInput 拼装，presentResult 成功保留 generic / isError 返回 undefined）；团队状态机（默认团队、/team 切换重注册、blank 锁拒绝、冷恢复 fold）。
-2. **浏览器半组件测试**：TeamDock 以 props 驱动（投影有/无数据渲染、blank 锁定 disabled、onSelect 发 `/team <id>`）。
-3. **REAL-composition 测试**：boot 测试专用 cordis.yml（preset + 插件），断言工具注册、名册编入 description、未知 role 报错列名册、`/team` 切换后 description 更新（核实点 ② 在此钉死）。
-4. **HMR 安全测试**：dispose 插件 fiber → 工具、命令、提示段、dock 槽位注册全部移除。
-5. 真实 LLM 端到端委派不进单测，作为开发回路手动验证项（含 UI 目测：dock 下拉、锁定、委派卡片、子代理目录、错误行、broken preset 反馈）。
+1. **单测**（vitest）：teams/ 解析/校验（合法多文件、缺字段、重名、缺目录、空目录）；两层提示词拼装（模型族模板选择、Config 覆盖）；presenter 纯函数（presentCall 标题与 rawInput 拼装，presentResult 成功保留 generic / isError 返回 undefined）；团队状态机（默认团队优先级、trySelect 切换、blank 锁拒绝）。
+2. **浏览器半组件测试**：TeamDock 以 props 驱动（注入的 fetchState/selectTeam 桩；有/无数据渲染、blank 锁定 disabled、onSelect 调用 selectTeam、POST 失败回退）。
+3. **REAL-composition 测试**：boot 测试专用 cordis.yml（preset + 插件），断言工具注册、名册编入 description、未知 role 报错列名册、POST 切换后 description 更新（核实点 ① 在此钉死）。
+4. **HMR 安全测试**：dispose 插件 fiber → 工具、HTTP 路由、提示段、dock 槽位注册全部移除。
+5. 真实 LLM 端到端委派不进单测，作为开发回路手动验证项（含 UI 目测：dock 下拉、锁定、委派卡片、子代理目录、错误行、broken preset 反馈、刷新后团队恢复）。
 
 ## 11. 范围之外（明确不做）
 
