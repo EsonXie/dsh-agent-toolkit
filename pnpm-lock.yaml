@@ -45,6 +45,9 @@ importers:
       '@deepseek-ai/dsh-commands':
         specifier: link:../../deepseek-harness/packages/interaction/commands
         version: link:../../deepseek-harness/packages/interaction/commands
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: link:../../deepseek-harness/packages/host/webserver
+        version: link:../../deepseek-harness/packages/host/webserver
       '@deepseek-ai/dsh-llm':
         specifier: link:../../deepseek-harness/packages/llm/llm
         version: link:../../deepseek-harness/packages/llm/llm
@@ -54,6 +57,9 @@ importers:
       '@deepseek-ai/dsh-session-projection':
         specifier: link:../../deepseek-harness/packages/session/session-projection
         version: link:../../deepseek-harness/packages/session/session-projection
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: link:../../deepseek-harness/packages/storage/storage-domain
+        version: link:../../deepseek-harness/packages/storage/storage-domain
       '@deepseek-ai/dsh-subagent':
         specifier: link:../../deepseek-harness/packages/subagent/subagent
         version: link:../../deepseek-harness/packages/subagent/subagent
