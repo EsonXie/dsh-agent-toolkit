@@ -153,12 +153,12 @@ async function callRoute(routes: Map<string, Handler>, path: string, method: str
   return { status: res.status, json: res.body === '' ? undefined : JSON.parse(res.body) as TeamStateView & { error?: string } }
 }
 
-test('激活：注册 team_delegate（默认团队名册入 description）、state/select 路由与提示段', async () => {
+test('激活：注册 team_delegate（静态 description）、state/select 路由与提示段', async () => {
   const mod = await load()
   const { ctx, tools, sections, routes } = fakeCtx([], presetUrl())
   await mod.apply(ctx, {} as Config)
   expect(tools.map(t => t.name)).toEqual(['team_delegate'])
-  expect(tools[0].description).toContain('reviewer: 代码审查员')   // 默认团队 = 字典序首个 alpha
+  expect(tools[0].description).not.toContain('reviewer')           // 静态描述，不含名册
   expect(tools[0].description).not.toContain('researcher')
   expect([...routes.keys()].sort()).toEqual(['/agent-team/s1/select', '/agent-team/s1/state'])
   expect(sections).toHaveLength(1)
@@ -177,15 +177,15 @@ test('GET state：返回当前团队与选项摘要', async () => {
   })
 })
 
-test('POST select 成功：工具重注册（description 含新名册）、KV 写入、返回新视图', async () => {
+test('POST select 成功：工具重注册（静态 description 不变）、KV 写入、返回新视图', async () => {
   const mod = await load()
   const { ctx, tools, routes, kv } = fakeCtx([], presetUrl())
   await mod.apply(ctx, {} as Config)
   const { status, json } = await callRoute(routes, '/agent-team/s1/select', 'POST', { team: 'beta' })
   expect(status).toBe(200)
   expect(json?.currentId).toBe('beta')
-  expect(tools).toHaveLength(2)                                   // 重注册产物
-  expect(tools[1].description).toContain('researcher: 资料调研与分析')
+  expect(tools).toHaveLength(2)                                   // 重注册产物（v2；Task 6b 移除）
+  expect(tools[1].description).toBe(tools[0].description)         // 静态描述，重注册不改变
   expect(kv.get('s1')).toBe('beta')
 })
 
@@ -221,20 +221,21 @@ test('POST select 会话已开始：409 锁定，不重注册、不写 KV', asyn
   expect(kv.has('s1')).toBe(false)
 })
 
-test('冷恢复：KV 已有选择时初始团队跟随（工具名册与 GET state）', async () => {
+test('冷恢复：KV 已有选择时初始团队跟随（GET state）', async () => {
   const mod = await load()
   const { ctx, tools, routes } = fakeCtx([], presetUrl(), { kv: new Map([['s1', 'beta']]) })
   await mod.apply(ctx, {} as Config)
-  expect(tools[0].description).toContain('researcher')
+  expect(tools[0].description).not.toContain('researcher')         // 静态描述不含名册
   const { json } = await callRoute(routes, '/agent-team/s1/state', 'GET')
   expect(json?.currentId).toBe('beta')
 })
 
-test('defaultTeam 命中时作为初始团队；未命中时激活失败', async () => {
+test('defaultTeam 命中时作为初始团队（GET state）；未命中时激活失败', async () => {
   const mod = await load()
   const ok = fakeCtx([], presetUrl())
   await mod.apply(ok.ctx, { defaultTeam: 'beta' } as Config)
-  expect(ok.tools[0].description).toContain('researcher: 资料调研与分析')
+  const { json } = await callRoute(ok.routes, '/agent-team/s1/state', 'GET')
+  expect(json?.currentId).toBe('beta')
   const bad = fakeCtx([], presetUrl())
   await expect(mod.apply(bad.ctx, { defaultTeam: 'ghost' } as Config)).rejects.toThrowError(/ghost/)
 })

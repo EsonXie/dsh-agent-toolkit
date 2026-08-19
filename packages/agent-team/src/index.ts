@@ -108,7 +108,8 @@ function viewOf(state: TeamState): TeamStateView {
 /** 以指定团队注册 team_delegate，返回 disposer（切换时先 dispose 再重注册）。 */
 function registerDelegateTool(ctx: Context, toolName: string, provider: string, team: Team, config: Config): () => void {
   return ctx.tools.register(createDelegateTool(toolName, {
-    roles: team.roles,
+    // v2 按会话挂载：闭包直接指向本会话团队状态；v3（Task 6b）改为按 exec.agent 解析的 Map 懒建。
+    currentTeamFor: () => team,
     provider,
     templates: config.promptTemplates,
     startRun: (p, request) => ctx.subagents.start(p, request),

@@ -5,12 +5,12 @@ import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { buildMemberPersona, type PromptTemplates } from './prompt.ts'
-import type { Role } from './roles.ts'
+import type { Team } from './roles.ts'
 
 /** createDelegateTool 的外部依赖。 */
 export interface DelegateToolDeps {
-  /** 当前团队名册。 */
-  readonly roles: readonly Role[]
+  /** 返回调用方会话的当前团队（standing 共享注册下按 exec.agent 解析；懒建保证不空）。 */
+  readonly currentTeamFor: (agent: Agent) => Team
   /** ctx.subagents 的 provider 名（默认 'spawn'）。 */
   readonly provider: string
   /** C 段模板覆盖（Config.promptTemplates）。 */
@@ -69,17 +69,21 @@ async function settleForegroundRun(run: SubagentRun, roleName: string) {
 /**
  * 创建 team_delegate 工具。
  * @param toolName - 模型可见工具名（Config.toolName，默认 team_delegate）。
- * @param deps - 名册、provider、模板与委派入口。
+ * @param deps - 当前团队解析、provider、模板与委派入口。
  * @returns defineTool 产物，交给 ctx.tools.register。
+ *
+ * 工具注册是 standing scope 下跨会话共享的单次注册，description 无法内嵌具体名册；
+ * 名册对模型的动态可见性走系统提示团队段（index.ts 的 prompt section 函数 text）。
  */
 export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
-  const roster = deps.roles.map(r => `- ${r.name}: ${r.description}`).join('\n')
   return defineTool({
     name: toolName,
     description:
-      'Delegate a self-contained task to a team member (a separate agent with its own persona and optional '
-      + 'model override). The member does NOT see this conversation — give it a complete, standalone prompt. '
-      + 'This call waits for the member and returns its result. Available members:\n' + roster,
+      'Delegate a self-contained task to a member of the current session\'s team (a separate agent with its '
+      + 'own persona and optional model override). The member does NOT see this conversation — give it a '
+      + 'complete, standalone prompt. The role must be one of the current session\'s team members; the '
+      + 'available members and their descriptions are listed in the team section of the system prompt. This '
+      + 'call waits for the member and returns its result.',
     parameters: {
       role: { type: 'string', required: true, description: 'The member to delegate to. Must be one of the listed names.' },
       description: { type: 'string', required: true, description: 'A short (3-5 word) description of the delegated task, for display.' },
@@ -115,9 +119,10 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
     async execute(args, exec) {
       const parent: Agent | undefined = exec.agent
       if (!parent) throw new Error('team_delegate 需要调用方 agent（exec.agent 为空）')
-      const role = deps.roles.find(r => r.name === args.role)
+      const team = deps.currentTeamFor(parent)
+      const role = team.roles.find(r => r.name === args.role)
       if (!role) {
-        throw new Error(`未知角色 "${args.role}"。可用角色：${deps.roles.map(r => r.name).join(', ')}`)
+        throw new Error(`未知角色 "${args.role}"。可用角色：${team.roles.map(r => r.name).join(', ')}`)
       }
       const model = role.model ?? parent.options.model
       const persona = buildMemberPersona(role, model, deps.templates)

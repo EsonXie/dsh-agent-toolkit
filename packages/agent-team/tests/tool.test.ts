@@ -3,14 +3,26 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { createDelegateTool, type DelegateToolDeps } from '../src/tool.ts'
-import type { Role } from '../src/roles.ts'
+import type { Team } from '../src/roles.ts'
 
-const roles: Role[] = [
-  { name: 'reviewer', description: '代码审查员', persona: '你是审查员。', provider: 'deepseek', model: 'deepseek-reasoner' },
-  { name: 'researcher', description: '资料调研', persona: '你是调研员。' },
-]
+const teamAlpha: Team = {
+  id: 'alpha',
+  roles: [
+    { name: 'reviewer', description: '代码审查员', persona: '你是审查员。', provider: 'deepseek', model: 'deepseek-reasoner' },
+    { name: 'researcher', description: '资料调研', persona: '你是调研员。' },
+  ],
+}
+
+const teamBeta: Team = {
+  id: 'beta',
+  roles: [
+    { name: 'writer', description: '文案撰写', persona: '你是写作者。' },
+    { name: 'tester', description: '测试设计', persona: '你是测试员。' },
+  ],
+}
 
 const parent = { id: 'parent-1', options: { provider: 'deepseek', model: 'deepseek-chat' } } as unknown as Agent
+const otherParent = { id: 'parent-2', options: { provider: 'deepseek', model: 'deepseek-chat' } } as unknown as Agent
 
 function okRun(output: ContentBlock[], disposeError?: Error): SubagentRun {
   return {
@@ -22,9 +34,9 @@ function okRun(output: ContentBlock[], disposeError?: Error): SubagentRun {
 
 interface Captured { provider: string; request: SubagentStartRequest }
 
-function depsWith(run: SubagentRun, captured: Captured[]): DelegateToolDeps {
+function depsWith(run: SubagentRun, captured: Captured[], currentTeamFor?: (agent: Agent) => Team): DelegateToolDeps {
   return {
-    roles,
+    currentTeamFor: currentTeamFor ?? (() => teamAlpha),
     provider: 'spawn',
     startRun: async (provider, request) => { captured.push({ provider, request }); return run },
   }
@@ -75,6 +87,26 @@ test('未知角色报错并列出可用角色，且不发起委派', async () =>
   expect(captured).toHaveLength(0)
 })
 
+test('未知角色经 currentTeamFor 取该会话团队校验，报错列出该团队角色名', async () => {
+  const captured: Captured[] = []
+  const tool = createDelegateTool('team_delegate', depsWith(okRun([]), captured))
+  // writer 在 teamBeta，当前会话团队（默认 teamAlpha）没有 → 按 alpha 名册报错
+  await expect(callTool(tool, { role: 'writer', description: 'x', prompt: 'y' }))
+    .rejects.toThrowError(/未知角色 "writer"。可用角色：reviewer, researcher/)
+  expect(captured).toHaveLength(0)
+})
+
+test('两个不同 agent 按各自当前团队校验并委派', async () => {
+  const captured: Captured[] = []
+  const currentTeamFor = (agent: Agent): Team => agent === otherParent ? teamBeta : teamAlpha
+  const tool = createDelegateTool('team_delegate', depsWith(okRun([]), captured, currentTeamFor))
+  await expect(callTool(tool, { role: 'writer', description: 'x', prompt: 'y' }))
+    .rejects.toThrowError(/reviewer, researcher/)
+  await callTool(tool, { role: 'writer', description: 'x', prompt: 'y' }, { agent: otherParent, signal: new AbortController().signal })
+  expect(captured).toHaveLength(1)
+  expect(captured[0].request.persona).toContain('你是写作者。')
+})
+
 test('成员异常终止（max-tokens）报错并附部分产出', async () => {
   const run: SubagentRun = {
     id: 'run-2',
@@ -103,10 +135,14 @@ test('exec.agent 为空时报错', async () => {
     .rejects.toThrowError(/exec\.agent/)
 })
 
-test('工具 description 编入名册', () => {
+test('description 为静态委派语义，不含任何具体名册', () => {
   const tool = createDelegateTool('team_delegate', depsWith(okRun([]), [])) as { description: string }
-  expect(tool.description).toContain('reviewer: 代码审查员')
-  expect(tool.description).toContain('researcher: 资料调研')
+  expect(tool.description).not.toContain('reviewer')
+  expect(tool.description).not.toContain('writer')
+  expect(tool.description).toMatch(/does NOT see this conversation/)  // 成员看不到本对话
+  expect(tool.description).toMatch(/self-contained/)                 // 任务须自包含
+  expect(tool.description).toMatch(/current session/)                // role 须命中当前会话团队
+  expect(tool.description).toMatch(/system prompt/)                  // 可用成员见系统提示团队段
 })
 
 test('presentCall 生成「委派 · role: 短标签」卡片，rawInput 为任务书', () => {
