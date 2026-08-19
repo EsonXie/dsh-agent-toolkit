@@ -1,0 +1,11 @@
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+  resolve: {
+    // ui-primitives is a link: devDep whose built lib keeps react/react-dom
+    // external, resolving them to deepseek-harness's own node_modules copies.
+    // Dedupe to the package's single React instance so component specs mounting
+    // ui-primitives primitives never load a second copy (hooks would break).
+    dedupe: ['react', 'react-dom'],
+  },
+})
