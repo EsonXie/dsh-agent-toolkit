@@ -4,6 +4,8 @@
 
 > **2026-08-19 v2 修订**：设计第二次修订（spec 同日版）——取消 `/team` 命令与 `team/selected` 会话事件（宿主 `assertEventsSupported` 拒载含未知非 ignorable 事件的日志，`session-persistence/src/coordinator.ts:1061-1066`；外部插件事件进不了生成的 `KNOWN_SESSION_EVENT_TYPES` 且 `Session.append` 不写 ignorable）。团队选择改走插件自建 HTTP 端点（GET/POST，路径含 sessionId）+ 插件自有 KV（storageDomain）持久化；dock 数据源从会话投影改为 HTTP GET。Task 1-4 已按 v1 落地且不受影响；Task 5-8 为修订后版本。
 
+> **2026-08-19 v3 修订（当前执行版）**：真机验证发现 v2 挂载假设错误——preset 插件实例是 **standing scope、按 preset 代共享、跨会话单例**（`agent-presets/src/index.ts:491-534`），`ctx.agent` 恒 undefined（`core/agent/src/index.ts:40-48`）→ v2 的 `ctx.agent!.session.id` 激活即崩、select RPC 回退。另实证：浏览器半靠 preset 挂载进 boot 图有"建会话后须刷新整页"的脆弱时序。v3 决策（用户已裁）：① Node 半改 standing 语义——`Map<sessionId, TeamState>` 懒建（KV 恢复）、prefix 路由 `path: '/agent-team'` 自解析 sid（`webserver/src/index.ts:24-33,241-249`）、`ctx.on('session/disposed')` 清 Map、blank 检查经 `ctx.sessions.get(sid).events`；② 工具**单次共享注册**、description 静态通用；**名册动态可见性走 prompt section 函数 text**（`system-prompt/src/index.ts:67,514`，`dispatch.ts:174-176` 注入 `agent`）；③ 浏览器半接入 = 同一包在 cordis.yml 全局挂 `config: { clientOnly: true }` 行（单 npm 包不拆包，client-modules 扫描只要求活 fiber）；④ 默认团队定案：`default.yml` = explorer + general（opencode 风格），**删 review.yml**；⑤ spec §7.5 修正：激活期失败不标 broken（broken 仅 discovery 期），真实报错在 chip hover title / select RPC reason。v3 返工 Task 见文末「v3 返工任务」节；v2 Task 6/8 的相应内容被取代，Task 1/2/3/5/7 产物基本沿用。
+
 **Goal:** 实现 `packages/agent-team` 插件：preset 作为"团队模式"入口（内含 `teams/*.yml` 多名册），用户在输入框上方 dock 下拉于会话 blank 期选择团队（首条消息后锁定），主 Agent 通过 `team_delegate` 工具把自包含任务前台同步委派给一次性 spawn 子 Agent。
 
 **Architecture:** 设计 spec 见 `docs/superpowers/specs/2026-08-18-agent-team-design.md`（2026-08-19 第二版）。Node 半：激活时读 teams/ 全部名册 + KV 冷恢复 → 注册 team_delegate（名册编入 description）+ systemPrompt 段 + 每会话两条 HTTP 路由（GET state / POST select）；切换时 dispose 旧工具注册并以新名册重注册 + 写 KV。浏览器半：`conversation.input.dock` 注册 TeamDock 下拉（order -10），GET 读状态、POST 提交选择。
@@ -1681,3 +1683,88 @@ git commit -m "docs: AGENTS.md 记录 agent-team 插件与团队模式接入方�
 - **类型一致性**（v2）：`Role`/`Team`/`PromptTemplates`/`DelegateToolDeps`/`TeamState`/`SelectOutcome`/`TeamOption`/`TeamStateView`/`SelectTeamRequest`/`buildMemberPersona(role, model, templates)`/`createDelegateTool(toolName, deps)`/`createTeamState({teams, defaultTeamId, initialId})` 在 Task 2-7 间签名一致；`TeamDockProps` 消费 `PropsRuntime<'conversation.input.dock'>` + `TeamDockInjected`（`fetchState`/`selectTeam`），与 client/index.ts 的 inject 面一致。
 - **已知实现期核实点**（非占位符，均有确切位置）：①`defineDomain`/`KvTable` 泛型签名与 storage-domain 包相对路径（Task 6 注①，token-usage `src/store.ts:32-37` 先例）；②preset scope 的 `ctx.agent.session` 类型面（Task 6 注②）；③`SubagentStartRequest` 字段（Task 4 注）；④`PropsRuntime` 钩子面与 `SessionId` 字符串化（Task 7 注）；⑤preset 插件浏览器半加载（Task 8 spike，含备选）；⑥`$DSH_HOME` 实际布局（Task 8 Step 2）。
 - **v1 → v2 变更记录**：删除 `/team` 命令、`team/selected` 会话事件、`team` 会话投影、SessionEventMap/投影图合并（v1 Task 5/6 曾落地，v2 Task 5/6 移除）；新增 storageDomain KV 持久化与每会话 HTTP GET/POST 路由；浏览器半从"读投影 + session.command"改为"fetchState/selectTeam 注入"。
+
+---
+
+## v3 返工任务（取代 v2 Task 6/8 相应内容；Task 1/2/3/5/7 产物沿用）
+
+### Task 4b: team_delegate 静态 description + 按会话校验
+
+**Files:**
+- Modify: `packages/agent-team/src/tool.ts`
+- Modify: `packages/agent-team/tests/tool.spec.ts`（或现有工具测试文件名）
+
+- [ ] **Step 1: 失败测试**——① description 为静态常量：含委派语义（成员看不到本对话、任务须自包含、`role` 须命中当前会话团队、可用成员见系统提示团队段）且**不含任何具体名册**；② execute 经 `deps.currentTeamFor(agent)` 取该会话团队校验 role：未命中 → 报错列出**该团队**角色名；③ 两个不同 agent 返回不同团队时各自按自己团队校验。
+
+- [ ] **Step 2: 改 `DelegateToolDeps`**——`roles: readonly Role[]` 替换为：
+
+```ts
+/** 返回调用方会话的当前团队（standing 共享注册下按 exec.agent 解析；懒建保证不空）。 */
+currentTeamFor: (agent: Agent) => Team
+```
+
+- execute 内：`const agent = exec.agent; if (!agent) throw …`（原断言保留）→ `const team = deps.currentTeamFor(agent)` → `team.roles.find(r => r.name === args.role)`，未命中报错列 `team.roles` 名字。persona 拼装、spawn、结果收集不变。
+- description 静态文本（单常量，中文或英文与现有风格一致），要点：委派给当前团队成员；成员看不到本对话、任务书须自包含；`role` 必须命中当前会话团队的成员；可用成员名单见系统提示的团队段。
+
+- [ ] **Step 3: 跑测试至绿；Step 4: `pnpm --filter agent-team test && pnpm --filter agent-team typecheck`；Step 5: Commit** `refactor(agent-team): team_delegate 静态 description 与按会话团队校验`
+
+### Task 6b: index.ts standing 语义重写
+
+**Files:**
+- Modify: `packages/agent-team/src/index.ts`、`packages/agent-team/tests/*.spec.ts`（集成测试重写）
+- Modify: `packages/agent-team/package.json`（Config 说明注释，如有）
+
+- [ ] **Step 1: 失败集成测试**——① 挂载后工具仅注册一次、description 静态；② 注册的 prompt section 的 `text` 为函数：以带 `agent` 的 AssembleContext 调用 → 文案含该会话当前团队名册（每角色一行 `name: description`）；无 `agent` 时返回通用介绍不抛错；③ GET `/agent-team/<sid>/state` 惰性建态返回 200；④ POST select 切 team2 → 同 sid 再调 section text → 名册变为 team2，工具注册不变；⑤ 两个不同 sid 各自独立切换互不影响；⑥ 已发 `turn/start` 的会话 POST → 409；⑦ 模拟 `session/disposed` → 该 sid 状态清除（再 GET 重新懒建）；⑧ KV 冷恢复：写 KV 后新挂载代 GET 返回已选团队；⑨ `clientOnly: true` 挂载 → 无工具/路由/提示段注册。
+
+- [ ] **Step 2: 重写 apply**：
+
+```ts
+export function apply(ctx: Context, config: Config) {
+  if (config.clientOnly) return        // 全局挂载点：仅让浏览器半 bundle 进 boot 清单
+  // inject 增加 'sessions'（SessionStore）；禁止触碰 ctx.agent
+}
+```
+
+- `Map<string, TeamState>`（key = sessionId 字符串）；`stateFor(sid)` 懒建：initialId = KV 命中 ?? Config.defaultTeam ?? 字典序首个；`currentTeamFor(agent)` 闭包供工具。
+- HTTP：`ctx.inject(['webServer'], …)` 内注册**一条** `{ kind: 'prefix', path: '/agent-team', handler }`（`webserver/src/index.ts:28-33,241-249`；path 无尾斜杠）。handler：`new URL(req.url ?? '', 'http://localhost').pathname` 去掉 `/agent-team/` 前缀 → `<sid>/state`（GET）/`<sid>/select`（POST），其余 → 404。POST blank 检查：`ctx.sessions.get(<SessionId>)?.events` 走 `isSessionBlank`；会话不存在按 blank 处理（尚未产生事件）。
+- prompt section：`text: (context) => …` 函数形式；`context.agent` 缺省返回通用文案。
+- `ctx.on('session/disposed', ({ session }) => states.delete(String(session.id)))`。
+- 保留：KV 模块级共享单例 + refcount、provider 能力 mount 期校验、loadTeams fail loud。
+- 移除：`ctx.agent!` 用法、每会话 exact 路由、切换时工具重注册。
+
+- [ ] **Step 3: 跑测试至绿；Step 4: 全量 `test` + `typecheck`；Step 5: Commit** `fix(agent-team): standing scope 语义——按会话懒建态、prefix 路由、prompt 段动态名册`
+
+### Task 8b: 默认名册 opencode 化 + 双挂载点接入
+
+**Files:**
+- Modify: `packages/agent-team/presets/team/teams/default.yml`
+- Delete: `packages/agent-team/presets/team/teams/review.yml`（及引用它的文档/注释）
+- Modify: `cordis.yml`（仓库根，开发 patch）
+- 文件系统：重新同步 `C:\Users\Eson\.dsh\.agent-presets\team\`（含删旧 review.yml）
+
+- [ ] **Step 1: default.yml 重写为两角色**（persona 用中文，与 spec §4 格式一致；description 为主 Agent 选角唯一依据，写清分工边界）：
+  - `explorer`：快速只读代码库探索——定位文件/符号、回答结构与调用关系问题，不修改文件；persona 强调只读、结论附路径行号。
+  - `general`：通用多步骤任务执行——可读可写、跑命令，完成实现/修复类任务；persona 强调动手前读 AGENTS.md、完成后跑相关检查。
+- [ ] **Step 2: 删 review.yml**；grep 全仓确认无残留引用（文档中提及示例名册处同步更新）。
+- [ ] **Step 3: cordis.yml 追加全局挂载行**：
+
+```yaml
+- name: D:\work\github\dsh\dsh-agent-toolkit\packages\agent-team
+  config:
+    clientOnly: true
+```
+
+- [ ] **Step 4: 同步 user preset root**（覆盖复制 presets/team → `C:\Users\Eson\.dsh\.agent-presets\team`，删除其中旧 review.yml）；手动验证清单更新：dock 打开页面即在（无需建会话后刷新）；激活失败反馈看 chip hover title。
+- [ ] **Step 5: Commit** `feat(agent-team): 默认团队 explorer+general；cordis.yml 全局 clientOnly 挂载`
+
+### Task 9b: 文档增量
+
+- [ ] AGENTS.md：agent-team 条目补——双挂载点（preset 行真实工作 + cordis.yml 全局 `clientOnly: true` 行供浏览器半进 boot 清单）；默认团队 explorer/general；激活失败反馈位置（chip hover title）。
+- [ ] 插件 README（如已有）：Config 增 `clientOnly` 行；安装步骤加 cordis.yml 全局行。
+- [ ] Commit `docs: agent-team v3 接入方式与默认名册`
+
+## v3 Self-Review 记录
+
+- **spec 覆盖**（v3）：§1 standing/双挂载点 → Task 6b/8b；§3 `clientOnly` → Task 6b；§6 静态 description + section 动态名册 → Task 4b/6b；§7.2 Map 懒建/prefix 路由/session-disposed → Task 6b；§7.5 失败反馈修正 → Task 8b 手动清单；§9 发行③ → Task 8b Step 3；§10 测试策略 → Task 4b/6b 测试。
+- **类型一致性**（v3）：`DelegateToolDeps.currentTeamFor(agent): Team` 由 Task 4b 定义、Task 6b 提供闭包实现；`TeamState`/`Team` 复用 Task 3/2 产物。
+- **已钉死的宿主事实**（v3 调研实证）：`WebRoute = { kind, path, handler }`、prefix 最长优先（`webserver/src/index.ts:24-33,241-249`）；section text 函数按 `AssembleContext.agent` 求值（`system-prompt/src/index.ts:67,514`、`dispatch.ts:174-176`）；`ctx.sessions.get`（`core/session/src/index.ts:1055-1057`）；standing scope 共享语义（`agent-presets/src/index.ts:491-534`）；client-modules 扫描要求活 fiber 且递归扫 loader subtree（实证 graph() 含 preset 内插件）。

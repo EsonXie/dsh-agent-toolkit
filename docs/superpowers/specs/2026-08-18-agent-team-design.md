@@ -1,7 +1,7 @@
 # Agent 团队插件设计（团队模式 preset + 会话内团队选择）
 
-> 日期：2026-08-18（2026-08-19 第二次重大修订：取消 /team 命令与 team/selected 会话事件——宿主 `assertEventsSupported` 拒绝加载含未知非 ignorable 事件的会话日志（session-persistence/src/coordinator.ts:1061-1066），外部插件的事件类型进不了生成的 KNOWN_SESSION_EVENT_TYPES 目录且 `Session.append` 不写 ignorable，自定义事件会让整个会话无法恢复。团队选择改走插件自建 HTTP 端点 + 插件自有 KV 持久化；dock 数据源从会话投影改为 HTTP GET。上一版：团队 = preset 内名册文件，dock 下拉 + /team 命令）
-> 依据：`docs/2026-08-18-插件组技术可行性评估.md`（源码闭环）+ 三轮设计讨论确认（委派卡片、团队切换交互、HTTP/KV 通道均经 dsh 源码逐项核实）
+> 日期：2026-08-18（2026-08-19 第三次修订：standing scope 语义修正——preset 插件实例按 preset 代共享、跨会话单例（`agent-presets/src/index.ts:491-534`），`ctx.agent` 在 standing scope 恒 undefined（`core/agent/src/index.ts:40-48`），v2 的"按会话挂载"假设不成立。团队状态改 `Map<sessionId, TeamState>` 懒建；名册对模型可见性改走 prompt section 函数 text（按 agent 求值，`system-prompt/src/index.ts:67,514`）；工具单次共享注册 + execute 按会话校验；路由改 prefix；浏览器半接入 = 同一包在 cordis.yml 全局挂 `clientOnly: true` 行（单 npm 包，不拆包）。另修正：激活期失败不标 preset broken（broken 仅限 discovery，真实报错在 chip hover title / select RPC reason）。第二版：取消 /team 命令与 team/selected 会话事件，改 HTTP + KV。）
+> 依据：`docs/2026-08-18-插件组技术可行性评估.md`（源码闭环）+ 三轮设计讨论与一次真机调试（v2 激活崩溃与浏览器半时序均已源码实证定位）
 > 状态：设计已获用户确认，待实现
 
 ## 1. 核心命题
@@ -12,6 +12,8 @@
 - **选择结果持久化 = 插件自有 KV**（`storageDomain` KvTable，key = sessionId，value = teamId；token-usage `ctx.storageDomain.open` 先例）：**不写任何自定义会话事件**。blank 期刷新恢复已选团队；已开始会话重载/跨进程恢复时名册与锁定团队一致。
 - **委派 = 一次性 spawn 子 Agent**：主 Agent 自主决策，前台同步等待结果。不做后台并行、不做长期队友、不做角色 scoped 注入（评估报告 §1.4）。
 - **插件 = Node 半 + 浏览器半 bundle**（token-usage 同款结构）：Node 半管名册/工具/切换状态机，浏览器半管 dock 下拉。
+- **挂载模型 = standing scope，按 preset 代共享（v3 修正）**：preset 插件实例按 preset id 每代一个、**跨会话单例**（`agent-presets/src/index.ts:491-534`，注释 "held for whole-tree teardown, never per-session"），且 **`ctx.agent` 在 standing scope 恒 undefined**（agent 经 dsh-scope `bindScopeParent` 路由绑定而非 cordis 父子，`core/agent/src/index.ts:40-48`）。因此：禁止在 apply 期触碰 `ctx.agent`；团队状态为 `Map<sessionId, TeamState>` **惰性建**（首次触碰时创建，KV 恢复）；按 sessionId 经 host 根服务 `ctx.sessions`/`ctx.agents` 访问会话（`core/session/src/index.ts:1055-1057`、`core/agent/src/index.ts:583-585`）；`ctx.on('session/disposed')` 清理 Map。
+- **单 npm 包、双挂载点**：preset 内挂同一包（Node 半真实工作）；cordis.yml 全局挂一行 `config: { clientOnly: true }`——Node 半立即返回（纤维 ACTIVE 即可），作用仅是**让 `dsh.client` 进浏览器 boot 清单**（client-modules 扫描只要求活 fiber），否则浏览器半依赖"建会话后刷新整页"的脆弱时序（boot 图页载定格、无新增行推送）。忘配 `clientOnly` 时全局挂载撞 `loadTeams` 响亮报错（fail loud，不致错乱）。
 
 ## 2. 包结构
 
@@ -26,14 +28,15 @@ packages/agent-team/
 │   ├─ roles.ts          ← teams/*.yml 加载 + Schemastery 校验（多文件）
 │   ├─ prompt.ts         ← 两层提示词拼装
 │   ├─ tool.ts           ← team_delegate 工具（含 presenter）
-│   ├─ teams.ts          ← 团队状态机：当前团队 ref、trySelect、blank 锁定（纯逻辑）
+│   ├─ teams.ts          ← 团队状态机：当前团队 ref、trySelect、blank 锁定（纯逻辑；每会话一个实例）
 │   └─ client/
 │       ├─ index.ts      ← 浏览器半入口：slots.inject 注册 TeamDock
 │       └─ TeamDock.tsx  ← 团队下拉组件（纯 props，fetch 由 inject 面注入）
 └─ presets/team/         ← 随包发行的示例"团队模式" preset
     ├─ agent.cordis.yml  ← 挂载本插件（config 可全省略）
     ├─ preset.yml        ← name/description/order（仅展示文本）
-    └─ teams/            ← 2-3 个示例团队名册（如 default.yml / review.yml）
+    └─ teams/            ← 默认团队名册 default.yml（v3 定案：opencode 风格两角色——
+                           explorer 快速只读探索 / general 通用多步骤执行；不内置第二团队）
 ```
 
 ## 3. 插件 Config
@@ -46,6 +49,8 @@ Config = {
   defaultTeam?: string      // 默认团队 id；缺省取 teams/ 下按文件名字典序第一个
   provider?: string         // 默认 'spawn'
   toolName?: string         // 默认 'team_delegate'
+  clientOnly?: boolean      // cordis.yml 全局挂载用：true 时 Node 半立即返回，
+                            // 仅让浏览器半 bundle 进 boot 清单（见 §1 双挂载点）
   promptTemplates?: {       // 基础层 C 段（模型适配）模板覆盖入口
     default: string
     families?: Record<string, string>   // 如 { 'deepseek-reasoner': '...' }
@@ -70,7 +75,7 @@ roles:
 
 - 角色字段只有 `name/description/persona/provider/model`。**不做 toolFilter**：成员工具与主 Agent 保持一致。
 - provider/model 都不写 = 完全继承主 Agent；写了走 `resolveChildAgentOptions` 覆盖（父 agent 为底），provider 无适配器时响亮失败。
-- 校验用 Schemastery；**任一团队文件非法或 teams/ 目录缺失/为空** → 插件激活时抛错 → preset 挂载被拒并标记 broken（管理区红框、选择器隐藏），不半挂（misconfiguration fails loud）。
+- 校验用 Schemastery；**任一团队文件非法或 teams/ 目录缺失/为空** → 插件激活时抛错 → preset 挂载被拒（misconfiguration fails loud；**不标 broken**，真实原因见 chip hover title / select RPC reason，§7.5 失败反馈②）。
 - 不监听 teams/ 热更：standing mount 的 generation 语义保证"改名册 → 下一个新会话生效"，已开会话保留旧团队集。
 
 ## 5. 成员系统提示词：两层结构
@@ -101,11 +106,11 @@ roles:
 { "kind": "foreground", "role": "reviewer", "runId": "…", "output": [/* content blocks */] }
 ```
 
-- **工具 description**：注册时动态拼装 = 固定委派语义说明（成员看不到本对话、任务要自包含）+ **当前团队**名册列表（每角色一行 `name: description`）。团队切换时 dispose 旧注册、以新名册重注册（见 §7.2）。
-- **systemPrompt.section**：团队介绍段，告诉主 Agent 有团队可用、用 team_delegate 委派；order 参考内置 `116.5` 附近。
-- **执行管线**（照抄内置 `settleForegroundRun` 语义）：
+- **工具 description = 静态通用语义**（v3 修正）：standing scope 下工具注册跨会话共享，description 无法按会话内嵌名册——固定写委派语义（成员看不到本对话、任务要自包含、`role` 必须命中当前会话团队）+ "可用成员见系统提示团队段"。**注册一次，不随切换重注册**。
+- **名册动态可见性走 prompt section**（v3 修正）：团队介绍段的 `text` 用函数形式（`system-prompt/src/index.ts:67` `section(options)` 类型 + `:514` 求值，`dispatch.ts:174-176` 注入 `{ agent, scope, signal }`）——按 `context.agent` 取 sessionId → 该会话 TeamState → 渲染"当前团队 + 每角色一行 `name: description`"。模型看到的名册随该会话当前团队，无需触碰工具 schema 管道（dsh-tools 的 wireSchemas 从注册表按请求组装，叠加 provider 有重复/覆盖风险，不走此路）。section order 参考内置 `116.5` 附近。
+- **执行管线**（照抄内置 `settleForegroundRun` 语义；role 校验按会话）：
   1. `exec.agent` 为空 → 报错
-  2. role 未命中当前团队 → 报错并列出可用角色名（主 Agent 可自愈重试）
+  2. 按 `exec.agent.session.id` 取该会话 TeamState；role 未命中**该会话当前团队** → 报错并列出可用角色名（主 Agent 可自愈重试）
   3. `ctx.subagents.start(provider, { label: 'role:<name>: <description>', persona: 两层拼装, agentOptions?（角色配了才传）, maxDepth, prompt, parent: exec.agent, signal: exec.signal })`
   4. `await run.result`；stopReason 非 `completed` → 报错并附成员部分产出（`withPartialText` 语义）
   5. 结果收集与 `run.dispose()` 走 `Promise.allSettled`，dispose 失败不掩盖结果失败（AggregateError）
@@ -128,14 +133,13 @@ roles:
 
 ### 7.2 团队切换状态机与 HTTP 通道（Node 半）
 
-- **当前团队 = per-agent 可变 ref**（模型选择器 `selectionFor` 样板，`api-proxy.ts:1123-1150`）：初值 = KV 命中（按 sessionId）?? `Config.defaultTeam` ?? 字典序首个团队。
-- **HTTP 端点**（webServer 可选能力，`ctx.inject(['webServer'], …)` 条件注册，token-usage `ctx.inject(['webServer'])` + `webServer.register({ kind: 'exact', … })` 先例；headless/CLI 无 webServer 时整个团队切换面不存在，工具仍按初始团队工作）：
-  - 每个会话的插件实例注册**自己会话专属**的两条 exact 路由（路径含 sessionId，多会话互不干扰，fiber 卸载时 cordis 自动摘除）：`GET /agent-team/<sessionId>/state` 与 `POST /agent-team/<sessionId>/select`。
-  - POST handler 语义：① team 未命中团队集 → 400 + 列出可用团队；② `isSessionBlank(agent.session.events)` 为 false（存在 `turn/start` 事件，`api-proxy.ts:476-478` 同一定义）→ 409 "会话已开始，团队已锁定"（宿主层强制兜底）；③ 更新 ref → **dispose 旧 team_delegate 注册、以新名册重注册**（description 含新名册）→ 写 KV（`sessionId → teamId`）→ 200 返回新 state。
-- **无会话事件、无会话投影**：`team/selected` 事件与 `team` 投影在本版移除（废弃原因见文头修订注）。切换的"可重放性"由 KV 承担：激活时按 sessionId 读回。
-- **实现期核实点**（均有确切备选，非占位）：
-  1. 会话进行中重注册工具后，下一步模型请求是否拿到新 description——tools 按请求组装，预期成立，集成测试钉死。
-  2. webServer 路由的注册/摘除与 fiber 生命周期对齐（HMR 安全测试覆盖）。
+- **当前团队 = 每会话 TeamState**（v3 修正）：`Map<sessionId, TeamState>`（standing 实例级），首次触碰（GET/POST/工具/prompt）时惰性创建：初值 = KV 命中（按 sessionId）?? `Config.defaultTeam` ?? 字典序首个团队。`ctx.on('session/disposed')` 时删除对应条目（KV 记录保留，供重载/跨进程恢复）。
+- **HTTP 端点**（webServer 可选能力，`ctx.inject(['webServer'], …)` 条件注册；headless/CLI 无 webServer 时整个团队切换面不存在，工具仍按初始团队工作）：
+  - 注册**一条 prefix 路由**（`webServer.register({ kind: 'prefix', path: '/agent-team', handler })`，`webserver/src/index.ts:24-33,241-249`：`path` 无尾斜杠，匹配 `/agent-team` 及 `/agent-team/<任意>`，最长前缀优先；v3 修正：standing 实例跨会话共享，无法按会话注册 exact 路由；handler 从 `req.url` 解析 `<sessionId>/state|select`，方法/路径不符 → 404）。
+  - GET state：惰性建/取该 sessionId 的 TeamState → 200 `{ currentId, options }`；未知 sessionId 不 404（惰性建态即"该 preset 下任意会话都有团队态"——dock 的非团队 preset 判定由"路由是否被挂载"承担，与本端点无关）。
+  - POST select：① team 未命中团队集 → 400 + 列出可用团队；② 经 `ctx.sessions.get(sessionId)` 取会话，`isSessionBlank(session.events)` 为 false（存在 `turn/start` 事件）→ 409 "会话已开始，团队已锁定"；③ 更新该会话 TeamState → 写 KV（`sessionId → teamId`）→ 200 返回新 state。**不再有工具重注册**（名册可见性在 prompt section，§6）。
+- **无会话事件、无会话投影**：切换的"可重放性"由 KV 承担。
+- **实现期核实点**：① prefix 路由的注册/摘除与 fiber 生命周期对齐（HMR 安全测试覆盖）；② prompt section 函数 text 在 agent 缺省（非 agent 组装场景）时返回通用文案不抛错。
 
 ### 7.3 委派卡片（host 端纯函数 presenter，仿 tool-workflow 样板）
 
@@ -165,14 +169,14 @@ presentResult: (args, { isError }) => (isError ? undefined : { card: 'generic' }
 | 标识 | 会话头只读标签 | 图标+preset 名，hover 显描述；会话开始即固定，宿主拒绝切换 |
 | 派生 | 设置→管理区卡片「复制」 | **整目录拷贝，teams/ 随之带走**；复制完成自动打开新目录；id 即目录名不可改（无重命名） |
 | 编辑团队 | 文件系统 | 原生 UI 无浏览器内编辑；在 `teams/` 下增改 `.yml` 后**下个新会话生效**（standing mount generation 语义，页面不感知文件改动，原生已知行为） |
-| 失败反馈 | 管理区 | teams/ 非法 → 插件激活抛错 → preset 变 broken：红框+"加载失败"徽标、选择器隐藏、禁复制、可删除/打开目录定位修复 |
+| 失败反馈 | 分两类 | ① **preset 元数据非法**（preset.yml/cordis.yml 解析失败）→ discovery 期 → preset **broken**：管理区红框+「加载失败」徽标、选择器隐藏、禁复制；② **插件激活期抛错**（teams/ 缺失/非法、插件 bug）→ standing mount 被拒但**不标 broken**（broken 仅 discovery 期产生），真实原因在 chip hover title 与 select RPC 的 `agent-preset-invalid.details.reason`（`api-proxy.ts:364-380`、`AgentPresetSeat.tsx:159`），服务端控制台默认不可见 |
 | 默认 preset | 设置→常规下拉 | 用户可把团队模式设为所有新会话默认；菜单中自建 preset 带「 · 自定义」后缀 |
 
 ## 8. 错误处理汇总
 
 | 场景 | 时机 | 行为 |
 |---|---|---|
-| teams/ 缺失/为空/任一文件解析或校验失败 | 插件激活 | 抛错 → preset 挂载被拒并标记 broken（管理区红框可见、选择器隐藏），新建会话立即失败 |
+| teams/ 缺失/为空/任一文件解析或校验失败 | 插件激活（standing mount） | 抛错 → preset 挂载被拒：选择该 preset 的 RPC 返回 `agent-preset-invalid`（原因见 chip hover title），**不标 broken**（§7.5 失败反馈②）；新建该 preset 会话失败 |
 | 角色 provider 无适配器 | 首次委派该角色 | `resolveChildAgentOptions` 响亮失败 |
 | role 未命中当前团队 | 委派时 | 报错 + 列出当前团队可用角色名 |
 | POST select team 未命中 | 切换时 | 400 + 列出可用团队 |
@@ -182,18 +186,19 @@ presentResult: (args, { isError }) => (isError ? undefined : { card: 'generic' }
 | KV/webServer 不可用 | 激活/切换 | storageDomain 在顶层 inject（激活即失败）；webServer 缺失时切换面不存在，工具按初始团队工作 |
 | 插件 HMR 卸载 | 任意 | cordis 自动清理注册（工具/HTTP 路由/提示段/槽位）；团队状态是纯内存数据 + KV，无手动资源 |
 
-## 9. preset 发行（两条官方路径，文档化安装步骤）
+## 9. preset 发行（两条官方路径 + 浏览器半接入，文档化安装步骤）
 
 1. 部署方 patch：把 `presets/team` 加进 `agentPresets.config.roots`（`trust: 'system'`）——dsh CLI 发行内置 preset 的同款做法。
 2. 用户 copy：团队模式在 UI 出现后，用户在设置管理区复制派生自己的 preset（整目录拷贝含 teams/，复制后自动打开目录），在文件系统改 `preset.yml` 显示名、增改 `teams/*.yml` 名册，下个新会话生效（详见 §7.5）。
+3. **浏览器半接入（v3 新增，单包双挂载点）**：部署方 cordis.yml 追加一行全局挂载 `- name: <agent-team 包>` + `config: { clientOnly: true }`——让 `dsh.client` 进浏览器 boot 清单，dock 打开页面即在、支持 HMR；缺此行时浏览器半依赖"建会话后刷新整页"时序，不可用。开发回路（cordis.yml patch）同样加此行。
 
 ## 10. 测试策略
 
 1. **单测**（vitest）：teams/ 解析/校验（合法多文件、缺字段、重名、缺目录、空目录）；两层提示词拼装（模型族模板选择、Config 覆盖）；presenter 纯函数（presentCall 标题与 rawInput 拼装，presentResult 成功保留 generic / isError 返回 undefined）；团队状态机（默认团队优先级、trySelect 切换、blank 锁拒绝）。
 2. **浏览器半组件测试**：TeamDock 以 props 驱动（注入的 fetchState/selectTeam 桩；有/无数据渲染、blank 锁定 disabled、onSelect 调用 selectTeam、POST 失败回退）。
-3. **REAL-composition 测试**：boot 测试专用 cordis.yml（preset + 插件），断言工具注册、名册编入 description、未知 role 报错列名册、POST 切换后 description 更新（核实点 ① 在此钉死）。
+3. **REAL-composition 测试**：boot 测试专用 cordis.yml（preset + 插件），断言工具注册一次、prompt 团队段函数 text 按 agent 渲染当前名册（切换后同一工具注册不变、section 文案变）、未知 role 报错列该会话名册、多会话各自独立 TeamState。
 4. **HMR 安全测试**：dispose 插件 fiber → 工具、HTTP 路由、提示段、dock 槽位注册全部移除。
-5. 真实 LLM 端到端委派不进单测，作为开发回路手动验证项（含 UI 目测：dock 下拉、锁定、委派卡片、子代理目录、错误行、broken preset 反馈、刷新后团队恢复）。
+5. 真实 LLM 端到端委派不进单测，作为开发回路手动验证项（含 UI 目测：dock 下拉、锁定、委派卡片、子代理目录、错误行、激活失败反馈（chip hover title）、刷新后团队恢复）。
 
 ## 11. 范围之外（明确不做）
 
