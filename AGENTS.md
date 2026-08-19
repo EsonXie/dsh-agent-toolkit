@@ -8,8 +8,8 @@
 
 ## 开发命令
 
-- 单测：`pnpm --filter token-usage test`；类型检查：`pnpm --filter token-usage typecheck`
-- 客户端 bundle：`pnpm --filter token-usage bundle`（开发期 `pnpm --filter token-usage watch`）
+- 单测：`pnpm --filter token-usage test`；类型检查：`pnpm --filter token-usage typecheck`；agent-team 同（`pnpm --filter agent-team test` / `typecheck`）
+- 客户端 bundle：`pnpm --filter token-usage bundle`（开发期 `pnpm --filter token-usage watch`）；agent-team 含浏览器半，改动后需 `pnpm --filter agent-team bundle`
 - 开发回路：`cd deepseek-harness && pnpm dsh web --patch D:\work\github\dsh\dsh-agent-toolkit\cordis.yml`（deepseek-harness 首次需 `pnpm install && pnpm run build`）
 
 ## 文档使用（先读这里）
@@ -22,6 +22,7 @@
 - 插件 = 导出 `apply(ctx)` 的 TS 模块，可选导出 `name`、`inject`、`Config`（Schemastery schema）。通过 `ctx` 注册的一切卸载时自动清理；手动资源必须 `ctx.effect(() => disposer)`。
 - 本地开发回路：在 dsh 源码 checkout 中运行 `pnpm dsh web --patch ./cordis.yml`（或已装 CLI 时用 `dsh web --patch`）。**patch 中插件路径必须是绝对路径**，相对路径不会被解析。
 - 修改 `cordis.yml` 中的插件 config 会触发 HMR 热替换，无需重启。
+- agent-team 例外：经 user preset root（`$DSH_HOME/.agent-presets/team`）接入开发回路，不走 cordis.yml patch（CLI overlay 会重置 roots）；含浏览器半，改动后需 `bundle`。
 - 从一开始就遵守的约定：可调参数进 Config schema（不硬编码）；工具 `execute` 返回规范 JSON 值、args 只读且已校验；策略/权限逻辑放 `tools/*` 事件钩子，不内建进工具。
 
 ## 目录结构（已定案）
@@ -34,7 +35,8 @@ dsh-agent-toolkit/
 ├─ packages/             ← 插件，各自独立 package
 │   ├─ token-usage/      ← Token 用量统计（第一个实现，已建成）
 │   ├─ feishu-bot/       ← 飞书机器人
-│   └─ agent-team/       ← Agent 团队（presets/team/ 随包发行"团队模式"）
+│   └─ agent-team/       ← Agent 团队（已建成；presets/team/ 随包发行"团队模式"）
+│                           含 teams/ 多名册（default/review）
 ├─ cordis.yml            ← 开发用 patch（插件 name 写绝对路径）
 └─ package.json + pnpm-workspace.yaml（workspace 只含 packages/*，不含 deepseek-harness）
 ```
