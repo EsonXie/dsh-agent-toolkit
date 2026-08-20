@@ -11,3 +11,5 @@
       name: agent-team
       config:
         clientOnly: true
+    - id: prompt-stack
+      name: prompt-stack
