@@ -1,0 +1,80 @@
+import { describe, expect, test } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import SystemPrompt, { renderPrompt, type AssembleContext } from '@deepseek-ai/dsh-system-prompt'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { apply, Config } from '../src/index.ts'
+
+/** 构造只带 options 的最小 agent 替身（assemble 路径只读 agent.options）。 */
+function agentContext(options: { provider?: string; model?: string }): AssembleContext {
+  return { agent: { options } as unknown as Agent }
+}
+
+const CONFIG = {
+  layers: [
+    { name: 'base', order: 0, text: 'BASE' },
+    { name: 'task', order: 50, text: 'TASK' },
+  ],
+  rules: [
+    { match: { modelPattern: 'claude*' }, overrides: { base: 'CLAUDE-BASE' } },
+    { match: { provider: 'deepseek', model: 'deepseek-v4' }, overrides: { task: 'V4-TASK' }, append: 'V4-NOTES' },
+  ],
+}
+
+async function boot(config: unknown = CONFIG): Promise<Context> {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt, { persona: '' })
+  apply(ctx, Config(config))
+  return ctx
+}
+
+function sectionTexts(sections: Array<{ name: string; text: string }>): Record<string, string> {
+  return Object.fromEntries(sections.map(section => [section.name, section.text]))
+}
+
+describe('prompt-stack 组装', () => {
+  test('裸组装（无 agent）：全部默认文本，model-notes 不渲染', async () => {
+    const ctx = await boot()
+    const assembly = await ctx.systemPrompt.assemble()
+    const texts = sectionTexts(assembly.sections)
+    expect(texts['prompt-stack:base']).toBe('BASE')
+    expect(texts['prompt-stack:task']).toBe('TASK')
+    expect(texts['prompt-stack:model-notes']).toBe('')
+    // 空段在渲染期被丢弃
+    expect(renderPrompt(assembly)).not.toContain('model-notes')
+  })
+
+  test('命中规则：覆盖层替换、未覆盖层保持默认、append 进 model-notes 且排在最后', async () => {
+    const ctx = await boot()
+    const assembly = await ctx.systemPrompt.assemble(agentContext({ provider: 'deepseek', model: 'deepseek-v4' }))
+    const texts = sectionTexts(assembly.sections)
+    expect(texts['prompt-stack:base']).toBe('BASE')
+    expect(texts['prompt-stack:task']).toBe('V4-TASK')
+    expect(texts['prompt-stack:model-notes']).toBe('V4-NOTES')
+    // model-notes order = 最大层 order(50) + 1 = 51，排在 prompt-stack 各层最后
+    const names = assembly.sections.map(section => section.name)
+    expect(names.indexOf('prompt-stack:model-notes')).toBeGreaterThan(names.indexOf('prompt-stack:task'))
+  })
+
+  test('通配命中另一规则：只替换被覆盖层', async () => {
+    const ctx = await boot()
+    const assembly = await ctx.systemPrompt.assemble(agentContext({ model: 'claude-sonnet-4' }))
+    const texts = sectionTexts(assembly.sections)
+    expect(texts['prompt-stack:base']).toBe('CLAUDE-BASE')
+    expect(texts['prompt-stack:task']).toBe('TASK')
+    expect(texts['prompt-stack:model-notes']).toBe('')
+  })
+
+  test('注册的 model/provider 变量来自 agent.options，{{model}} 可插值', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { persona: '' })
+    apply(ctx, Config({ layers: [{ name: 'who', order: 0, text: 'model={{model}} provider={{provider}}' }], rules: [] }))
+    const assembly = await ctx.systemPrompt.assemble(agentContext({ provider: 'deepseek', model: 'deepseek-v4' }))
+    expect(renderPrompt(assembly)).toContain('model=deepseek-v4 provider=deepseek')
+  })
+
+  test('Config 校验失败在 apply 期响亮抛错', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { persona: '' })
+    expect(() => apply(ctx, Config({ layers: [], rules: [] }))).toThrow(/at least one layer/)
+  })
+})
