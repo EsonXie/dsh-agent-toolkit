@@ -26,6 +26,7 @@
 - agent-team 例外：经 user preset root（`$DSH_HOME/.agent-presets/team`）接入开发回路，不走 cordis.yml patch（CLI overlay 会重置 roots）；含浏览器半，改动后需 `bundle`。
 - agent-team 双挂载点：preset 内挂载跑 Node 半真实工作；cordis.yml 另需一行全局挂载 `config: { clientOnly: true }`（Node 半空转，仅让浏览器半 bundle 进 boot 清单，否则 dock 要等"建会话后刷新页面"）。激活失败反馈在 preset chip hover title / select RPC reason，不标 broken、不进服务端控制台。
 - **agent-team 单团队约束**：一个 dsh 实例只挂一个团队 preset；多团队 preset 并发挂载时第二个的 `/agent-team` prefix 路由会抛 duplicate route，在激活期响亮报错（spec §9）。
+- token-usage 的 src/store.ts 运行时值导入 `@deepseek-ai/dsh-storage-domain`，但不进 dependencies/peerDependencies：它由宿主 dsh base 隐式提供，加依赖会导致 pnpm 装副本、storage domain 双实例注册分裂。
 - 从一开始就遵守的约定：可调参数进 Config schema（不硬编码）；工具 `execute` 返回规范 JSON 值、args 只读且已校验；策略/权限逻辑放 `tools/*` 事件钩子，不内建进工具。
 
 ## 目录结构（已定案）

@@ -6,6 +6,7 @@ node_modules/
 dist/
 packages/*/lib/
 *.tsbuildinfo
+*.tgz
 
 # 日志与临时文件
 *.log
