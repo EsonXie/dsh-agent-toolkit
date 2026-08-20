@@ -1,10 +1,27 @@
-/** token-usage 客户端 bundle 配置：复刻 dsh tsdown.client.ts 的 lazy-CJS factory 形态。 */
+/** token-usage 构建配置：Node 半（lib/index.js，ESM）+ 客户端 bundle（lib/client.js，lazy-CJS factory）。 */
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, resolve as resolvePath } from 'node:path'
 import { transform } from 'lightningcss'
 import type { UserConfig } from 'tsdown'
 
-const ID = 'token-usage'
+/** 必须等于 package.json 的 name：client-modules 扫描以包名为 entry id（bundle URL /plugins/<id>/client.js）。 */
+const ID = '@dsh-agent-toolkit/token-usage'
+
+/** Node 半：所有包依赖保持 external，由安装侧（profile）解析；只转译本地 src。 */
+const nodeConfig = {
+  name: `${ID}/node`,
+  entry: { index: 'src/index.ts' },
+  outDir: 'lib',
+  format: 'esm',
+  platform: 'node',
+  fixedExtension: false,
+  dts: true,
+  sourcemap: true,
+  clean: false,
+  deps: {
+    neverBundle: [/^@deepseek-ai\//, 'clsx', 'zod'],
+  },
+} satisfies UserConfig
 
 /** 平台模块由 loader 模块表提供，保持 external（对照 dsh web/src/platform.ts:9 + runtime 豁免）。 */
 const CLIENT_EXTERNALS = [
@@ -19,7 +36,7 @@ const VENDORED_LIBRARY = /^@deepseek-ai\/(cosmokit|schemastery)(\/|$)/
 const CSS_VIRTUAL_PREFIX = '\0dsh-css:'
 const CSS_VIRTUAL_SUFFIX = '.mjs'
 
-export default {
+const clientConfig = {
   name: `${ID}/client`,
   entry: { client: 'src/client/index.ts' },
   outDir: 'lib',
@@ -86,3 +103,5 @@ export default {
     intro: 'var module = { exports: {} }; var exports = module.exports;',
   },
 } satisfies UserConfig
+
+export default [nodeConfig, clientConfig]
