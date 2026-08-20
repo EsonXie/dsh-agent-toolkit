@@ -64,12 +64,23 @@ describe('prompt-stack 组装', () => {
     expect(texts['prompt-stack:model-notes']).toBe('')
   })
 
-  test('注册的 model/provider 变量来自 agent.options，{{model}} 可插值', async () => {
+  test('宿主提供的 model/provider 变量可插值（agent-loop 原生注册，插件不重复注册）', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, { persona: '' })
+    // 模拟宿主 agent-loop 的注册（agent-loop/src/index.ts:351-352），prompt-stack 不再自注册。
+    ctx.systemPrompt.variable('provider', context => context.agent?.options.provider)
+    ctx.systemPrompt.variable('model', context => context.agent?.options.model)
     apply(ctx, Config({ layers: [{ name: 'who', order: 0, text: 'model={{model}} provider={{provider}}' }], rules: [] }))
     const assembly = await ctx.systemPrompt.assemble(agentContext({ provider: 'deepseek', model: 'deepseek-v4' }))
     expect(renderPrompt(assembly)).toContain('model=deepseek-v4 provider=deepseek')
+  })
+
+  test('宿主已注册 model/provider 变量时 apply 不因重名抛错（回归）', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { persona: '' })
+    ctx.systemPrompt.variable('provider', context => context.agent?.options.provider)
+    ctx.systemPrompt.variable('model', context => context.agent?.options.model)
+    expect(() => apply(ctx, Config({ layers: [{ name: 'base', order: 0, text: 'B' }], rules: [] }))).not.toThrow()
   })
 
   test('Config 校验失败在 apply 期响亮抛错', async () => {

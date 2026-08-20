@@ -97,7 +97,4 @@ export function apply(ctx: Context, config: ConfigT): void {
     order: notesOrder,
     text: (context) => hitRule(context)?.append ?? '',
   })
-  // 供层文本 {{model}} / {{provider}} 插值；与其他全局注册同名变量冲突时沿用 dsh 重名抛错。
-  ctx.systemPrompt.variable('model', context => context.agent?.options?.model)
-  ctx.systemPrompt.variable('provider', context => context.agent?.options?.provider)
 }

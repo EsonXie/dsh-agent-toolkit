@@ -138,8 +138,10 @@ config 中 order 必填，插件不做隐藏映射。文档建议区间（与 ds
 | 0 | persona |
 | 10–40 | domain / 领域知识 |
 | 50 | task / 任务指引 |
-| 90 | model-notes（插件固定追加层） |
+| 最大层 order + 1 | model-notes（插件固定追加层；order 非固定值，随用户层而定） |
 | 100–199 | 工具指引（dsh 原生，不动） |
+
+`{{model}}` / `{{provider}}` 变量由 dsh agent-loop 原生注册（`agent-loop/src/index.ts:351-353`，取自 agent 创建期 `options`），prompt-stack **不重复注册**——同名全局变量重复注册会在激活期因 `NamedEntries.insert` 重名抛错。
 
 ## 错误处理
 

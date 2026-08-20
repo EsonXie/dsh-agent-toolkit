@@ -42,7 +42,7 @@ dsh-agent-toolkit/
 │   ├─ feishu-bot/       ← 飞书机器人
 │   ├─ agent-team/       ← Agent 团队（已建成；presets/team/ 随包发行"团队模式"）
 │                           teams/default.yml（explorer + general）
-│   ├─ prompt-stack/     ← 提示词分层 + 按模型区分提示词（纯 Node 半，无 bundle）
+└─ prompt-stack/     ← 提示词分层 + 按模型区分提示词（纯 Node 半，无 bundle）
 ├─ cordis.yml            ← 开发用 patch（插件 name 写绝对路径）
 └─ package.json + pnpm-workspace.yaml（workspace 只含 packages/*，不含 deepseek-harness）
 ```

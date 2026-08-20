@@ -6,7 +6,7 @@ DeepSeek Harness 插件：语义化提示词分层 + 按模型规则覆盖层文
 - 规则按当前 agent 创建期的 `provider`/`model` 匹配（`provider` 精确 / `model` 精确 / `modelPattern` glob），打分 model=4、pattern=2、provider=1，取最高分一条（同分取配置序靠前）；命中规则的 `overrides[层名]` 替换该层文本，`append` 渲染为固定追加层 `prompt-stack:model-notes`（order = 最大层 order + 1）。
 - 裸组装（无 agent）全部使用默认文本；无规则命中是正常路径，不告警。
 - 默认仅一层 `base`（order 0）+ 13 条模型族规则；默认文本改写自 opencode（MIT 许可）的 session/prompt/*.txt，剔除其专有内容、保留模型族行为指导。
-- 层文本支持 dsh 严格插值；插件注册 `{{model}}` / `{{provider}}` 变量（取自创建期模型配置）。
+- 层文本支持 dsh 严格插值；`{{model}}` / `{{provider}}` 由 dsh agent-loop 原生提供（取自 agent 创建期 `options`），prompt-stack 直接引用、不重复注册（重复注册会在激活期因重名抛错）。
 
 ## 配置示例
 

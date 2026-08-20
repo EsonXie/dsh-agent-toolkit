@@ -3,7 +3,7 @@
 /** 一个语义层：name 同时是 section 名后缀（`prompt-stack:<name>`）。 */
 export interface LayerConfig {
   name: string
-  /** 拼接顺序，升序；建议区间见 spec：0 persona / 10–30 domain / 50 task。 */
+  /** 拼接顺序，升序；建议区间见 spec：0 persona / 10–40 domain / 50 task。 */
   order: number
   /** 层文本，支持 dsh 严格插值 `{{variable}}`。 */
   text: string
