@@ -71,7 +71,7 @@ packages/agent-team/
 │   ├─ roles.ts          ← Role schema（zod）+ 单文件解析校验 + 目录加载（重构）
 │   ├─ roster.ts         ← 两层来源合并：内置常量 ← 用户目录（新文件，从 roles.ts 拆出）
 │   ├─ builtin-roles.ts  ← 内置 explorer/general 定义（persona 文案）（新文件）
-│   ├─ prompt.ts         ← 成员提示词分层（A 身份契约 / B 能力守则 / C 模型适配）+ 角色 persona（保留微调）
+│   ├─ prompt.ts         ← 成员提示词：A 身份契约 / B 能力守则 + 角色 persona（删除 C 模型适配段，见 §4.5）
 │   ├─ tool.ts           ← team_delegate 工具定义（重构：透传 toolFilter、result 增 childSessionId）
 │   └─ client/
 │       ├─ index.ts      ← 浏览器半入口：注册 locale + keyed toolview
@@ -84,7 +84,21 @@ packages/agent-team/
 └─ tests/                ← vitest（Node 半纯逻辑 + 浏览器半 jsdom 组件测试）
 ```
 
-**拆除清单**（相对现状）：`teams.ts`（TeamState 状态机）、`types.ts` 中团队视图类型、KV domain（selected_team）、`/agent-team` HTTP 路由、团队 dock 全部浏览器半代码、`presets/team/teams/`。`Config` 移除 `teamsDir`/`defaultTeam`。
+**拆除清单**（相对现状）：`teams.ts`（TeamState 状态机）、`types.ts` 中团队视图类型、KV domain（selected_team）、`/agent-team` HTTP 路由、团队 dock 全部浏览器半代码、`presets/team/teams/`、prompt.ts 的 C 段（`PromptTemplates`/`MODEL_FAMILY_RULES`/模型族模板）。`Config` 移除 `teamsDir`/`defaultTeam`/`promptTemplates`。
+
+## 4.5 与 prompt-stack 的职责划分：按模型提示词归 prompt-stack，子 Agent 隔离
+
+**决策**（2026-08-20 与用户确认）：「不同模型用不同提示词」的职责完全归 prompt-stack；agent-team 删除自建 C 段模型适配，不重复建设。
+
+**依据**：prompt-stack 全局挂载时，其函数式 section 对所有 Agent 生效（`packages/prompt-stack/src/index.ts:86-91` 按 `AssembleContext.agent.options` 求值）；子 Agent 组装时 agent 即子自己，provider/model 为角色生效值——成员按模型命中规则天然成立，agent-team 无需任何代码。
+
+**配套改动（prompt-stack 侧，本计划的组成部分）**：prompt-stack 增加**子 Agent 隔离**——`AssembleContext.agent.session.header.origin === 'subagent'` 时，**除 `model-notes` 外的全部层**渲染空串。没有这道隔离，主 Agent 的人设/领域/任务层（`prompt-stack:persona` 等，与成员 persona 的 `deployment:persona` 是不同的 section 名，不受遮蔽）会泄漏进成员提示词，与成员 persona 文案打架。
+
+**例外：`model-notes` 层主子共用。** 模型层指引（如"推理模型直接给结论"）是模型的属性而非某个 Agent 的身份，成员与主 Agent 用同一模型时同样适用。`model-notes` 对子 Agent 照常渲染，且规则按**成员生效模型**命中（组装上下文里的 agent 就是子 Agent 自己）。人设/领域等角色级模型适配仍由角色 persona 作者针对所配模型撰写。
+
+**结果语义**：
+- 主 Agent（及一切非子 Agent）：prompt-stack 分层 + 按模型规则照常生效
+- 成员（子 Agent）：`deployment:persona`（成员 persona）+ 插件基础层 + `model-notes`（按成员模型命中）；prompt-stack 其余层不参与
 
 ## 4. 角色 schema 与名册管线
 
@@ -139,7 +153,7 @@ persona 文案迁移自现状 `presets/team/teams/default.yml`（内容已被验
 
 1. 按 `exec.agent` 所在会话解析当前名册，查 `role`；未知名报错并列出可用角色
 2. **构造 `toolFilter`**：角色配了 `tools` 则透传
-3. `buildMemberPersona(role, model, templates)` 拼装成员系统提示词（A/B/C + persona）
+3. `buildMemberPersona(role)` 拼装成员系统提示词（A/B + persona）
 4. `ctx.subagents.start('spawn', { label: 'role:<name>: <description>', prompt, parent, persona, toolFilter?, agentOptions?, maxDepth: 1, signal })`
 5. **`childSessionId` 捕获**：本地 run 的 `run.id` 契约上**就是**子 session id（"For a local run, this MUST equal the published child session id"，`types.ts:249-255`），直接写入结果，无需额外查询
 6. `await run.result` → 规范 JSON 返回；`dispose` 用 allSettled 不掩盖结果失败（现状逻辑保留）
@@ -157,7 +171,7 @@ persona 文案迁移自现状 `presets/team/teams/default.yml`（内容已被验
 
 ## 6. 系统提示词团队段
 
-保留现状机制：`ctx.systemPrompt.section({ name: 'plugin:agent-team', order: 116.6, text: (ctx) => … })`，函数式 text 按组装上下文的 agent 求值，列出当前可用角色 `name: description` 清单。文案从"当前团队：…"改为扁平名册措辞。
+`ctx.systemPrompt.section({ name: 'plugin:agent-team', order: 116.6, text })` 保留段位置。扁平化后名册全局唯一（激活期定值），**text 从函数式简化为静态字符串**：委派指引 + `name: description` 逐行名册。
 
 ## 7. UI 展现：自定义委派卡
 
