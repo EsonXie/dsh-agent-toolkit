@@ -1,23 +1,27 @@
-# token-usage 插件打包发布（本地 tarball 分发）实施计划
+# token-usage 插件打包发布（npm 公开发布）实施计划
+
+> **2026-08-20 修订**：分发渠道由"本地 tarball"改为"**npm 公开发布**"。原 tarball 方案的打包化改造（Task 1–4）全部保留并照旧执行——npm 发布同样依赖这套包形态；本版翻转的决策见文末「发布决策记录」。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把 `packages/token-usage` 改名为 `@dsh-agent-toolkit/token-usage` 并改造为可 `dsh plugin add <tarball>` 安装的 dsh 组合包（bundle）；**不发布 npm、不配 CI**，分发形态为本地 `pnpm pack` 手动产出 tarball。
+**Goal:** 把 `packages/token-usage` 改名为 `@dsh-agent-toolkit/token-usage` 并改造为可 `dsh plugin add` 安装的 dsh 组合包（bundle），**公开发布到 npm**，使用方可直接 `dsh plugin --profile web add @dsh-agent-toolkit/token-usage` 从 registry 安装。
 
-**Architecture:** 复用现有 tsdown 构建管线，增加第二个配置构建 Node 半（`src/index.ts` → `lib/index.js`，ESM + d.ts）；`package.json` 的 `exports["."]` 从 TS 源码切换到构建产物，补充 `dsh.bundle` manifest 与 `cordis.patch.yml` 使 `dsh plugin add` 能激活配置层；运行时依赖 `@deepseek-ai/schemastery` 从 devDep(link) 转为 dependencies(npm 版本)；devDependencies 保持 `link:` 锚定本地 monorepo checkout。
+**Architecture:** 复用现有 tsdown 构建管线，增加第二个配置构建 Node 半（`src/index.ts` → `lib/index.js`，ESM + d.ts）；`package.json` 的 `exports["."]` 从 TS 源码切换到构建产物，补充 `dsh.bundle` manifest 与 `cordis.patch.yml` 使 `dsh plugin add` 能激活配置层；运行时依赖 `@deepseek-ai/schemastery` 从 devDep(link) 转为 dependencies(npm 版本)；devDependencies 保持 `link:` 锚定本地 monorepo checkout（消费方不安装 devDeps，无碍发布）。
 
-**Tech Stack:** pnpm 11 workspace、tsdown 0.22（rolldown）、dsh bundle/profile 机制。
+**Tech Stack:** pnpm 11 workspace、tsdown 0.22（rolldown）、dsh bundle/profile 机制、npm registry。
 
 ## Global Constraints
 
 - 包名 **`@dsh-agent-toolkit/token-usage`**（已定）。四处必须一致：package.json `name`、tsdown `ID` 常量、`cordis.patch.yml` 行 `name`、开发用 `cordis.yml` 行 `name`。**插件导出 `name = 'token-usage'` 不变**（cordis 插件名，不随包名改；`src/` 一行不动）
-- 版本 **`0.1.0`**，License **MIT**；**保留 `"private": true`** 作为误发 npm 的闸门
+- 版本 **`0.1.0`**，License **MIT**（附带 `LICENSE` 文件本体并加入 `files` 白名单）
+- **删除 `"private": true`**；改用 `"publishConfig": { "access": "public" }`（scoped 包首发默认 restricted，此字段使 `pnpm publish` 自动带 `--access public`）
 - **不改动 `src/` 下任何业务代码**（aggregate/render/store/index/client 均不动）
 - ESM only（`"type": "module"` 保持）
-- devDependencies **保持 `link:`**（本地开发锚定 monorepo checkout；不配 CI，无需解决 CI 上的 link 解析）
+- devDependencies **保持 `link:`**（本地开发锚定 monorepo checkout；消费方不安装 devDeps；不配 CI，无需解决 CI 上的 link 解析）
 - npm 版本基线（2026-08-19 实测）：`@deepseek-ai/cordis@4.0.1`、`@deepseek-ai/schemastery@3.18.1`
 - 提交信息风格沿用仓库历史：`feat(token-usage): ...` / `chore(token-usage): ...` / `docs: ...`
-- 仓库默认分支 `master`（当前工作分支 `feat/agent-team`，本计划改动落在哪个分支由用户定）
+- 仓库默认分支 `master`（本计划改动落在工作分支 `feat/token-usage-publish`）
+- **npm 版本不可撤回**：正式发布（Task 5）前必须 Task 1–4 全绿；发布动作由控制者在确认 `npm whoami` 已登录后执行或指导用户执行
 
 ---
 
@@ -160,7 +164,7 @@ Expected: 输出 `node-half ok: token-usage storageDomain,tokenMeter,commands`�
 - [ ] **Step 4: 回归——既有测试与类型检查**
 
 Run: `pnpm --filter token-usage test; pnpm --filter token-usage typecheck`
-Expected: 20/20 PASS；typecheck 无错误。
+Expected: 26/26 PASS；typecheck 无错误。
 
 - [ ] **Step 5: 若 dts 生成失败（仅失败时执行的应急分支）**
 
@@ -177,18 +181,19 @@ git commit -m "feat(token-usage): tsdown 增加 Node 半构建；模块 ID 对�
 
 ---
 
-### Task 2: 包改名 + package.json 打包化 + cordis.patch.yml + README + 引用点同步
+### Task 2: 包改名 + package.json 打包化 + cordis.patch.yml + LICENSE + README + 引用点同步
 
 **Files:**
 - Modify: `packages/token-usage/package.json`（整体替换，见下方完整内容）
 - Create: `packages/token-usage/cordis.patch.yml`
+- Create: `packages/token-usage/LICENSE`
 - Create: `packages/token-usage/README.md`
 - Modify: `package.json`（根：依赖名、bundle script）
 - Modify: `cordis.yml`（开发 patch 行 name）
 
 **Interfaces:**
 - Consumes: Task 1 产出的 `lib/index.js` / `lib/index.d.ts` / `lib/client.js`。
-- Produces: 可被 `dsh plugin add` 激活的组合包：`dsh.bundle.patch` 指向 `cordis.patch.yml`；patch 行按包名引用（publish.md：patch 行用包名而非路径，Node 模块解析以 profile 目录为锚点）。
+- Produces: 可被 `dsh plugin add` 激活、可 `pnpm publish` 到 npm 的组合包：`dsh.bundle.patch` 指向 `cordis.patch.yml`；patch 行按包名引用（publish.md：patch 行用包名而非路径，Node 模块解析以 profile 目录为锚点）。
 
 - [ ] **Step 1: 创建 `packages/token-usage/cordis.patch.yml`**
 
@@ -208,9 +213,14 @@ git commit -m "feat(token-usage): tsdown 增加 Node 半构建；模块 ID 对�
 {
   "name": "@dsh-agent-toolkit/token-usage",
   "version": "0.1.0",
-  "private": true,
   "description": "DeepSeek Harness plugin: per-day token usage statistics — /token-usage command, JSON endpoint, sidebar UI",
   "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "token-usage"
+  ],
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -225,8 +235,12 @@ git commit -m "feat(token-usage): tsdown 增加 Node 半构建；模块 ID 对�
   "files": [
     "lib",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -285,14 +299,41 @@ git commit -m "feat(token-usage): tsdown 增加 Node 半构建；模块 ID 对�
 
 要点说明（实施者必读）：
 
-- **`"private": true` 保留**：不发布 npm，它既不阻碍 `pnpm pack`（已实测），又能挡住误 `pnpm publish`。
-- `exports["."]` 从 `./src/index.ts` 切到构建产物（tarball 安装进 profile 后，宿主 dsh 跑构建后 JS，不跑 tsx）。
+- **删除 `"private": true`**，新增 `publishConfig.access: public`——scoped 包首发默认 restricted，该字段使 `pnpm publish` 无需命令行再带 `--access public`。
+- `exports["."]` 从 `./src/index.ts` 切到构建产物（npm 安装进 profile 后，宿主 dsh 跑构建后 JS，不跑 tsx）。
 - `@deepseek-ai/schemastery` 是 Node 半**运行时值导入**（`import z from ...`），必须进 `dependencies`，使 pnpm 把它装进 profile。Config schema 走 Standard Schema 接口被宿主泛型调用，与宿主 vendored 副本并存无 instanceof 问题（config.md 强调 Standard Schema 接口即为此）。
 - 其余 `@deepseek-ai/dsh-*` 在本包中**只有 type-only 导入**（服务经 `ctx` 注入，不走 import），不进 dependencies/peerDependencies，避免 pnpm 自动装一份与宿主版本脱节的副本进 profile；`@deepseek-ai/cordis` 按 dsh 仓库惯例作 peerDependency。
 - devDependencies 保留 `link:`（本地开发锚定 monorepo checkout；已实测 `pnpm pack` 不报错，安装方不读 devDependencies）。
-- `prepack` 保证 `pnpm pack` 前重建两半产物。
+- `prepack` 保证 `pnpm pack` / `pnpm publish` 前重建两半产物。
+- 未填 `repository`/`homepage`/`author`：本仓库当前无 git remote，留空待仓库推送后补。
 
-- [ ] **Step 3: 创建 `packages/token-usage/README.md`**
+- [ ] **Step 3: 创建 `packages/token-usage/LICENSE`（MIT）**
+
+```text
+MIT License
+
+Copyright (c) 2026 dsh-agent-toolkit contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+- [ ] **Step 4: 创建 `packages/token-usage/README.md`**
 
 ````markdown
 # @dsh-agent-toolkit/token-usage
@@ -305,11 +346,8 @@ DeepSeek Harness（dsh）插件：按日统计 token 用量。
 
 ## 安装
 
-本包不发布 npm，以 tarball 分发：
-
 ```sh
-pnpm pack                                            # 产出 dsh-agent-toolkit-token-usage-0.1.0.tgz
-dsh plugin --profile web add ./dsh-agent-toolkit-token-usage-0.1.0.tgz
+dsh plugin --profile web add @dsh-agent-toolkit/token-usage
 ```
 
 ## 配置
@@ -330,7 +368,7 @@ dsh plugin --profile web add ./dsh-agent-toolkit-token-usage-0.1.0.tgz
 依赖 dsh 提供 `storageDomain`、`tokenMeter`、`commands` 服务（`@deepseek-ai/dsh-base` 均含）；`webServer` 为可选注入，headless/CLI 下不注册 HTTP 端点。
 ````
 
-- [ ] **Step 4: 同步根 package.json**
+- [ ] **Step 5: 同步根 package.json**
 
 ```json
 {
@@ -348,7 +386,7 @@ dsh plugin --profile web add ./dsh-agent-toolkit-token-usage-0.1.0.tgz
 }
 ```
 
-- [ ] **Step 5: 同步开发用 `cordis.yml`**
+- [ ] **Step 6: 同步开发用 `cordis.yml`**
 
 ```yaml
 # 开发用 patch：dsh web --patch 叠加到 web profile。
@@ -362,7 +400,7 @@ dsh plugin --profile web add ./dsh-agent-toolkit-token-usage-0.1.0.tgz
         timezone: Asia/Shanghai
 ```
 
-- [ ] **Step 6: 本地 web profile 重新链接（包名变更必须重装）**
+- [ ] **Step 7: 本地 web profile 重新链接（包名变更必须重装）**
 
 旧名 `token-usage` 还挂在 web profile 的依赖里，改名后解析锚点对不上。
 
@@ -375,35 +413,35 @@ pnpm dsh plugin --profile web add "link:D:\work\github\dsh\dsh-agent-toolkit\pac
 
 Expected: profile 的 `dsh.profile.bundles` 中 `token-usage` 被 `@dsh-agent-toolkit/token-usage` 替换。
 
-- [ ] **Step 7: 重建、安装、回归**
+- [ ] **Step 8: 重建、安装、回归**
 
 Run（workdir 仓库根）: `pnpm install; pnpm --filter @dsh-agent-toolkit/token-usage bundle; pnpm --filter @dsh-agent-toolkit/token-usage test; pnpm --filter @dsh-agent-toolkit/token-usage typecheck`
-Expected: 全绿（20/20）。`pnpm install` 让 workspace 按新包名重新链接。
+Expected: 全绿（26/26）。`pnpm install` 让 workspace 按新包名重新链接。
 
 **已知风险与应急**：`@deepseek-ai/schemastery` 同时出现在 dependencies（`^3.18.1`）和 devDependencies（`link:`）——pnpm 允许同名重叠且本地 link 生效、打包时 devDeps 被忽略（消费者拿到 registry 版），但若 `pnpm install` 对此报错，删除 devDependencies 中的 `@deepseek-ai/schemastery` link 行，本地也改用 registry 版本（schemastery 是 vendored 稳定库，与宿主漂移风险低），再继续。
 
-- [ ] **Step 8: 验证开发回路仍可用（exports 切换 + 改名后的关键回归）**
+- [ ] **Step 9: 验证开发回路仍可用（exports 切换 + 改名后的关键回归）**
 
 Run（workdir `deepseek-harness`）: `pnpm dsh --profile web --dump-config`
 Expected: 输出含 `@dsh-agent-toolkit/token-usage` 行且命令成功退出（不启动服务器、无需 API key）。
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```powershell
 git add packages/token-usage package.json cordis.yml pnpm-lock.yaml
-git commit -m "feat(token-usage): 改名 @dsh-agent-toolkit/token-usage 并打包化（exports→lib、dsh.bundle manifest、schemastery 转 runtime dep）"
+git commit -m "feat(token-usage): 改名 @dsh-agent-toolkit/token-usage 并打包化（exports→lib、dsh.bundle manifest、schemastery 转 runtime dep、LICENSE、publishConfig）"
 ```
 
 ---
 
-### Task 3: 打包产物验证（pnpm pack 内容核查）
+### Task 3: 打包产物验证（pnpm pack 内容核查 + publish dry-run）
 
 **Files:**
 - 无文件改动（纯验证）
 
 **Interfaces:**
 - Consumes: Task 2 的完整包形态。
-- Produces: `packages/token-usage/dsh-agent-toolkit-token-usage-0.1.0.tgz`（scoped 包的 tarball 文件名规则：scope 的 `@` 去掉、`/` 转 `-`），供 Task 4 安装验证。
+- Produces: `packages/token-usage/dsh-agent-toolkit-token-usage-0.1.0.tgz`（scoped 包的 tarball 文件名规则：scope 的 `@` 去掉、`/` 转 `-`），供 Task 4 安装验证；npm 发布内容以同一份 tarball 为准。
 
 - [ ] **Step 1: 打包**
 
@@ -415,7 +453,7 @@ Expected: 生成 `dsh-agent-toolkit-token-usage-0.1.0.tgz`；`prepack` 自动重
 Run: `tar -tf packages/token-usage/dsh-agent-toolkit-token-usage-0.1.0.tgz`
 Expected（逐条核对，缺一不可、多一不可）:
 
-- ✅ 必含：`package/package.json`、`package/README.md`、`package/cordis.patch.yml`、`package/lib/index.js`、`package/lib/index.d.ts`、`package/lib/client.js`（`.map` 可有可无，不阻塞）
+- ✅ 必含：`package/package.json`、`package/README.md`、`package/LICENSE`、`package/cordis.patch.yml`、`package/lib/index.js`、`package/lib/index.d.ts`、`package/lib/client.js`（`.map` 可有可无，不阻塞）
 - ❌ 必不含：`src/`、`tests/`、`tsconfig.json`、`tsdown.config.ts`、`vitest.config.ts`、`node_modules/`
 
 - [ ] **Step 3: 核查 tarball 内 package.json 关键字段**
@@ -423,14 +461,19 @@ Expected（逐条核对，缺一不可、多一不可）:
 Run:
 
 ```powershell
-tar -xOf packages/token-usage/dsh-agent-toolkit-token-usage-0.1.0.tgz package/package.json | node --input-type=module -e "let s=''; for await (const c of process.stdin) s+=c; const p=JSON.parse(s); if (p.name!=='@dsh-agent-toolkit/token-usage') throw new Error('name: '+p.name); if (p.version!=='0.1.0') throw new Error('version'); if (p.exports['.'].default!=='./lib/index.js') throw new Error('exports'); if (p.dsh.bundle.patch!=='./cordis.patch.yml') throw new Error('bundle patch'); if (p.dependencies['@deepseek-ai/schemastery']!=='^3.18.1') throw new Error('schemastery dep'); console.log('tarball manifest ok')"
+tar -xOf packages/token-usage/dsh-agent-toolkit-token-usage-0.1.0.tgz package/package.json | node --input-type=module -e "let s=''; for await (const c of process.stdin) s+=c; const p=JSON.parse(s); if (p.name!=='@dsh-agent-toolkit/token-usage') throw new Error('name: '+p.name); if (p.version!=='0.1.0') throw new Error('version'); if (p.exports['.'].default!=='./lib/index.js') throw new Error('exports'); if (p.dsh.bundle.patch!=='./cordis.patch.yml') throw new Error('bundle patch'); if (p.dependencies['@deepseek-ai/schemastery']!=='^3.18.1') throw new Error('schemastery dep'); if (p.private) throw new Error('private must be removed'); if (p.publishConfig?.access!=='public') throw new Error('publishConfig'); console.log('tarball manifest ok')"
 ```
 
 Expected: 输出 `tarball manifest ok`。
 
+- [ ] **Step 4: npm 发布 dry-run**
+
+Run（workdir `packages/token-usage`）: `pnpm publish --dry-run --no-git-checks`
+Expected: 成功列出将发布的文件清单（与 Step 2 的 tarball 内容一致），不实际上传。若因 `link:` devDeps 报错，按 Task 2 Step 8 的应急分支处理 schemastery link 行后重试。
+
 ---
 
-### Task 4: 临时 profile 端到端安装验证（tarball）
+### Task 4: 临时 profile 端到端安装验证（本地 tarball）
 
 **Files:**
 - 无仓库文件改动（在 `$DSH_HOME/profiles/` 下创建临时 profile，验证完清理）
@@ -438,6 +481,7 @@ Expected: 输出 `tarball manifest ok`。
 **Interfaces:**
 - Consumes: Task 3 的 `dsh-agent-toolkit-token-usage-0.1.0.tgz`。
 - 命令在 `deepseek-harness/` 目录用 `pnpm dsh ...` 执行（源码启动器；publish.md 第 7 行确认可用）。
+- 意义：npm 发布不可撤回，先用与 registry 内容完全一致的本地 tarball 做端到端验证，作为 Task 5 发布前的最后闸门。
 
 - [ ] **Step 1: 安装 tarball 进新 profile**
 
@@ -483,18 +527,69 @@ Remove-Item -Recurse -Force "$env:USERPROFILE\.dsh\profiles\tu-verify"
 
 ---
 
-### Task 5: 文档更新（AGENTS.md）+ 收尾提交
+### Task 5: npm 发布 + 从 registry 端到端验证
+
+**Files:**
+- 无仓库文件改动（发布到 npm registry；临时 profile 验证完清理）
+
+**Interfaces:**
+- Consumes: Task 1–4 全绿。
+- Produces: npm 上的 `@dsh-agent-toolkit/token-usage@0.1.0`；registry 安装路径验证通过。
+
+**⚠️ 本任务含不可撤回动作（npm 版本发布后 72 小时外不可删）。`npm whoami` 未登录或 scope 无权限时立即停下报告用户，不要尝试 `npm login`（交互式，需用户本人操作）。**
+
+- [ ] **Step 1: 发布前检查**
+
+Run:
+```powershell
+npm whoami                                    # 必须已登录；未登录则停下报告用户执行 npm login
+npm view @dsh-agent-toolkit/token-usage       # 期望 404（包名未被占用）；若已存在且版本含 0.1.0 则停下报告
+```
+
+Expected: `npm whoami` 输出用户名；`npm view` 报 404（首次发布）。
+
+- [ ] **Step 2: 发布**
+
+Run（workdir `packages/token-usage`）: `pnpm publish --no-git-checks`
+Expected: 发布成功（`publishConfig.access: public` 已保证 scoped 包公开）；`npm view @dsh-agent-toolkit/token-usage` 返回 `0.1.0`。
+
+- [ ] **Step 3: 从 registry 安装进临时 profile**
+
+Run（workdir `deepseek-harness`）:
+
+```powershell
+pnpm dsh plugin --profile tu-verify-npm add "@dsh-agent-toolkit/token-usage"
+```
+
+Expected: 从 npm registry 解析并安装成功；profile 的 `dsh.profile.bundles` 含 `@dsh-agent-toolkit/token-usage`。
+
+- [ ] **Step 4: 验证配置层与运行时**
+
+Run: `pnpm dsh --profile tu-verify-npm --dump-config`，输出含 `@dsh-agent-toolkit/token-usage` 层。
+再按 Task 4 Step 3 的方式启动 `pnpm dsh web --profile tu-verify-npm`，验证 `/plugins/@dsh-agent-toolkit/token-usage/client.js` 返回 200、`/token-usage/api/daily` 返回 200 JSON，随后停服。
+
+- [ ] **Step 5: 清理临时 profile 并打 tag**
+
+```powershell
+pnpm dsh plugin --profile tu-verify-npm remove @dsh-agent-toolkit/token-usage   # workdir: deepseek-harness
+Remove-Item -Recurse -Force "$env:USERPROFILE\.dsh\profiles\tu-verify-npm"
+git tag token-usage-v0.1.0
+```
+
+---
+
+### Task 6: 文档更新（AGENTS.md）+ 收尾提交
 
 **Files:**
 - Modify: `AGENTS.md`（两处，见 Step 1）
 
 **Interfaces:**
-- Consumes: Task 1–4 全部完成。
-- Produces: AGENTS.md 与新包名、构建要求同步。
+- Consumes: Task 1–5 全部完成。
+- Produces: AGENTS.md 与新包名、构建要求、npm 发布方式同步。
 
 - [ ] **Step 1: 更新 AGENTS.md**
 
-改动一——「开发命令」节第一行：
+改动一——「开发命令」节：
 
 ```
 - 单测：`pnpm --filter token-usage test`；类型检查：`pnpm --filter token-usage typecheck`；agent-team 同（`pnpm --filter agent-team test` / `typecheck`）
@@ -517,29 +612,30 @@ Remove-Item -Recurse -Force "$env:USERPROFILE\.dsh\profiles\tu-verify"
 改为：
 
 ```
-│   ├─ token-usage/      ← Token 用量统计（包名 @dsh-agent-toolkit/token-usage；已建成；
-│                           不发 npm，pnpm pack 产 tarball 经 dsh plugin add 安装）
+│   ├─ token-usage/      ← Token 用量统计（包名 @dsh-agent-toolkit/token-usage，已发布 npm；
+│                           发版流程：test → typecheck → bundle → pack 核查 → pnpm publish）
 ```
 
 - [ ] **Step 2: Commit**
 
 ```powershell
 git add AGENTS.md
-git commit -m "docs: AGENTS.md 同步 token-usage 改名与构建要求"
+git commit -m "docs: AGENTS.md 同步 token-usage 改名、构建要求与 npm 发布方式"
 ```
 
 ---
 
-## 发布决策记录（已定）
+## 发布决策记录（2026-08-20 修订）
 
 | 决策点 | 结论 | 依据 |
 |---|---|---|
-| 渠道 | **不发布 npm**；本地 `pnpm pack` 手动产 tarball 交付 | 用户决定（2026-08-19） |
-| npm 误发防线 | 保留 `"private": true` | 不阻碍 `pnpm pack`（已实测），挡住误 publish |
+| 渠道 | **npm 公开发布**（registry 安装为主路径） | 用户决定（2026-08-20，推翻 08-19 的 tarball 决策） |
+| 误发防线 | 删除 `"private": true`，改 `publishConfig.access: public` | 发 npm 是目标；scoped 包首发需 public，写进 manifest 避免每次记 flag |
 | 包名 | **`@dsh-agent-toolkit/token-usage`** | 用户决定；与仓库名呼应，scope 留足后续插件位 |
 | 插件导出名 | 保持 `token-usage` 不变 | cordis 插件名独立于包名；不动 src |
-| 版本 / License | 0.1.0 / MIT | 首个对外版本；与 dsh 主仓库一致 |
+| 版本 / License | 0.1.0 / MIT（附 LICENSE 文件） | 首个对外版本；与 dsh 主仓库一致 |
 | Node 半构建 | tsdown 第二配置（非 tsc） | 复用现有管线；src 用 `.ts` 扩展名导入 + `allowImportingTsExtensions`，tsc emit 需改源码导入，违背"不动 src"约束 |
-| devDeps 策略 | 保持 `link:` 锚定本地 monorepo checkout | 用户决定；类型基线与宿主源码严格一致（本仓库不配 CI，无需解决 CI 上的 link 解析） |
-| GitHub 安装路径 | 不支持 | 需自包含 prepare + 用户 allowBuilds 授权；tarball 已覆盖 |
+| devDeps 策略 | 保持 `link:` 锚定本地 monorepo checkout | 用户决定；类型基线与宿主源码严格一致；消费方不装 devDeps（本仓库不配 CI，无需解决 CI 上的 link 解析） |
+| GitHub 安装路径 | 不支持 | 需自包含 prepare + 用户 allowBuilds 授权；npm registry 已覆盖 |
+| 发布节奏 | 手动：test → typecheck → bundle → pack 核查 → publish | 版本不可撤回，发布前 Task 3–4 双闸（dry-run + tarball e2e） |
 | CI | **不配**（GitHub Actions 等均无） | 用户决定（2026-08-19）；本地手动跑 test/typecheck/bundle/pack 核查 |
