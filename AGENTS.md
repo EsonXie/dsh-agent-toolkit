@@ -8,8 +8,9 @@
 
 ## 开发命令
 
-- 单测：`pnpm --filter token-usage test`；类型检查：`pnpm --filter token-usage typecheck`；agent-team 同（`pnpm --filter agent-team test` / `typecheck`）
-- 客户端 bundle：`pnpm --filter token-usage bundle`（开发期 `pnpm --filter token-usage watch`）；agent-team 含浏览器半，改动后需 `pnpm --filter agent-team bundle`
+- 单测：`pnpm --filter @dsh-agent-toolkit/token-usage test`；类型检查：`pnpm --filter @dsh-agent-toolkit/token-usage typecheck`；agent-team 同（`pnpm --filter agent-team test` / `typecheck`）
+- 构建：`pnpm --filter @dsh-agent-toolkit/token-usage bundle` 同时产出 Node 半（lib/index.js，exports 入口）与浏览器半（lib/client.js）——token-usage 任何 src 改动后、进开发回路前都要跑（开发期 `pnpm --filter @dsh-agent-toolkit/token-usage watch`）；agent-team 含浏览器半，改动后需 `pnpm --filter agent-team bundle`
+- 发布：`powershell -File scripts/publish-token-usage.ps1`（六道门禁后 pnpm publish 到官方 registry；不可在 CI/自动化里跑，含人工确认）
 - 开发回路：`cd deepseek-harness && pnpm dsh web --patch D:\work\github\dsh\dsh-agent-toolkit\cordis.yml`（deepseek-harness 首次需 `pnpm install && pnpm run build`）
 
 ## 文档使用（先读这里）
@@ -35,7 +36,8 @@ dsh-agent-toolkit/
 │                           本仓库 git 化时必须 .gitignore 掉它
 ├─ docs/refer/           ← 官方文档镜像（87 篇）
 ├─ packages/             ← 插件，各自独立 package
-│   ├─ token-usage/      ← Token 用量统计（第一个实现，已建成）
+│   ├─ token-usage/      ← Token 用量统计（包名 @dsh-agent-toolkit/token-usage，已发布 npm；
+│                           发版流程：test → typecheck → bundle → pack 核查 → pnpm publish）
 │   ├─ feishu-bot/       ← 飞书机器人
 │   └─ agent-team/       ← Agent 团队（已建成；presets/team/ 随包发行"团队模式"）
 │                           teams/default.yml（explorer + general）
