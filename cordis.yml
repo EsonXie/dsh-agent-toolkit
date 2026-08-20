@@ -2,14 +2,15 @@
 # 顶层必须是 loader patch 条目（PatchOptions）数组；insert 追加行。
 # 插件行 name 用裸包名：包已通过 `dsh plugin --profile web add link:<本包路径>` 装进 profile，
 # loader 导入与 client-modules 扫描都以 profile 目录（~/.dsh/profiles/web）为解析锚点。
+# 注意：token-usage 自带 cordis.patch.yml bundle 层（profile dsh.profile.bundles 已列出），
+# 这里只能按 id 覆盖 config，不能再 insert（否则 duplicate loader entry id）。
 - insert:
-    - id: token-usage
-      name: '@dsh-agent-toolkit/token-usage'
-      config:
-        timezone: Asia/Shanghai
     - id: agent-team
       name: agent-team
       config:
         clientOnly: true
     - id: prompt-stack
       name: prompt-stack
+- id: token-usage
+  config:
+    timezone: Asia/Shanghai

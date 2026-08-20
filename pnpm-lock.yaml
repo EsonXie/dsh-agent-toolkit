@@ -123,6 +123,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: link:../../deepseek-harness/packages/llm/llm
         version: link:../../deepseek-harness/packages/llm/llm
+      '@deepseek-ai/dsh-scope':
+        specifier: link:../../deepseek-harness/packages/core/scope
+        version: link:../../deepseek-harness/packages/core/scope
       '@deepseek-ai/dsh-session':
         specifier: link:../../deepseek-harness/packages/core/session
         version: link:../../deepseek-harness/packages/core/session
