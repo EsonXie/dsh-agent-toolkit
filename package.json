@@ -3,11 +3,11 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "token-usage": "workspace:*"
+    "@dsh-agent-toolkit/token-usage": "workspace:*"
   },
   "scripts": {
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
-    "bundle": "pnpm --filter token-usage run bundle"
+    "bundle": "pnpm --filter @dsh-agent-toolkit/token-usage run bundle"
   }
 }

@@ -1,14 +1,38 @@
 {
-  "name": "token-usage",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@dsh-agent-toolkit/token-usage",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness plugin: per-day token usage statistics — /token-usage command, JSON endpoint, sidebar UI",
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "token-usage"
+  ],
   "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "inject": [
@@ -21,11 +45,16 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "bundle": "tsdown",
-    "watch": "tsdown --watch"
+    "watch": "tsdown --watch",
+    "prepack": "pnpm run bundle"
   },
   "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1",
     "clsx": "^2.0.0",
     "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "link:../../deepseek-harness/vendor/cordis",

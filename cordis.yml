@@ -4,7 +4,7 @@
 # loader 导入与 client-modules 扫描都以 profile 目录（~/.dsh/profiles/web）为解析锚点。
 - insert:
     - id: token-usage
-      name: token-usage
+      name: '@dsh-agent-toolkit/token-usage'
       config:
         timezone: Asia/Shanghai
     - id: agent-team
