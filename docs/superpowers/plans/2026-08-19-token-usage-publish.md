@@ -498,23 +498,17 @@ Expected: 成功；**不应**出现"没有 dsh.bundle 声明"的警告；profile
 Run: `pnpm dsh --profile tu-verify --dump-config`
 Expected: 输出含 `# == @dsh-agent-toolkit/token-usage` 层标题与 `id: token-usage` 行（publish.md：dump-config 会显示各组合包层）。
 
-- [ ] **Step 3: 启动 web 并验证 Node 半端点与 client bundle 路由**
+- [ ] **Step 3: 安装形态冒烟——从 profile 目录解析并导入插件（不启动 web 服务）**
 
-Run（workdir `deepseek-harness`）:
+> 2026-08-20 修订：本环境启动 dsh web 会卡住进程与 Agent，**禁止启动任何服务器**。改为在 profile 目录下做 Node 解析冒烟——这恰好覆盖了 tarball 形态的关键风险点（exports 指向、scoped 包名解析、运行时依赖解析）。
+
+Run（workdir `$env:USERPROFILE\.dsh\profiles\tu-verify`，即安装后的临时 profile 目录）:
 
 ```powershell
-$log = "$env:TEMP\opencode\tu-verify-web.log"
-$proc = Start-Process pnpm -ArgumentList 'dsh','web','--profile','tu-verify' -RedirectStandardOutput $log -RedirectStandardError "$log.err" -PassThru -NoNewWindow
-# 轮询日志直到出现监听 URL（最多 60s）
-$url = $null
-foreach ($i in 1..30) { Start-Sleep 2; $m = Select-String -Path $log -Pattern 'http://[^\s]+' | Select-Object -First 1; if ($m) { $url = $m.Matches[0].Value; break } }
-if (-not $url) { Get-Content $log; throw 'web 未在 60s 内监听' }
-curl.exe -s -o NUL -w "%{http_code}" "$url/plugins/@dsh-agent-toolkit/token-usage/client.js"   # 期望 200（scoped 包名含斜杠，路由按完整包名匹配）
-curl.exe -s "$url/token-usage/api/daily"                                                       # 期望 JSON：{"today":"YYYY-MM-DD","record":{...}}
-Stop-Process -Id $proc.Id -Force
+node --input-type=module -e "const m = await import('@dsh-agent-toolkit/token-usage'); if (m.name !== 'token-usage') throw new Error('name'); if (typeof m.apply !== 'function') throw new Error('apply'); if (!Array.isArray(m.inject)) throw new Error('inject'); if ('default' in m) throw new Error('must not have default export'); console.log('registry-form ok:', m.name, m.inject.join(','))"
 ```
 
-Expected: client.js 返回 200（内容为 `window.__ModuleLoader__.load` 包裹的 bundle，id 为 `@dsh-agent-toolkit/token-usage`）；API 返回 200 JSON。插件 inject 的 `storageDomain`/`tokenMeter`/`commands` 与可选 `webServer` 均由 `@deepseek-ai/dsh-base` 提供，全程无需 API key。
+Expected: 输出 `registry-form ok: token-usage storageDomain,tokenMeter,commands`。此命令同时验证：profile 目录为锚点的 Node 模块解析能找到 scoped 包、`exports["."]` 指向的 lib/index.js 可加载、其全部运行时 import（含 `@deepseek-ai/schemastery` 与 `@deepseek-ai/dsh-storage-domain`）在 profile 的 node_modules 中可解析。**若出现 Cannot find module 即为 BLOCKED，立即报告，不要改包依赖。**
 
 - [ ] **Step 4: 清理临时 profile**
 
@@ -538,20 +532,22 @@ Remove-Item -Recurse -Force "$env:USERPROFILE\.dsh\profiles\tu-verify"
 
 **⚠️ 本任务含不可撤回动作（npm 版本发布后 72 小时外不可删）。`npm whoami` 未登录或 scope 无权限时立即停下报告用户，不要尝试 `npm login`（交互式，需用户本人操作）。**
 
+**⚠️ 本机 npm registry 配置为 npmmirror（镜像）。发布与查询必须显式钉到官方 registry：`--registry https://registry.npmjs.org`（npm whoami / npm view / pnpm publish 均要）。`dsh plugin add` 从 registry 安装时若受镜像影响导致装到的不是刚发布的版本，可等镜像同步或临时钉 registry 重试。**
+
 - [ ] **Step 1: 发布前检查**
 
 Run:
 ```powershell
-npm whoami                                    # 必须已登录；未登录则停下报告用户执行 npm login
-npm view @dsh-agent-toolkit/token-usage       # 期望 404（包名未被占用）；若已存在且版本含 0.1.0 则停下报告
+npm whoami --registry https://registry.npmjs.org                      # 必须已登录；未登录则停下报告用户执行 npm login
+npm view @dsh-agent-toolkit/token-usage --registry https://registry.npmjs.org   # 期望 404（包名未被占用）；若已存在且版本含 0.1.0 则停下报告
 ```
 
 Expected: `npm whoami` 输出用户名；`npm view` 报 404（首次发布）。
 
 - [ ] **Step 2: 发布**
 
-Run（workdir `packages/token-usage`）: `pnpm publish --no-git-checks`
-Expected: 发布成功（`publishConfig.access: public` 已保证 scoped 包公开）；`npm view @dsh-agent-toolkit/token-usage` 返回 `0.1.0`。
+Run（workdir `packages/token-usage`）: `pnpm publish --no-git-checks --registry https://registry.npmjs.org`
+Expected: 发布成功（`publishConfig.access: public` 已保证 scoped 包公开）；`npm view @dsh-agent-toolkit/token-usage --registry https://registry.npmjs.org` 返回 `0.1.0`。
 
 - [ ] **Step 3: 从 registry 安装进临时 profile**
 
@@ -563,10 +559,10 @@ pnpm dsh plugin --profile tu-verify-npm add "@dsh-agent-toolkit/token-usage"
 
 Expected: 从 npm registry 解析并安装成功；profile 的 `dsh.profile.bundles` 含 `@dsh-agent-toolkit/token-usage`。
 
-- [ ] **Step 4: 验证配置层与运行时**
+- [ ] **Step 4: 验证配置层与安装形态冒烟（不启动 web 服务）**
 
 Run: `pnpm dsh --profile tu-verify-npm --dump-config`，输出含 `@dsh-agent-toolkit/token-usage` 层。
-再按 Task 4 Step 3 的方式启动 `pnpm dsh web --profile tu-verify-npm`，验证 `/plugins/@dsh-agent-toolkit/token-usage/client.js` 返回 200、`/token-usage/api/daily` 返回 200 JSON，随后停服。
+再按 Task 4 Step 3 的方式在 `$env:USERPROFILE\.dsh\profiles\tu-verify-npm` 目录下做 Node 导入冒烟，期望输出 `registry-form ok: token-usage storageDomain,tokenMeter,commands`。
 
 - [ ] **Step 5: 清理临时 profile 并打 tag**
 
