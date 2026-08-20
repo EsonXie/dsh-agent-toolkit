@@ -121,7 +121,7 @@ system = [
 
 ## 匹配与覆盖算法
 
-**2026-08-20 修订（已实现）**：原算法只读创建期 `agent.options`，实测 web 会话的模型选择是运行时切换（dsh model-selection 在 `system-prompt/assemble` waterfall 内层把 `variables.provider/model` 覆盖为运行时值，`agent.options` 不变），导致"不同模型会话提示词相同"。实现改为两段：section text 函数仍按创建期 options 解析（基线/裸组装路径），另注册全局 waterfall 监听器在 `await next()` 后用**最终 variables** 重新解析 `prompt-stack:*` 各段。本插件 boot 期全局注册、恒居外层（model-selection 的监听器在 agent 创建期才装上），故总能拿到运行时覆盖后的值；无运行时选择时 variables 即创建期 options，行为不变。另：默认规则补 `k2*`/`k3*` 两条（kimi 官方模型 id 无前缀，常挂自定义 provider 名），默认规则总数 13 → 15。
+**2026-08-20 修订（已实现）**：原算法只读创建期 `agent.options`，实测 web 会话的模型选择是运行时切换（dsh model-selection 在 `system-prompt/assemble` waterfall 内层把 `variables.provider/model` 覆盖为运行时值，`agent.options` 不变），导致"不同模型会话提示词相同"。实现改为两段：section text 函数仍按创建期 options 解析（基线/裸组装路径），另注册全局 waterfall 监听器在 `await next()` 后用**最终 variables** 重新解析 `prompt-stack:*` 各段。本插件 boot 期全局注册、恒居外层（model-selection 的监听器在 agent 创建期才装上），故总能拿到运行时覆盖后的值；无运行时选择时 variables 即创建期 options，行为不变。**语义按会话钉住**：每个会话在首次组装（首条消息）时解析并缓存 `{provider, model}`（WeakMap，键带 session id），会话中途切模型不改写系统提示词；clear/新会话自动重新解析。进程内缓存的已知局限：重启恢复的旧会话按恢复时的当前选择（日志最近一次请求的模型）重新解析。另：默认规则补 `k2*`/`k3*` 两条（kimi 官方模型 id 无前缀，常挂自定义 provider 名），默认规则总数 13 → 15。
 
 在每个 section 的 text 函数内、每次组装时执行：
 

@@ -4,9 +4,9 @@ import SystemPrompt, { renderPrompt, type AssembleContext } from '@deepseek-ai/d
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { apply, Config } from '../src/index.ts'
 
-/** 构造只带 options 的最小 agent 替身（assemble 路径只读 agent.options）。 */
+/** 构造最小 agent 替身（assemble 路径读 agent.options；钉住缓存读 agent.session.id）。 */
 function agentContext(options: { provider?: string; model?: string }): AssembleContext {
-  return { agent: { options } as unknown as Agent }
+  return { agent: { options, session: { id: 'test-session' } } as unknown as Agent }
 }
 
 const CONFIG = {

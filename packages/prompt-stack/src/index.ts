@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 // type-only 导入激活声明合并：Context.systemPrompt 与 AssembleContext.agent。
-import type {} from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import { DEFAULT_LAYERS, DEFAULT_RULES } from './defaults.ts'
 import { globToRegExp, selectRule } from './match.ts'
@@ -79,12 +79,11 @@ export function validateConfig(config: ConfigT): void {
  * provider/model 选唯一命中规则（最高分、同分取配置序靠前），用其
  * overrides 替换该层文本。裸组装（无 agent）静默用默认文本。
  *
- * 运行时切模型（dsh model-selection）：它在 agent scope 的
- * `system-prompt/assemble` waterfall 内层把 `variables.provider/model` 覆盖为
- * 运行时选择（web 会话的模型选择只走这条路，不改 agent.options）。本插件全局
- * 注册于 boot 期，在 waterfall 链中居外层，`await next()` 返回时用最终
- * variables 重新解析本插件各段——运行时选择由此生效；无覆盖时 variables 即
- * 创建期 agent.options（agent-loop 注册的变量提供器），行为与基线一致。
+ * 运行时选模型（dsh model-selection）：web 会话的模型选择只改 assemble
+ * waterfall 内层的 `variables.provider/model`，不改 agent.options。本插件全局
+ * 注册于 boot 期、恒居 waterfall 外层，`await next()` 返回时用最终 variables
+ * 解析——首条消息（首次组装）按当次选择的模型命中规则，随后按 session 钉住；
+ * 无运行时选择时 variables 即创建期 agent.options（agent-loop 的变量提供器）。
  */
 export function apply(ctx: Context, config: ConfigT): void {
   validateConfig(config)
@@ -106,11 +105,26 @@ export function apply(ctx: Context, config: ConfigT): void {
   })
 
   const notesSection = `prompt-stack:${MODEL_NOTES_LAYER}`
+  // 首条消息钉住：每个会话的首次组装解析出的 provider/model 缓存起来，会话中途
+  // 切模型不再改写系统提示词（对话的行为契约保持稳定）。键带 session id：
+  // clear/新会话（id 变化）自动重新解析。HMR 重挂载换新闭包，缓存随之重置。
+  const pinned = new WeakMap<Agent, { sessionId: unknown; provider: string | undefined; model: string | undefined }>()
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const assembled = await next()
     // 最终 variables 优先（运行时选择），缺省回退创建期 agent.options。
-    const provider = assembled.variables.provider ?? context.agent?.options?.provider
-    const model = assembled.variables.model ?? context.agent?.options?.model
+    let provider = assembled.variables.provider ?? context.agent?.options?.provider
+    let model = assembled.variables.model ?? context.agent?.options?.model
+    const agent = context.agent
+    if (agent !== undefined) {
+      const cached = pinned.get(agent)
+      if (cached !== undefined && cached.sessionId === agent.session.id) {
+        provider = cached.provider
+        model = cached.model
+      } else if (provider !== undefined || model !== undefined) {
+        // 只在解析出实际模型时缓存；全 undefined 的组装不钉住（留给首个真实 step）。
+        pinned.set(agent, { sessionId: agent.session.id, provider, model })
+      }
+    }
     const rule = selectRule(config.rules, provider, model)
     const sections = assembled.sections.map((section) => {
       if (section.name === notesSection) {
