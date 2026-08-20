@@ -13,7 +13,7 @@ const REQUIRED_MARKERS: Array<{ ruleIndex: number; markers: string[] }> = [
   { ruleIndex: 5, markers: ['Editing constraints'] },             // gpt*codex* → codex
   { ruleIndex: 6, markers: ['Autonomy and persistence'] },        // gpt* → gpt
   { ruleIndex: 7, markers: ['same language as the user'] },       // kimi* → kimi
-  { ruleIndex: 12, markers: ['reasoning_content'] },              // glm-* append
+  { ruleIndex: 14, markers: ['reasoning_content'] },              // glm-* append
 ]
 
 function allTexts(): string[] {
@@ -33,10 +33,10 @@ describe('DEFAULT_LAYERS / DEFAULT_RULES 结构', () => {
     expect(DEFAULT_LAYERS[0].text.length).toBeGreaterThan(500)
   })
 
-  test('13 条默认规则；deepseek/glm 仅 append 无 overrides', () => {
-    expect(DEFAULT_RULES).toHaveLength(13)
-    const deepseek = DEFAULT_RULES[11]
-    const glm = DEFAULT_RULES[12]
+  test('15 条默认规则；deepseek/glm 仅 append 无 overrides', () => {
+    expect(DEFAULT_RULES).toHaveLength(15)
+    const deepseek = DEFAULT_RULES[13]
+    const glm = DEFAULT_RULES[14]
     expect(deepseek.match).toEqual({ modelPattern: 'deepseek*' })
     expect(deepseek.overrides).toBeUndefined()
     expect(deepseek.append).toBeDefined()
@@ -75,6 +75,9 @@ describe('默认规则的选择行为', () => {
     expect(selectRule(DEFAULT_RULES, 'zhipu', 'glm-4.6')?.append).toContain('reasoning_content')
     expect(selectRule(DEFAULT_RULES, 'moonshotai', 'k2')?.overrides?.base).toContain('same language as the user')
     expect(selectRule(DEFAULT_RULES, 'kimi-for-coding', 'k3-256k')?.overrides?.base).toContain('same language as the user')
+    // kimi 官方模型 id（k2/k3-256k 等）+ 自定义 provider 名也能命中 kimi 族
+    expect(selectRule(DEFAULT_RULES, 'kimi-coding', 'k3-256k')?.overrides?.base).toContain('same language as the user')
+    expect(selectRule(DEFAULT_RULES, 'custom-provider', 'k2')?.overrides?.base).toContain('same language as the user')
   })
 
   test('gpt-4o 同分取配置序靠前者（beast 而非 gpt）', () => {

@@ -396,6 +396,9 @@ export const DEFAULT_RULES: Rule[] = [
   { match: { modelPattern: 'gpt*codex*' }, overrides: { base: CODEX_TEXT } },
   { match: { modelPattern: 'gpt*' }, overrides: { base: GPT_TEXT } },
   { match: { modelPattern: 'kimi*' }, overrides: { base: KIMI_TEXT } },
+  // kimi 官方模型 id 不带 kimi 前缀（k2、k3-256k 等），且常挂在自定义 provider 名下。
+  { match: { modelPattern: 'k2*' }, overrides: { base: KIMI_TEXT } },
+  { match: { modelPattern: 'k3*' }, overrides: { base: KIMI_TEXT } },
   { match: { provider: 'moonshotai' }, overrides: { base: KIMI_TEXT } },
   { match: { provider: 'moonshotai-cn' }, overrides: { base: KIMI_TEXT } },
   { match: { provider: 'kimi-for-coding' }, overrides: { base: KIMI_TEXT } },

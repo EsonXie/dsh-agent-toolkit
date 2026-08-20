@@ -3,10 +3,11 @@
 DeepSeek Harness 插件：语义化提示词分层 + 按模型规则覆盖层文本。
 
 - 每个语义层注册为 `prompt-stack:<层名>` section，按 `order` 升序拼接。
-- 规则按当前 agent 创建期的 `provider`/`model` 匹配（`provider` 精确 / `model` 精确 / `modelPattern` glob），打分 model=4、pattern=2、provider=1，取最高分一条（同分取配置序靠前）；命中规则的 `overrides[层名]` 替换该层文本，`append` 渲染为固定追加层 `prompt-stack:model-notes`（order = 最大层 order + 1）。
+- 规则按当前生效模型匹配（`provider` 精确 / `model` 精确 / `modelPattern` glob），打分 model=4、pattern=2、provider=1，取最高分一条（同分取配置序靠前）；命中规则的 `overrides[层名]` 替换该层文本，`append` 渲染为固定追加层 `prompt-stack:model-notes`（order = 最大层 order + 1）。
+- 运行时切模型感知：web 会话的模型选择是运行时切换（dsh model-selection 在 assemble waterfall 内层把 `variables.provider/model` 覆盖为运行时值）；prompt-stack 在同一 waterfall 的外层用最终 variables 重新解析各段，会话中切模型即刻生效。无运行时选择时回退创建期 `agent.options`。
 - 裸组装（无 agent）全部使用默认文本；无规则命中是正常路径，不告警。
-- 默认仅一层 `base`（order 0）+ 13 条模型族规则；默认文本改写自 opencode（MIT 许可）的 session/prompt/*.txt，剔除其专有内容、保留模型族行为指导。
-- 层文本支持 dsh 严格插值；`{{model}}` / `{{provider}}` 由 dsh agent-loop 原生提供（取自 agent 创建期 `options`），prompt-stack 直接引用、不重复注册（重复注册会在激活期因重名抛错）。
+- 默认仅一层 `base`（order 0）+ 15 条模型族规则；默认文本改写自 opencode（MIT 许可）的 session/prompt/*.txt，剔除其专有内容、保留模型族行为指导。
+- 层文本支持 dsh 严格插值；`{{model}}` / `{{provider}}` 变量由 dsh 提供（agent-loop 注册创建期值，model-selection 在 waterfall 覆盖为运行时值），prompt-stack 直接引用、不重复注册（重复注册会在激活期因重名抛错）。
 
 ## 配置示例
 
@@ -25,4 +26,4 @@ order 建议区间（与 dsh 惯例对齐）：`-100` harness identity（原生�
 
 ## 已知局限
 
-`agent.options.model` 是创建期模型；会话中通过 UI 运行时切换模型时取到的不是当步生效模型。适用场景是不同模型对应不同 agent/preset 配置；运行时切模型感知留作未来增强（`system-prompt/assemble` waterfall 路径）。
+- 运行时感知依赖 waterfall 顺序：prompt-stack 全局注册（boot 期）须早于 dsh model-selection 的 per-agent 监听器（agent 创建期）才能拿到覆盖后的 variables；当前 dsh 拓扑恒满足。若未来宿主改变注册时序，行为静默回退为创建期匹配（与 v0 行为一致，不报错）。

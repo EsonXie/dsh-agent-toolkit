@@ -78,6 +78,13 @@ export function validateConfig(config: ConfigT): void {
  * 每个层注册一个函数式 section；text 在每次组装时按当前 agent 的
  * provider/model 选唯一命中规则（最高分、同分取配置序靠前），用其
  * overrides 替换该层文本。裸组装（无 agent）静默用默认文本。
+ *
+ * 运行时切模型（dsh model-selection）：它在 agent scope 的
+ * `system-prompt/assemble` waterfall 内层把 `variables.provider/model` 覆盖为
+ * 运行时选择（web 会话的模型选择只走这条路，不改 agent.options）。本插件全局
+ * 注册于 boot 期，在 waterfall 链中居外层，`await next()` 返回时用最终
+ * variables 重新解析本插件各段——运行时选择由此生效；无覆盖时 variables 即
+ * 创建期 agent.options（agent-loop 注册的变量提供器），行为与基线一致。
  */
 export function apply(ctx: Context, config: ConfigT): void {
   validateConfig(config)
@@ -96,5 +103,23 @@ export function apply(ctx: Context, config: ConfigT): void {
     name: `prompt-stack:${MODEL_NOTES_LAYER}`,
     order: notesOrder,
     text: (context) => hitRule(context)?.append ?? '',
+  })
+
+  const notesSection = `prompt-stack:${MODEL_NOTES_LAYER}`
+  ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+    const assembled = await next()
+    // 最终 variables 优先（运行时选择），缺省回退创建期 agent.options。
+    const provider = assembled.variables.provider ?? context.agent?.options?.provider
+    const model = assembled.variables.model ?? context.agent?.options?.model
+    const rule = selectRule(config.rules, provider, model)
+    const sections = assembled.sections.map((section) => {
+      if (section.name === notesSection) {
+        return { ...section, text: rule?.append ?? '' }
+      }
+      const layer = config.layers.find(l => section.name === `prompt-stack:${l.name}`)
+      if (layer === undefined) return section
+      return { ...section, text: rule?.overrides?.[layer.name] ?? layer.text }
+    })
+    return { ...assembled, sections }
   })
 }

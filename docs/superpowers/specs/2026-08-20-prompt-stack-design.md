@@ -121,6 +121,8 @@ system = [
 
 ## 匹配与覆盖算法
 
+**2026-08-20 修订（已实现）**：原算法只读创建期 `agent.options`，实测 web 会话的模型选择是运行时切换（dsh model-selection 在 `system-prompt/assemble` waterfall 内层把 `variables.provider/model` 覆盖为运行时值，`agent.options` 不变），导致"不同模型会话提示词相同"。实现改为两段：section text 函数仍按创建期 options 解析（基线/裸组装路径），另注册全局 waterfall 监听器在 `await next()` 后用**最终 variables** 重新解析 `prompt-stack:*` 各段。本插件 boot 期全局注册、恒居外层（model-selection 的监听器在 agent 创建期才装上），故总能拿到运行时覆盖后的值；无运行时选择时 variables 即创建期 options，行为不变。另：默认规则补 `k2*`/`k3*` 两条（kimi 官方模型 id 无前缀，常挂自定义 provider 名），默认规则总数 13 → 15。
+
 在每个 section 的 text 函数内、每次组装时执行：
 
 1. 从 `AssembleContext.agent?.options` 读 `{ provider, model }`；裸组装（无 agent）→ 所有层直接用默认文本
@@ -165,7 +167,7 @@ config 中 order 必填，插件不做隐藏映射。文档建议区间（与 ds
 
 ## 非目标（YAGNI）
 
-- 不做运行时切模型感知（方案 B 的 waterfall 路径），留作未来增强
+- ~~不做运行时切模型感知（方案 B 的 waterfall 路径），留作未来增强~~（2026-08-20 已实现，见"匹配与覆盖算法"修订注记）
 - 不做 Markdown 文件引用（本期全部内联）；默认配置文本内联为源码常量
 - 默认配置只预置 `base` 层，不预置 persona/domain/task 等语义层（由用户定义）
 - 不改动 dsh 原生 section（identity、工具指引等）；不重复 dsh 已有的动态层（runtime context / agent-instructions / skills）
