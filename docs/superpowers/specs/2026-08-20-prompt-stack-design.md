@@ -56,6 +56,69 @@ prompt-stack:
 - `rules[].overrides`：`层名 -> 替换文本` 字典
 - `rules[].append`：可选，命中时渲染为固定追加层
 
+**合并语义（KISS）**：`layers` / `rules` 字段一旦被用户配置即整体替换默认值，不做深合并；用户想追加需复制默认再改。
+
+## 默认配置（参考 opencode 的分层与模型路由）
+
+### opencode 的提示词分层（已核实，`anomalyco/opencode@dev`）
+
+opencode 的最终拼装点在 `session/llm/request.ts`：
+
+```ts
+system = [
+  agent.prompt ?? SystemPrompt.provider(model),  // ① 基座/差异层：按模型族选完整 .txt，agent.prompt 可整体覆盖
+  ...input.system,                                // ② 动态层：env 块(模型id/cwd/git/平台/日期) + ③ 自定义指令层(AGENTS.md/CLAUDE.md/config.instructions，含 URL) + MCP/skills 目录
+  user.system,                                    // ④ per-request 用户附加 system
+].join("\n")
+// ⑤ plugin hook experimental.chat.system.transform 可整体改写
+```
+
+模型路由（`session/system.ts` 的 `provider(model)`，按 `model.api.id` 包含匹配 + providerID 特例）：
+
+| 路由 | prompt 文件 |
+|---|---|
+| `muse*` | `meta.txt`（含 `{{MODEL_NAME}}` 占位符） |
+| `gpt-4*` / `o1` / `o3` | `beast.txt` |
+| `gpt*` + `codex` | `codex.txt` |
+| `gpt*` | `gpt.txt` |
+| `gemini-*` | `gemini.txt` |
+| `claude*` | `anthropic.txt` |
+| `trinity*` | `trinity.txt` |
+| `kimi*` 或 providerID ∈ `kimi-for-coding` / `moonshotai` / `moonshotai-cn` | `kimi.txt` |
+| 其余（含 **deepseek、glm**——opencode 无专属文件） | `default.txt` |
+
+与 prompt-stack 的映射：① 对应我们的 layers + rules.overrides；②③④ dsh 原生已有等价物（runtime context / agent-instructions / 工具指引段），不重复造；⑤ 对应 dsh 的 `system-prompt/assemble` waterfall（本插件不用）。
+
+### prompt-stack 的默认值
+
+**默认 layers**：
+
+| 层 | order | 默认文本来源 |
+|---|---|---|
+| `base` | 0 | `default.txt` 的本地化改写版 |
+
+**默认 rules**（match 对齐 opencode 路由）：
+
+| match | 作用 | 文本来源 |
+|---|---|---|
+| `modelPattern: "claude*"` | overrides.base | anthropic.txt 改写版 |
+| `modelPattern: "gemini-*"` | overrides.base | gemini.txt 改写版 |
+| `modelPattern: "gpt-4*"` / `"o1*"` / `"o3*"` | overrides.base | beast.txt 改写版 |
+| `modelPattern: "gpt*codex*"` | overrides.base | codex.txt 改写版 |
+| `modelPattern: "gpt*"` | overrides.base | gpt.txt 改写版 |
+| `modelPattern: "kimi*"` 或 `provider: "moonshotai" / "moonshotai-cn" / "kimi-for-coding"` | overrides.base | kimi.txt 改写版 |
+| `modelPattern: "deepseek*"` | **仅 append** | DeepSeek 官方建议蒸馏 |
+| `modelPattern: "glm-*"` | **仅 append** | 智谱官方建议蒸馏（reasoning_content 保留等） |
+
+跳过 `meta.txt` / `trinity.txt`（muse/trinity 非主流）。deepseek/glm 在 opencode 走 default，故不覆盖 base 层，只给 append 适配要点（来自官方文档调研：GLM 交错/保留思考需原样回传 `reasoning_content`；Kimi/GLM 工具调用 OpenAI 风格等）。
+
+### 默认文本改写原则
+
+1. **剔除 opencode 专有内容**：其工具名（TodoWrite/Task）、CLI 快捷键、`/bug` 反馈、opencode 身份自述——dsh 的工具指引段已覆盖工具用法
+2. **保留模型族行为指导**：指令风格、输出约束、推理模型注意事项
+3. **许可**：opencode 为 MIT 许可，改写文本在源码注释与文档中注明出处
+4. 默认文本内联在插件源码常量中（作为 Config schema 的 `.default()`），不是运行时读文件
+
 ## 匹配与覆盖算法
 
 在每个 section 的 text 函数内、每次组装时执行：
@@ -101,6 +164,7 @@ config 中 order 必填，插件不做隐藏映射。文档建议区间（与 ds
 ## 非目标（YAGNI）
 
 - 不做运行时切模型感知（方案 B 的 waterfall 路径），留作未来增强
-- 不做 Markdown 文件引用（本期全部内联）
-- 不带任何默认提示词文本；不改动 dsh 原生 section（identity、工具指引等）
+- 不做 Markdown 文件引用（本期全部内联）；默认配置文本内联为源码常量
+- 默认配置只预置 `base` 层，不预置 persona/domain/task 等语义层（由用户定义）
+- 不改动 dsh 原生 section（identity、工具指引等）；不重复 dsh 已有的动态层（runtime context / agent-instructions / skills）
 - 无浏览器半、无 UI
