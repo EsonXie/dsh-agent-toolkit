@@ -80,7 +80,7 @@ packages/agent-team/
 │       └─ delegate-card.module.css
 ├─ presets/team/
 │   ├─ preset.yml        ← 展示名「Agent 团队」
-│   └─ agent.cordis.yml  ← 薄壳：挂 agent-team 一行（不再带 teams/ 名册）
+│   └─ agent.cordis.yml  ← 基础编码工具组合（persona/instructions/shell/fs/fs-search）+ agent-team 挂载（不再带 teams/ 名册）
 └─ tests/                ← vitest（Node 半纯逻辑 + 浏览器半 jsdom 组件测试）
 ```
 
@@ -198,8 +198,8 @@ persona 文案迁移自现状 `presets/team/teams/default.yml`（内容已被验
 
 ## 8. preset 与安装形态
 
-- `presets/team/` 薄壳：`preset.yml`（展示名「Agent 团队」）+ `agent.cordis.yml`（挂 agent-team 一行，config 全省略）
-- **preset 内插件引用方式**：现状是绝对路径（复制后须手改）。目标改为裸包名 `agent-team`，依赖 profile 的 `node_modules` 平铺 fallback 解析（`deepseek-harness/packages/boot/app-boot/src/profile.ts:19,205` 机制）。**实现时需验证**：preset 行裸包名是否经 profile node_modules 解析成功；若不可行，则保留绝对路径并在 README 写明复制后改路径的步骤（现状行为）
+- `presets/team/` 薄壳：`preset.yml`（展示名「Agent 团队」）+ `agent.cordis.yml`（**基础编码工具组合 + agent-team 挂载**，不再带 teams/ 名册）：persona/agent-instructions 身份层、tool-bash/tool-pwsh 双 shell（win32 互斥）、tool-fs（read/write/edit）+ tool-fs-search（glob/grep），agent-team 裸包名挂载置于组合末尾——与 standard preset 的编码工具同源，保证团队会话有 shell/fs 工具、角色 `tools` 过滤名单能命中组合内已注册工具名（否则委派时 tools.restrict() 对未知名响亮失败）
+- **preset 内插件引用方式**：裸包名 `agent-team`，依赖 profile 的 `node_modules` 平铺 fallback 解析（`deepseek-harness/packages/boot/app-boot/src/profile.ts:19,205` 机制）。**已验证可行**（2026-08-21 dev loop）；部署方 copy 后若解析失败，可改为入口文件绝对路径
 - cordis.yml（部署方）两行：preset root 指向包内 `presets/`（`trust: 'system'`）+ 全局 `clientOnly: true` 挂载行（浏览器半进 boot 清单）
 - 双挂载点约束沿用现状（AGENTS.md 已记录）：preset 内挂载跑真实工作，全局 clientOnly 空转
 

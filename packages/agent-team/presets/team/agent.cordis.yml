@@ -1,6 +1,48 @@
-# 团队模式组合：挂载 agent-team 插件。
-# 注意：name 为指向入口文件的绝对路径——preset 行经 loader 按 preset 目录为锚 import，
-# 绝对路径必须落到文件（Node/tsx 不支持目录 import，没有 package.json 查找）；
-# 部署方 copy 本 preset 后需把路径改为自己机器上的入口文件位置。
-- name: D:/work/github/dsh/dsh-agent-toolkit/packages/agent-team/src/index.ts
+# 「Agent 团队」preset 组合：基础编码工具（与 standard 同源）+ agent-team 挂载。
+#
+# 本文件是 AGENT-PLANE 组合，随 preset 挂载到每个选它的会话。基础编码工具不是
+# 环境常驻：standard preset 也是逐行挂载本组工具；缺了它们，团队会话既无 shell
+# 也无 fs 工具，内置 explorer 角色的 `deny: [write, edit]` toolFilter 会因名单中的
+# 未知名在委派时经 tools.restrict() 响亮失败。成员经 composeFrom 继承父会话的工具
+# 层，故角色 tools 过滤名单必须命中本组合内已注册的工具名。
+
+# ── identity ────────────────────────────────────────────────────────────────
+
+# 与 standard 同款人设：{{model}}/{{cwd}} 从会话自己的路由与工作区解析。
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+# ── shell ───────────────────────────────────────────────────────────────────
+
+# 与 standard 同款双 shell：win32 用 pwsh、其余平台用 bash，互斥禁用。
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
+# ── filesystem ──────────────────────────────────────────────────────────────
+
+# 与 standard 同款 fs 工具对：read/write/edit + glob/grep。
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+
+# ── agent-team 挂载（置于组合末尾）────────────────────────────────────────
+
+# 裸包名：preset 行经 profile 的 node_modules 平铺 fallback 解析（不按 preset
+# 目录为锚 import）。部署方 copy 本 preset 后若解析失败，可改为入口文件绝对路径。
+- name: agent-team
   # config 全省略 → provider 默认 spawn、toolName 默认 team_delegate

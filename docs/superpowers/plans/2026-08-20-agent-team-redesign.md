@@ -1556,7 +1556,7 @@ git commit -m "feat(agent-team): 浏览器半委派卡（角色 chip + 折叠 + 
 
 - 删除 `packages/agent-team/presets/team/teams/` 整目录
 - `preset.yml` 的 `name` 改为 `Agent 团队`（description 同步为扁平角色语义）
-- `agent.cordis.yml` 保持一行挂载不变（本仓库内绝对路径是开发态，见 Step 4 验证裸包名可行性）
+- `agent.cordis.yml` 改为**基础编码工具组合 + agent-team 挂载**（persona/agent-instructions 身份层、tool-bash/tool-pwsh 双 shell、tool-fs/tool-fs-search、末尾 `- name: agent-team` 裸包名），见文末「实施期修订」（2026-08-21 修正案：薄壳组合无基础工具 → tools.restrict() 响亮失败）
 
 Run: `pnpm --filter agent-team test && pnpm --filter agent-team typecheck && pnpm --filter agent-team bundle`
 Expected: 全绿
@@ -1595,3 +1595,16 @@ git commit -m "chore(agent-team): preset 薄壳化与仓库文档同步"
 - **Spec 覆盖**：§3 目标形态→Task 1-6 文件结构一致；§4 名册管线→Task 1/2；§4.5 prompt-stack 职责划分与子 Agent 隔离→Task 3（删 C 段）+ Task 5（隔离）；§5 调度工具→Task 3；§6 提示段→Task 4（静态文本，与 spec 修订一致）；§7 委派卡→Task 6；§8 preset/安装→Task 7（含裸包名验证项）；§9 错误处理→Task 1/2/3/4 测试用例；§10 测试策略→各任务测试文件；§11 AGENTS.md→Task 7 Step 3。
 - **类型一致性**：`Role`/`RoleTools`（Task 1）→ roster/tool（Task 2/3）一致；`DelegateToolDeps.roster`（Task 3）→ index.ts 注入 `() => roster.roles`（Task 4）一致；`DelegateCardInjected.openChild`（Task 5 组件/入口/测试三处）一致；`childSessionId`（Task 3 结果+meta → Task 5 卡片读取）一致。
 - **已知实现期微调点**（非占位符，均有既定求证路径）：`MarkdownText` 的 prop 名（查 ui-primitives 导出）、CSS token 名（查 design-platform.css）、smoke.test.ts 现状内容（先读后改）。
+
+---
+
+## 实施期修订（2026-08-21 修正案）
+
+**背景**：dev loop 发现 Task 7 薄壳 preset（`agent.cordis.yml` 仅挂 agent-team 一行）下，团队会话没有任何 shell/fs 工具——基础编码工具并非环境常驻，standard preset 也是逐行挂载。内置 explorer 角色配了 `deny: [write, edit]`，名单里的未知名（组合内根本没注册 write/edit）在委派时经宿主 `tools.restrict()` **响亮失败**，委派完全不可用。
+
+**修正案（人类已批准）**：team preset 的组合扩展为「基础编码工具组合（persona/instructions/shell/fs/fs-search，与 standard 同源）+ agent-team 挂载」：
+
+- `agent.cordis.yml` 按 standard 结构逐行挂载：`dsh-persona`（同款文案）→ `dsh-agent-instructions`（maxBytes 65536）→ `dsh-tool-bash`（win32 禁用）→ `dsh-tool-pwsh`（非 win32 禁用）→ `dsh-tool-fs`（read/write/edit）→ `dsh-tool-fs-search`（glob/grep）→ 末尾 `- name: agent-team` 裸包名（**已验证可行**：preset 行经 profile 的 node_modules 平铺 fallback 解析，2026-08-21 dev loop）。
+- 不加 jobs/goal/plan/compaction/web/skill 行，保持组合最小。
+- 成员经 composeFrom 继承父会话工具层，角色 `tools` 过滤名单必须命中组合内已注册工具名（否则 restrict 响亮失败）——设计 spec §8、AGENTS.md 已同步该约束。
+- 门禁复核：`pnpm --filter agent-team test && pnpm --filter agent-team typecheck && pnpm --filter agent-team bundle` 全绿（不触代码，仅确认无回归）。
