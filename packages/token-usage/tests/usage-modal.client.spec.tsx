@@ -68,16 +68,35 @@ test('对话框携带加宽覆盖类（Modal 默认 380px 会裁切图表与行�
   expect(dialog.classList.contains('dialog')).toBe(true)
 })
 
-test('initialDate 为 null 时默认打开活动视图', async () => {
+test('initialDate 为 null 时默认打开活动 tab', async () => {
   render(<UsageModal open onClose={() => {}} initialDate={null} />)
   expect(await screen.findByText('近 13 周活动')).toBeTruthy()
+  expect(screen.getByRole('tab', { name: '活动' }).getAttribute('aria-selected')).toBe('true')
 })
 
-test('点击热力图格子进入该日单日视图', async () => {
+test('点击"单日" tab 进入单日视图', async () => {
   render(<UsageModal open onClose={() => {}} initialDate={null} />)
   await screen.findByText('近 13 周活动')
-  fireEvent.click(await screen.findByRole('button', { name: TODAY }))
+  fireEvent.click(screen.getByRole('tab', { name: '单日' }))
   expect(await screen.findByText('按模型')).toBeTruthy()
+  expect(screen.getByRole('tab', { name: '单日' }).getAttribute('aria-selected')).toBe('true')
+})
+
+test('initialDate 非 null 时默认打开单日 tab 且日期为该日', async () => {
+  render(<UsageModal open onClose={() => {}} initialDate={TODAY} />)
+  expect(await screen.findByText('按模型')).toBeTruthy()
+  expect(screen.getByRole('tab', { name: '单日' }).getAttribute('aria-selected')).toBe('true')
+  expect(screen.queryByText('近 13 周活动')).toBeNull()
+})
+
+test('tab 来回切换视图内容正确', async () => {
+  render(<UsageModal open onClose={() => {}} initialDate={null} />)
+  await screen.findByText('近 13 周活动')
+  fireEvent.click(screen.getByRole('tab', { name: '单日' }))
+  await screen.findByText('按模型')
+  fireEvent.click(screen.getByRole('tab', { name: '活动' }))
+  expect(await screen.findByText('近 13 周活动')).toBeTruthy()
+  expect(screen.queryByText('按模型')).toBeNull()
 })
 
 test('不渲染按会话细分（数据存在也不展示）', async () => {
@@ -90,11 +109,4 @@ test('不渲染按会话细分（数据存在也不展示）', async () => {
 test('总量行显示缓存命中率（56000/(14000+56000)=80%）', async () => {
   render(<UsageModal open onClose={() => {}} initialDate={TODAY} />)
   expect(await screen.findByText(/缓存命中率 80%/)).toBeTruthy()
-})
-
-test('单日视图可返回活动视图', async () => {
-  render(<UsageModal open onClose={() => {}} initialDate={TODAY} />)
-  await screen.findByText('按模型')
-  fireEvent.click(screen.getByRole('button', { name: '返回活动视图' }))
-  expect(await screen.findByText('近 13 周活动')).toBeTruthy()
 })

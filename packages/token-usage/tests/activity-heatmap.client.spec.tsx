@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 
 vi.mock('../src/client/ActivityHeatmap.module.css', () => ({
@@ -18,22 +18,19 @@ const DAYS = Array.from({ length: 91 }, (_, i) => ({ date: shiftDate(TODAY, i - 
 
 afterEach(cleanup)
 
-test('渲染 91 格，未来格禁用', () => {
-  render(<ActivityHeatmap today={TODAY} days={DAYS} onSelect={() => {}} />)
-  const cells = screen.getAllByRole('button') as HTMLButtonElement[]
+test('渲染 91 格纯展示格子，未来格带 aria-disabled', () => {
+  const { container } = render(<ActivityHeatmap today={TODAY} days={DAYS} />)
+  const cells = container.querySelectorAll('.week > div')
   expect(cells).toHaveLength(91)
-  expect(cells.filter((c) => c.disabled)).toHaveLength(4)
-})
-
-test('点击格子回调该格日期', () => {
-  const selected: string[] = []
-  render(<ActivityHeatmap today={TODAY} days={DAYS} onSelect={(d) => selected.push(d)} />)
-  fireEvent.click(screen.getByRole('button', { name: TODAY }))
-  expect(selected).toEqual([TODAY])
+  expect(container.querySelectorAll('[aria-disabled="true"]')).toHaveLength(4)
+  // 非未来格携带 title tooltip；未来格没有
+  const todayCell = Array.from(cells).find((c) => (c as HTMLElement).title.startsWith(TODAY))
+  expect(todayCell).toBeDefined()
+  expect(container.querySelectorAll('.week > div[title]')).toHaveLength(87)
 })
 
 test('跨月列渲染月份标签', () => {
-  const { container } = render(<ActivityHeatmap today={TODAY} days={DAYS} onSelect={() => {}} />)
+  const { container } = render(<ActivityHeatmap today={TODAY} days={DAYS} />)
   // 2026-05-24 ~ 2026-08-22 跨 5/6/7/8 四个月，至少出现 6/7/8 三个标签
   const labels = Array.from(container.querySelectorAll('span')).map((s) => s.textContent)
   expect(labels).toContain('6月')

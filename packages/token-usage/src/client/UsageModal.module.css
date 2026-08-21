@@ -22,13 +22,22 @@
 }
 .pagerButton:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
 .pagerButton:disabled { color: var(--dsw-alias-label-dimmed); cursor: default; }
-.backButton {
+/* tab 栏：分段控件观感（shadcn Tabs 风格），背景容器 + 激活项浮层底色。 */
+.tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-skeleton);
+}
+.tab {
   display: inline-flex;
   align-items: center;
   height: 28px;
-  padding: 0 10px;
+  padding: 0 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   cursor: pointer;
   color: var(--dsw-alias-label-secondary);
@@ -36,7 +45,10 @@
   font-size: 12px;
   line-height: 18px;
 }
-.backButton:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.tab:hover { background: var(--dsw-alias-interactive-bg-hover); }
+/* 激活项：与 .tab 叠加使用（className="tab tabActive"）；置后以压过 .tab:hover。 */
+.tabActive { background: var(--dsw-alias-bg-overlay); color: var(--dsw-alias-label-primary); }
+.tabActive:hover { background: var(--dsw-alias-bg-overlay); }
 .dateLabel {
   font-variant-numeric: tabular-nums;
   font-size: 14px;

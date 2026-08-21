@@ -1,4 +1,4 @@
-/** 13 周活动热力图：7 行（周日在上）× 13 列；格子颜色 = 当日计费总量档位；点击选中日期的单日视图。 */
+/** 13 周活动热力图：7 行（周日在上）× 13 列；格子颜色 = 当日计费总量档位；纯展示，title tooltip 显示当日用量。 */
 import type { ReactNode } from 'react'
 import { formatTokens } from '../aggregate.ts'
 import { heatmapGrid, type HeatmapDay } from '../heatmap.ts'
@@ -8,10 +8,9 @@ import css from './ActivityHeatmap.module.css'
 export interface ActivityHeatmapProps {
   today: string
   days: HeatmapDay[]
-  onSelect: (date: string) => void
 }
 
-export function ActivityHeatmap({ today, days, onSelect }: ActivityHeatmapProps): ReactNode {
+export function ActivityHeatmap({ today, days }: ActivityHeatmapProps): ReactNode {
   const columns = heatmapGrid(today, days)
   return (
     <div className={theme.chartTheme}>
@@ -25,14 +24,11 @@ export function ActivityHeatmap({ today, days, onSelect }: ActivityHeatmapProps)
         {columns.map((col, c) => (
           <div key={c} className={css.week}>
             {col.map((cell) => (
-              <button
+              <div
                 key={cell.date}
-                type="button"
                 className={css[`level${cell.level}`]}
-                disabled={cell.future}
+                aria-disabled={cell.future || undefined}
                 title={cell.future ? undefined : `${cell.date}  ${formatTokens(cell.day?.billed ?? 0)} · ${cell.day?.calls ?? 0} 次`}
-                aria-label={cell.date}
-                onClick={() => { onSelect(cell.date) }}
               />
             ))}
           </div>
