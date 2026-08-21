@@ -1,13 +1,13 @@
-ï»¿#requires -Version 5.1
+#requires -Version 5.1
 <#
 .SYNOPSIS
-  æ‰‹åŠ¨å‘å¸ƒ @dsh-agent-toolkit/token-usage åˆ° npm å®˜æ–¹ registryã€‚
+  ÊÖ¶¯·¢²¼ @dsh-agent-toolkit/token-usage µ½ npm ¹Ù·½ registry¡£
 .DESCRIPTION
-  é—¨ç¦é“¾ï¼šnpm ç™»å½•æ£€æŸ¥ â†’ ç‰ˆæœ¬å†²çªæ£€æŸ¥ â†’ test â†’ typecheck â†’ pack å†…å®¹æ ¸æŸ¥ â†’ äººå·¥ç¡®è®¤ â†’ publish â†’ npm view éªŒè¯ã€‚
-  prepack é’©å­ä¼šåœ¨ pack/publish å‰è‡ªåŠ¨é‡è·‘ bundleï¼ˆNode åŠ + æµè§ˆå™¨åŠï¼‰ã€‚
+  ÃÅ½ûÁ´£ºnpm µÇÂ¼¼ì²é ¡ú °æ±¾³åÍ»¼ì²é ¡ú test ¡ú typecheck ¡ú pack ÄÚÈİºË²é ¡ú ÈË¹¤È·ÈÏ ¡ú publish ¡ú npm view ÑéÖ¤¡£
+  prepack ¹³×Ó»áÔÚ pack/publish Ç°×Ô¶¯ÖØÅÜ bundle£¨Node °ë + ä¯ÀÀÆ÷°ë£©¡£
 .EXAMPLE
-  åœ¨ä»“åº“æ ¹ç›®å½•æ‰§è¡Œï¼špowershell -File scripts/publish-token-usage.ps1
-  å·²åœ¨æœ¬åœ°è·‘è¿‡æµ‹è¯•å¯è·³è¿‡ï¼špowershell -File scripts/publish-token-usage.ps1 -SkipTests
+  ÔÚ²Ö¿â¸ùÄ¿Â¼Ö´ĞĞ£ºpowershell -File scripts/publish-token-usage.ps1
+  ÒÑÔÚ±¾µØÅÜ¹ı²âÊÔ¿ÉÌø¹ı£ºpowershell -File scripts/publish-token-usage.ps1 -SkipTests
 #>
 [CmdletBinding()]
 param(
@@ -15,7 +15,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Registry = 'https://registry.npmjs.org'   # å¿…é¡»é’‰å®˜æ–¹æºï¼ˆæœ¬æœºé»˜è®¤ registry æ˜¯ npmmirror é•œåƒï¼‰
+$Registry = 'https://registry.npmjs.org'   # ±ØĞë¶¤¹Ù·½Ô´£¨±¾»úÄ¬ÈÏ registry ÊÇ npmmirror ¾µÏñ£©
 $PkgName  = '@dsh-agent-toolkit/token-usage'
 $PkgDir   = Join-Path $PSScriptRoot '..\packages\token-usage' | Resolve-Path
 
@@ -23,35 +23,37 @@ function Step($msg) { Write-Host "`n=== $msg ===" -ForegroundColor Cyan }
 
 $pkg = Get-Content (Join-Path $PkgDir 'package.json') -Raw | ConvertFrom-Json
 $version = $pkg.version
-Step "å‡†å¤‡å‘å¸ƒ $PkgName@$version"
+Step "×¼±¸·¢²¼ $PkgName@$version"
 
-# 1. npm ç™»å½•æ£€æŸ¥ï¼ˆgranular token æˆ–äº¤äº’ç™»å½•å‡å¯ï¼‰
+# 1. npm µÇÂ¼¼ì²é£¨granular token »ò½»»¥µÇÂ¼¾ù¿É£©
 $user = npm whoami --registry $Registry 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $user) {
-  throw "æœªç™»å½•å®˜æ–¹ registryã€‚è¯·å…ˆæ‰§è¡Œ: npm login --registry $Registryï¼ˆæˆ–é…ç½® granular access token åˆ° `$env:USERPROFILE\.npmrcï¼‰"
+  throw "Î´µÇÂ¼¹Ù·½ registry¡£ÇëÏÈÖ´ĞĞ: npm login --registry $Registry£¨»òÅäÖÃ granular access token µ½ `$env:USERPROFILE\.npmrc£©"
 }
-Write-Host "npm ç”¨æˆ·: $user"
+Write-Host "npm ÓÃ»§: $user"
 
-# 2. ç‰ˆæœ¬å†²çªæ£€æŸ¥ï¼ˆnpm ç‰ˆæœ¬ä¸å¯æ’¤å›ï¼‰
+# 2. °æ±¾³åÍ»¼ì²é£¨npm °æ±¾²»¿É³·»Ø£©
+$ErrorActionPreference = 'Continue'  # PS 5.1: EAP=Stop »á°ÑÔ­ÉúÃüÁîµÄ stderr£¨Èç E404£©±ä³ÉÖÕÖ¹´íÎó£¬ÃÅ½û 2 ĞèÈİÈÌ 404
 npm view "$PkgName@$version" version --registry $Registry 2>$null | Out-Null
-if ($LASTEXITCODE -eq 0) { throw "$PkgName@$version å·²å­˜åœ¨äº npmã€‚è¯·å…ˆ bump package.json ç‰ˆæœ¬å·å†å‘å¸ƒã€‚" }
-Write-Host "ç‰ˆæœ¬ $version å°šæœªå‘å¸ƒï¼Œå¯å‘å¸ƒ"
+$ErrorActionPreference = 'Stop'
+if ($LASTEXITCODE -eq 0) { throw "$PkgName@$version ÒÑ´æÔÚÓÚ npm¡£ÇëÏÈ bump package.json °æ±¾ºÅÔÙ·¢²¼¡£" }
+Write-Host "°æ±¾ $version ÉĞÎ´·¢²¼£¬¿É·¢²¼"
 
-# 3. æµ‹è¯•ä¸ç±»å‹æ£€æŸ¥
+# 3. ²âÊÔÓëÀàĞÍ¼ì²é
 if (-not $SkipTests) {
-  Step 'æµ‹è¯•ä¸ç±»å‹æ£€æŸ¥'
+  Step '²âÊÔÓëÀàĞÍ¼ì²é'
   pnpm --filter $PkgName test
-  if ($LASTEXITCODE -ne 0) { throw 'æµ‹è¯•å¤±è´¥ï¼Œä¸­æ­¢å‘å¸ƒ' }
+  if ($LASTEXITCODE -ne 0) { throw '²âÊÔÊ§°Ü£¬ÖĞÖ¹·¢²¼' }
   pnpm --filter $PkgName typecheck
-  if ($LASTEXITCODE -ne 0) { throw 'ç±»å‹æ£€æŸ¥å¤±è´¥ï¼Œä¸­æ­¢å‘å¸ƒ' }
+  if ($LASTEXITCODE -ne 0) { throw 'ÀàĞÍ¼ì²éÊ§°Ü£¬ÖĞÖ¹·¢²¼' }
 }
 
-# 4. pack å†…å®¹æ ¸æŸ¥ï¼ˆprepack è‡ªåŠ¨é‡è·‘ bundleï¼‰
-Step 'pack å†…å®¹æ ¸æŸ¥'
+# 4. pack ÄÚÈİºË²é£¨prepack ×Ô¶¯ÖØÅÜ bundle£©
+Step 'pack ÄÚÈİºË²é'
 Push-Location $PkgDir
 try {
   pnpm pack
-  if ($LASTEXITCODE -ne 0) { throw 'pnpm pack å¤±è´¥' }
+  if ($LASTEXITCODE -ne 0) { throw 'pnpm pack Ê§°Ü' }
   $tgz = "dsh-agent-toolkit-token-usage-$version.tgz"
   $entries = tar -tf $tgz
   $required = @(
@@ -60,36 +62,38 @@ try {
     'package/lib/index.d.ts', 'package/lib/client.js'
   )
   foreach ($r in $required) {
-    if ($entries -notcontains $r) { throw "tarball ç¼ºå°‘å¿…éœ€æ–‡ä»¶: $r" }
+    if ($entries -notcontains $r) { throw "tarball È±ÉÙ±ØĞèÎÄ¼ş: $r" }
   }
   $forbidden = $entries | Where-Object {
     $_ -match '^package/(src|tests|node_modules)/' -or
     $_ -match 'tsconfig|tsdown\.config|vitest\.config'
   }
-  if ($forbidden) { throw "tarball å«è¿ç¦æ–‡ä»¶: $($forbidden -join ', ')" }
-  Write-Host "tarball å†…å®¹æ ¸æŸ¥é€šè¿‡ï¼ˆ$($entries.Count) é¡¹ï¼‰"
+  if ($forbidden) { throw "tarball º¬Î¥½ûÎÄ¼ş: $($forbidden -join ', ')" }
+  Write-Host "tarball ÄÚÈİºË²éÍ¨¹ı£¨$($entries.Count) Ïî£©"
 }
 finally { Pop-Location }
 
-# 5. äººå·¥ç¡®è®¤ + å‘å¸ƒ
-Step 'å‘å¸ƒ'
-$confirm = Read-Host "å³å°†æŠŠ $PkgName@$version å‘å¸ƒåˆ° npmï¼ˆä¸å¯æ’¤å›ï¼‰ã€‚è¾“å…¥ yes ç»§ç»­"
-if ($confirm -ne 'yes') { throw 'å·²å–æ¶ˆå‘å¸ƒ' }
+# 5. ÈË¹¤È·ÈÏ + ·¢²¼
+Step '·¢²¼'
+$confirm = Read-Host "¼´½«°Ñ $PkgName@$version ·¢²¼µ½ npm£¨²»¿É³·»Ø£©¡£ÊäÈë yes ¼ÌĞø"
+if ($confirm -ne 'yes') { throw 'ÒÑÈ¡Ïû·¢²¼' }
 Push-Location $PkgDir
 try {
-  # è‹¥è´¦å·è¦æ±‚ 2FAï¼Œnpm ä¼šåœ¨æ­¤äº¤äº’å¼æç¤ºè¾“å…¥ OTP
+  # ÈôÕËºÅÒªÇó 2FA£¬npm »áÔÚ´Ë½»»¥Ê½ÌáÊ¾ÊäÈë OTP
   pnpm publish --no-git-checks --registry $Registry
-  if ($LASTEXITCODE -ne 0) { throw 'pnpm publish å¤±è´¥ï¼Œè§ä¸Šæ–¹é”™è¯¯è¾“å‡º' }
+  if ($LASTEXITCODE -ne 0) { throw 'pnpm publish Ê§°Ü£¬¼ûÉÏ·½´íÎóÊä³ö' }
 }
 finally { Pop-Location }
 
-# 6. å‘å¸ƒéªŒè¯
-Step 'å‘å¸ƒéªŒè¯'
+# 6. ·¢²¼ÑéÖ¤
+Step '·¢²¼ÑéÖ¤'
+$ErrorActionPreference = 'Continue'  # ·¢²¼¸ÕÍê³ÉÊ± registry Í¬²½¿ÉÄÜÑÓ³Ù£¬E404 µÄ stderr ÔÚ EAP=Stop ÏÂ»á±ä³ÉÖÕÖ¹´íÎó
 $got = npm view "$PkgName@$version" version --registry $Registry 2>$null
+$ErrorActionPreference = 'Stop'
 if ($got -ne $version) {
-  Write-Host "npm view æš‚æœªå–åˆ° $versionâ€”â€”registry åŒæ­¥å¯èƒ½æœ‰å»¶è¿Ÿï¼Œè¯·ç¨åæ‰‹åŠ¨å¤æŸ¥ï¼š" -ForegroundColor Yellow
+  Write-Host "npm view ÔİÎ´È¡µ½ $version¡ª¡ªregistry Í¬²½¿ÉÄÜÓĞÑÓ³Ù£¬ÇëÉÔºóÊÖ¶¯¸´²é£º" -ForegroundColor Yellow
   Write-Host "  npm view $PkgName --registry $Registry"
   exit 0
 }
-Write-Host "`nå‘å¸ƒæˆåŠŸ: $PkgName@$version" -ForegroundColor Green
-Write-Host "å®‰è£…éªŒè¯: dsh plugin --profile web add $PkgName"
+Write-Host "`n·¢²¼³É¹¦: $PkgName@$version" -ForegroundColor Green
+Write-Host "°²×°ÑéÖ¤: dsh plugin --profile web add $PkgName"
