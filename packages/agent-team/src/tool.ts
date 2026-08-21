@@ -4,17 +4,15 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import { buildMemberPersona, type PromptTemplates } from './prompt.ts'
-import type { Team } from './roles.ts'
+import { buildMemberPersona } from './prompt.ts'
+import type { Role } from './roles.ts'
 
 /** createDelegateTool 的外部依赖。 */
 export interface DelegateToolDeps {
-  /** 返回调用方会话的当前团队（standing 共享注册下按 exec.agent 解析；懒建保证不空）。 */
-  readonly currentTeamFor: (agent: Agent) => Team
+  /** 当前生效名册（激活期定值；闭包返回同一数组）。 */
+  readonly roster: () => readonly Role[]
   /** ctx.subagents 的 provider 名（默认 'spawn'）。 */
   readonly provider: string
-  /** C 段模板覆盖（Config.promptTemplates）。 */
-  readonly templates?: PromptTemplates
   /** 委派入口：生产为 ctx.subagents.start.bind(ctx.subagents)，测试注入假实现。 */
   readonly startRun: (provider: string, request: SubagentStartRequest) => Promise<SubagentRun>
 }
@@ -42,6 +40,8 @@ function withPartialText(error: string, output: ContentBlock[]): string {
 
 /** 收集并释放一次前台运行；dispose 失败不掩盖独立的结果失败。 */
 async function settleForegroundRun(run: SubagentRun, roleName: string) {
+  // 本地 run 的 run.id 契约上即子 session id（dsh-subagent types.ts:249-255）。
+  const childSessionId = String(run.id)
   const [execution] = await Promise.allSettled([
     run.result.then((result) => {
       const error = stopReasonError(result)
@@ -49,7 +49,8 @@ async function settleForegroundRun(run: SubagentRun, roleName: string) {
       return {
         kind: 'foreground' as const,
         role: roleName,
-        runId: run.id,
+        runId: String(run.id),
+        childSessionId,
         output: result.output as unknown as JsonValue[],
       }
     }),
@@ -69,21 +70,20 @@ async function settleForegroundRun(run: SubagentRun, roleName: string) {
 /**
  * 创建 team_delegate 工具。
  * @param toolName - 模型可见工具名（Config.toolName，默认 team_delegate）。
- * @param deps - 当前团队解析、provider、模板与委派入口。
+ * @param deps - 名册、provider、模板与委派入口。
  * @returns defineTool 产物，交给 ctx.tools.register。
  *
- * 工具注册是 standing scope 下跨会话共享的单次注册，description 无法内嵌具体名册；
- * 名册对模型的动态可见性走系统提示团队段（index.ts 的 prompt section 函数 text）。
+ * 工具注册是 standing scope 的单次注册，description 无法内嵌名册；名册对模型的
+ * 可见性走系统提示团队段（index.ts）。
  */
 export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
-  return defineTool({
+  const tool = defineTool({
     name: toolName,
     description:
-      'Delegate a self-contained task to a member of the current session\'s team (a separate agent with its '
-      + 'own persona and optional model override). The member does NOT see this conversation — give it a '
-      + 'complete, standalone prompt. The role must be one of the current session\'s team members; the '
-      + 'available members and their descriptions are listed in the team section of the system prompt. This '
-      + 'call waits for the member and returns its result.',
+      'Delegate a self-contained task to a team member (a separate agent with its own persona and '
+      + 'optional model override). The member does NOT see this conversation — give it a complete, '
+      + 'standalone prompt. Available members and their descriptions are listed in the team section '
+      + 'of the system prompt. This call waits for the member and returns its result.',
     parameters: {
       role: { type: 'string', required: true, description: 'The member to delegate to. Must be one of the listed names.' },
       description: { type: 'string', required: true, description: 'A short (3-5 word) description of the delegated task, for display.' },
@@ -97,6 +97,7 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
           kind: { type: 'string', required: true, const: 'foreground' },
           role: { type: 'string', required: true },
           runId: { type: 'string', required: true },
+          childSessionId: { type: 'string', required: true },
           output: { type: 'array', required: true, items: { type: 'json' } },
         },
       },
@@ -106,26 +107,31 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
           .filter(block => block.type === 'text' && typeof block.text === 'string')
           .map(block => block.text).join(''),
       }],
+      // 浏览器半委派卡经 tool/result 的持久化 meta 读子会话坐标（回放可重建）。
+      presentationMeta: (_args, value) => ({
+        role: value.role as string,
+        runId: value.runId as string,
+        childSessionId: value.childSessionId as string,
+      }),
     },
     // 成员不改父会话；父方无写操作。与内置 subagent 工具同款。
     isConcurrencySafe: () => true,
-    // UI 卡片（spec §7.3）：host 端纯函数，回放安全；成功保留待定态标题，失败回退默认错误卡。
+    // generic 兜底（浏览器半缺席/回放旧事件时降级；generic title 在 Web 不渲染，
+    // 供 headless 与日志使用）。
     presentCall: (args) => ({
       card: 'generic' as const,
       title: `委派 · ${args.role}: ${args.description}`,
       rawInput: args.prompt,
     }),
-    presentResult: (_args, result) => (result.isError ? undefined : { card: 'generic' as const }),
     async execute(args, exec) {
       const parent: Agent | undefined = exec.agent
       if (!parent) throw new Error('team_delegate 需要调用方 agent（exec.agent 为空）')
-      const team = deps.currentTeamFor(parent)
-      const role = team.roles.find(r => r.name === args.role)
+      const roster = deps.roster()
+      const role = roster.find(r => r.name === args.role)
       if (!role) {
-        throw new Error(`未知角色 "${args.role}"。可用角色：${team.roles.map(r => r.name).join(', ')}`)
+        throw new Error(`未知角色 "${args.role}"。可用角色：${roster.map(r => r.name).join(', ')}`)
       }
-      const model = role.model ?? parent.options.model
-      const persona = buildMemberPersona(role, model, deps.templates)
+      const persona = buildMemberPersona(role)
       const request: SubagentStartRequest = {
         label: `role:${role.name}: ${args.description}`,
         prompt: [{ type: 'text', text: args.prompt } as ContentBlock],
@@ -136,9 +142,22 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
         ...role.provider !== undefined || role.model !== undefined
           ? { agentOptions: { ...role.provider !== undefined ? { provider: role.provider } : {}, ...role.model !== undefined ? { model: role.model } : {} } }
           : {},
+        ...role.tools !== undefined
+          ? { toolFilter: {
+              ...role.tools.allow !== undefined ? { allow: [...role.tools.allow] } : {},
+              ...role.tools.deny !== undefined ? { deny: [...role.tools.deny] } : {},
+            } }
+          : {},
       } as SubagentStartRequest
       const run = await deps.startRun(deps.provider, request)
       return settleForegroundRun(run, role.name)
     },
   })
+  // Deviation from the plan: dsh's defineTool gates presentResult behind arg
+  // validation and soft-fails to undefined on any schema mismatch. The brief's
+  // tests call presentResult with partial args (display-only path) and expect
+  // the generic card, so the lenient presenter is reassigned here; the
+  // model-facing parameters schema and execute validation stay untouched.
+  tool.presentResult = (_args, result) => (result.isError ? undefined : { card: 'generic' as const })
+  return tool
 }
