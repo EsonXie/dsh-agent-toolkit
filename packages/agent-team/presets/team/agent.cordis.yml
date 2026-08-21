@@ -3,4 +3,4 @@
 # 绝对路径必须落到文件（Node/tsx 不支持目录 import，没有 package.json 查找）；
 # 部署方 copy 本 preset 后需把路径改为自己机器上的入口文件位置。
 - name: D:/work/github/dsh/dsh-agent-toolkit/packages/agent-team/src/index.ts
-  # config 全省略 → teamsDir 默认 ./teams（相对本 preset 目录）
+  # config 全省略 → provider 默认 spawn、toolName 默认 team_delegate

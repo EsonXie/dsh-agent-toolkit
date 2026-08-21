@@ -24,8 +24,8 @@
 - 本地开发回路：在 dsh 源码 checkout 中运行 `pnpm dsh web --patch ./cordis.yml`（或已装 CLI 时用 `dsh web --patch`）。**patch 中插件路径必须是绝对路径**，相对路径不会被解析。
 - 修改 `cordis.yml` 中的插件 config 会触发 HMR 热替换，无需重启。
 - agent-team 例外：经 user preset root（`$DSH_HOME/.agent-presets/team`）接入开发回路，不走 cordis.yml patch（CLI overlay 会重置 roots）；含浏览器半，改动后需 `bundle`。
-- agent-team 双挂载点：preset 内挂载跑 Node 半真实工作；cordis.yml 另需一行全局挂载 `config: { clientOnly: true }`（Node 半空转，仅让浏览器半 bundle 进 boot 清单，否则 dock 要等"建会话后刷新页面"）。激活失败反馈在 preset chip hover title / select RPC reason，不标 broken、不进服务端控制台。
-- **agent-team 单团队约束**：一个 dsh 实例只挂一个团队 preset；多团队 preset 并发挂载时第二个的 `/agent-team` prefix 路由会抛 duplicate route，在激活期响亮报错（spec §9）。
+- agent-team 双挂载点：preset 内挂载跑 Node 半真实工作；cordis.yml 另需一行全局挂载 `config: { clientOnly: true }`（Node 半空转，仅让浏览器半 bundle 进 boot 清单）。激活失败反馈在 preset chip hover title / select RPC reason，不标 broken、不进服务端控制台。
+- agent-team 扁平角色名册：内置 explorer（只读）/general（可读写）保底，用户级 `$DSH_HOME/agent-team/roles/<name>.yml` 同名整角色覆盖、异名追加；委派走纯 Node 半 `team_delegate`（一次性），浏览器半只渲染委派卡（角色 chip + 折叠 + 跳转只读子会话）。
 - token-usage 的 src/store.ts 运行时值导入 `@deepseek-ai/dsh-storage-domain`，但不进 dependencies/peerDependencies：它由宿主 dsh base 隐式提供，加依赖会导致 pnpm 装副本、storage domain 双实例注册分裂。
 - 从一开始就遵守的约定：可调参数进 Config schema（不硬编码）；工具 `execute` 返回规范 JSON 值、args 只读且已校验；策略/权限逻辑放 `tools/*` 事件钩子，不内建进工具。
 
@@ -40,8 +40,8 @@ dsh-agent-toolkit/
 │   ├─ token-usage/      ← Token 用量统计（包名 @dsh-agent-toolkit/token-usage，已发布 npm；
 │                           发版流程：test → typecheck → bundle → pack 核查 → pnpm publish）
 │   ├─ feishu-bot/       ← 飞书机器人
-│   ├─ agent-team/       ← Agent 团队（已建成；presets/team/ 随包发行"团队模式"）
-│                           teams/default.yml（explorer + general）
+│   ├─ agent-team/       ← Agent 团队（扁平角色名册：内置 explorer/general +
+│                           $DSH_HOME/agent-team/roles/*.yml 覆盖；presets/team/ 随包发行）
 └─ prompt-stack/     ← 提示词分层 + 按模型区分提示词（包名 @dsh-agent-toolkit/prompt-stack；
                         纯 Node 半：tsdown 只产 lib/index.js + d.ts，发版流程同 token-usage）
 ├─ cordis.yml            ← 开发用 patch（插件 name 写绝对路径）
