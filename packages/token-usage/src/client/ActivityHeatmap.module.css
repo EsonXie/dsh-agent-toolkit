@@ -1,0 +1,27 @@
+/* GitHub/Codex 式周列日行格子；档位色 = --chart-1 单色渐进（shadcn 惯例）。 */
+.months {
+  display: grid;
+  grid-template-columns: repeat(13, 1fr);
+  gap: 3px;
+  margin-bottom: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.grid { display: grid; grid-template-columns: repeat(13, 1fr); gap: 3px; }
+.week { display: grid; grid-template-rows: repeat(7, 1fr); gap: 3px; }
+.week > button {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  border: none;
+  border-radius: 2px;
+  padding: 0;
+  cursor: pointer;
+}
+.week > button:disabled { cursor: default; opacity: 0.35; }
+.week > button:hover:not(:disabled) { outline: 1px solid var(--dsw-alias-label-dimmed); outline-offset: 1px; }
+.week > .level0 { background: var(--chart-empty); }
+.week > .level1 { background: color-mix(in srgb, var(--chart-1) 25%, transparent); }
+.week > .level2 { background: color-mix(in srgb, var(--chart-1) 50%, transparent); }
+.week > .level3 { background: color-mix(in srgb, var(--chart-1) 75%, transparent); }
+.week > .level4 { background: var(--chart-1); }
