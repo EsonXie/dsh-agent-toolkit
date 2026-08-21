@@ -33,6 +33,9 @@ importers:
       '@deepseek-ai/dsh-agent-presets':
         specifier: link:../../deepseek-harness/packages/preset/agent-presets
         version: link:../../deepseek-harness/packages/preset/agent-presets
+      '@deepseek-ai/dsh-client-locale':
+        specifier: link:../../deepseek-harness/packages/client/locale
+        version: link:../../deepseek-harness/packages/client/locale
       '@deepseek-ai/dsh-client-runtime':
         specifier: link:../../deepseek-harness/packages/client/runtime
         version: link:../../deepseek-harness/packages/client/runtime
@@ -45,6 +48,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: link:../../deepseek-harness/packages/client/ui-slots
         version: link:../../deepseek-harness/packages/client/ui-slots
+      '@deepseek-ai/dsh-client-ui-tool':
+        specifier: link:../../deepseek-harness/packages/client/ui-tool
+        version: link:../../deepseek-harness/packages/client/ui-tool
       '@deepseek-ai/dsh-commands':
         specifier: link:../../deepseek-harness/packages/interaction/commands
         version: link:../../deepseek-harness/packages/interaction/commands
