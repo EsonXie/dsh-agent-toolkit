@@ -7,6 +7,7 @@ import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-commands'
 import { addSample, dayParts, emptyDaily, sampleFromEvent } from './aggregate.ts'
+import { parseDaysParam, rangeSummaries } from './heatmap.ts'
 import { renderDay, renderWeek } from './render.ts'
 import { tokenUsageDomain, type DailyRecord } from './store.ts'
 
@@ -102,6 +103,26 @@ export function apply(ctx: Context, config: Config): void {
           .end(JSON.stringify({ today, record: table.get(key) ?? emptyDaily(key) }))
       },
     }), 'token-usage: /token-usage/api/daily route')
+
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/token-usage/api/range',
+      handler: async (req, res) => {
+        if (req.method !== 'GET') {
+          res.writeHead(405).end()
+          return
+        }
+        const days = parseDaysParam(new URL(req.url ?? '', 'http://127.0.0.1').searchParams.get('days'))
+        if (days === null) {
+          res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'bad days, want integer 1..366' }))
+          return
+        }
+        const table = await domainReady.then(() => daily!)
+        const today = dayParts(Date.now(), config.timezone).date
+        res.writeHead(200, { 'content-type': 'application/json' })
+          .end(JSON.stringify({ today, days: rangeSummaries((d) => table.get(d), today, days) }))
+      },
+    }), 'token-usage: /token-usage/api/range route')
   })
 
   ctx.effect(() => async () => {
