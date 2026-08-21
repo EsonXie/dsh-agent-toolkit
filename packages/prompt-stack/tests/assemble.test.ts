@@ -88,4 +88,28 @@ describe('prompt-stack 组装', () => {
     await ctx.plugin(SystemPrompt, { persona: '' })
     expect(() => apply(ctx, Config({ layers: [], rules: [] }))).toThrow(/at least one layer/)
   })
+
+  test('子 Agent（origin=subagent）：人设/任务层渲染空串，model-notes 按子的模型照常命中', async () => {
+    const ctx = await boot()
+    const childContext = {
+      agent: {
+        options: { provider: 'deepseek', model: 'deepseek-v4' },
+        session: { header: { origin: 'subagent' } },
+      } as unknown as Agent,
+    }
+    const assembly = await ctx.systemPrompt.assemble(childContext)
+    const texts = sectionTexts(assembly.sections)
+    expect(texts['prompt-stack:base']).toBe('')
+    expect(texts['prompt-stack:task']).toBe('')          // 规则命中的覆盖层同样隔离
+    expect(texts['prompt-stack:model-notes']).toBe('V4-NOTES') // 模型层共用：按子模型命中
+    expect(renderPrompt(assembly)).not.toContain('BASE')
+    expect(renderPrompt(assembly)).toContain('V4-NOTES')
+  })
+
+  test('非子 Agent（origin 缺省）：分层与规则照常生效', async () => {
+    const ctx = await boot()
+    const assembly = await ctx.systemPrompt.assemble(agentContext({ provider: 'deepseek', model: 'deepseek-v4' }))
+    const texts = sectionTexts(assembly.sections)
+    expect(texts['prompt-stack:task']).toBe('V4-TASK')
+  })
 })

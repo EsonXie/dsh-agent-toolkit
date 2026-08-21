@@ -90,11 +90,16 @@ export function apply(ctx: Context, config: ConfigT): void {
   const notesOrder = Math.max(...config.layers.map(layer => layer.order)) + 1
   const hitRule = (context: AssembleContext): Rule | undefined =>
     selectRule(config.rules, context.agent?.options?.provider, context.agent?.options?.model)
+  // 子 Agent 隔离：人设/领域/任务等普通层不泄漏进子 Agent 组装（spec §4.5）；
+  // model-notes 是模型层（模型的通用使用说明），主子共用、按子的生效模型命中规则。
+  const isSubagent = (context: AssembleContext): boolean =>
+    context.agent?.session?.header?.origin === 'subagent'
   for (const layer of config.layers) {
     ctx.systemPrompt.section({
       name: `prompt-stack:${layer.name}`,
       order: layer.order,
-      text: (context) => hitRule(context)?.overrides?.[layer.name] ?? layer.text,
+      text: (context) =>
+        isSubagent(context) ? '' : (hitRule(context)?.overrides?.[layer.name] ?? layer.text),
     })
   }
   // 无命中时返回空串，沿用 dsh「空段不渲染」被丢弃。
@@ -132,7 +137,9 @@ export function apply(ctx: Context, config: ConfigT): void {
       }
       const layer = config.layers.find(l => section.name === `prompt-stack:${l.name}`)
       if (layer === undefined) return section
-      return { ...section, text: rule?.overrides?.[layer.name] ?? layer.text }
+      // 子 Agent 隔离在此同样生效：上面的 text 回调返回的空串会被本节覆盖，
+      // 所以按 origin 直接改写（model-notes 分支已在上面单独处理，不受隔离）。
+      return { ...section, text: isSubagent(context) ? '' : (rule?.overrides?.[layer.name] ?? layer.text) }
     })
     return { ...assembled, sections }
   })
