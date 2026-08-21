@@ -1,4 +1,0 @@
-roles:
-  - name: reviewer
-    description: 代码审查员
-    persona: 你是资深代码审查员。

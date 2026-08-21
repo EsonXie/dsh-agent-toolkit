@@ -1,106 +1,106 @@
-/** teams/*.yml 的加载与校验：团队名册的唯一解析入口。 */
+/** 角色名册文件解析：$DSH_HOME/agent-team/roles/<name>.yml 一角色一文件。 */
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import yaml from 'js-yaml'
 import z from '@deepseek-ai/schemastery'
 
-/** 一名团队成员（角色）。 */
+/** 角色级工具限制：原样透传为 SubagentStartRequest.toolFilter（精确名白/黑名单，无通配）。 */
+export interface RoleTools {
+  readonly allow?: string[]
+  readonly deny?: string[]
+}
+
+/** 一名可委派角色。provider/model 缺省继承主 Agent；tools 缺省不限制。 */
 export interface Role {
-  /** 标识符：字母数字 + -_；模型调用 team_delegate 时的 role 参数值。 */
   readonly name: string
-  /** 一句话职责，编入工具 description，是主 Agent 选角的唯一依据。 */
   readonly description: string
-  /** 角色层系统提示词（拼在插件基础层之后）。 */
   readonly persona: string
-  /** 可选：覆盖模型供应商，缺省继承主 Agent。 */
   readonly provider?: string
-  /** 可选：覆盖模型，缺省继承主 Agent。 */
   readonly model?: string
+  readonly tools?: RoleTools
 }
 
-/** 一个团队：teams/<id>.yml 解析产物。 */
-export interface Team {
-  /** 团队 id = 文件名去 .yml 后缀。 */
-  readonly id: string
-  readonly roles: Role[]
-}
+export const NAME_RE = /^[A-Za-z0-9_-]+$/
 
-const RoleSchema = z.object({
-  name: z.string().required(),
+const RoleFileSchema = z.object({
+  name: z.string(),
   description: z.string().required(),
   persona: z.string().required(),
   provider: z.string(),
   model: z.string(),
+  tools: z.object({
+    allow: z.array(z.string()),
+    deny: z.array(z.string()),
+  }),
 })
-
-const RolesFileSchema = z.object({
-  roles: z.array(RoleSchema).required(),
-})
-
-const NAME_RE = /^[A-Za-z0-9_-]+$/
 
 /**
- * 解析并校验单个名册文本。
+ * 解析校验单个角色文件。
  * @param text - 文件内容。
  * @param source - 用于错误信息的来源名（通常是文件路径）。
- * @returns 校验通过的角色列表。
- * @throws YAML 语法错误、结构非法、name 非法、角色重名。
+ * @param fileName - 文件名（去 .yml），name 省略时的取值；显式 name 须与它一致。
+ * @throws YAML 语法错误、结构非法、name 与文件名不一致、name 非法字符、tools 空对象。
  */
-export function parseRolesYaml(text: string, source: string): Role[] {
+export function parseRoleYaml(text: string, source: string, fileName: string): Role {
   let parsed: unknown
   try {
     parsed = yaml.load(text)
   } catch (error) {
     throw new Error(`agent-team: 角色文件 ${source} 不是合法 YAML：${error instanceof Error ? error.message : String(error)}`)
   }
-  let roles: Role[]
+  // Schemastery fills absent optional object/array fields with their defaults
+  // (tools -> { allow: [], deny: [] }), so presence must be detected from the
+  // raw YAML, not from the normalized schema output.
+  const hasTools = parsed !== null && typeof parsed === 'object' && 'tools' in (parsed as object)
+  let raw: { name?: string; description: string; persona: string; provider?: string; model?: string; tools?: RoleTools }
   try {
-    roles = (RolesFileSchema(parsed as Parameters<typeof RolesFileSchema>[0]) as { roles: Role[] }).roles
+    raw = RoleFileSchema(parsed as Parameters<typeof RoleFileSchema>[0]) as typeof raw
   } catch (error) {
     throw new Error(`agent-team: 角色文件 ${source} 校验失败：${error instanceof Error ? error.message : String(error)}`)
   }
-  const seen = new Set<string>()
-  for (const role of roles) {
-    if (!NAME_RE.test(role.name)) {
-      throw new Error(`agent-team: 角色文件 ${source} 中 name "${role.name}" 非法：只允许字母、数字、-、_`)
-    }
-    if (seen.has(role.name)) {
-      throw new Error(`agent-team: 角色文件 ${source} 中角色 "${role.name}" 重复定义`)
-    }
-    seen.add(role.name)
+  const name = raw.name ?? fileName
+  if (raw.name !== undefined && raw.name !== fileName) {
+    throw new Error(`agent-team: 角色文件 ${source} 的 name "${raw.name}" 与文件名 "${fileName}" 不一致（省略 name 即取文件名）`)
   }
-  return roles
+  if (!NAME_RE.test(name)) {
+    throw new Error(`agent-team: 角色名 "${name}" 非法（${source}）：只允许字母、数字、-、_`)
+  }
+  if (hasTools && raw.tools !== undefined && raw.tools.allow?.length === 0 && raw.tools.deny?.length === 0) {
+    throw new Error(`agent-team: 角色文件 ${source} 的 tools 为空：allow/deny 至少配一个（宿主拒绝空 filter）`)
+  }
+  const tools = hasTools && raw.tools !== undefined
+    ? {
+        ...raw.tools.allow && raw.tools.allow.length > 0 ? { allow: raw.tools.allow } : {},
+        ...raw.tools.deny && raw.tools.deny.length > 0 ? { deny: raw.tools.deny } : {},
+      }
+    : undefined
+  return {
+    name,
+    description: raw.description,
+    persona: raw.persona,
+    ...raw.provider !== undefined ? { provider: raw.provider } : {},
+    ...raw.model !== undefined ? { model: raw.model } : {},
+    ...tools !== undefined ? { tools } : {},
+  }
 }
 
 /**
- * 读取 teams 目录下全部 .yml 名册。
- * @param dir - teams 目录的绝对路径。
- * @returns 按文件名字典序的团队列表。
- * @throws 目录不可读、无 .yml、团队 id 非法、大小写归一重名、任一文件内容非法。
+ * 读取 roles 目录下全部 .yml 角色文件，按文件名字典序返回。
+ * @param dir - roles 目录绝对路径。
+ * @returns 角色列表；目录不存在或无 .yml 文件时返回空列表（静默跳过，属正常态）。
+ * @throws 目录存在但不可读（非 ENOENT）、任一文件内容非法。
  */
-export async function loadTeams(dir: string): Promise<Team[]> {
+export async function loadRolesDir(dir: string): Promise<Role[]> {
   let entries: string[]
   try {
     entries = await readdir(dir)
   } catch (error) {
-    throw new Error(`agent-team: 团队目录不可读：${dir}（${error instanceof Error ? error.message : String(error)}）`)
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw new Error(`agent-team: 角色目录不可读：${dir}（${error instanceof Error ? error.message : String(error)}）`)
   }
   const files = entries.filter(f => f.endsWith('.yml')).sort()
-  if (files.length === 0) {
-    throw new Error(`agent-team: 团队目录中没有 .yml 名册：${dir}`)
-  }
-  const seen = new Set<string>()
-  const teams: Team[] = []
+  const roles: Role[] = []
   for (const file of files) {
-    const id = file.slice(0, -'.yml'.length)
-    if (!NAME_RE.test(id)) {
-      throw new Error(`agent-team: 团队文件名非法：${file}（id 只允许字母、数字、-、_）`)
-    }
-    const key = id.toLowerCase()
-    if (seen.has(key)) {
-      throw new Error(`agent-team: 团队 id 重复（大小写归一后）：${id}`)
-    }
-    seen.add(key)
     const path = join(dir, file)
     let text: string
     try {
@@ -108,7 +108,7 @@ export async function loadTeams(dir: string): Promise<Team[]> {
     } catch (error) {
       throw new Error(`agent-team: 角色文件不可读：${path}（${error instanceof Error ? error.message : String(error)}）`)
     }
-    teams.push({ id, roles: parseRolesYaml(text, path) })
+    roles.push(parseRoleYaml(text, path, file.slice(0, -'.yml'.length)))
   }
-  return teams
+  return roles
 }
