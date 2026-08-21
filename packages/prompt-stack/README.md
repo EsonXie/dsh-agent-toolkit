@@ -1,6 +1,14 @@
-# prompt-stack
+# @dsh-agent-toolkit/prompt-stack
 
 DeepSeek Harness 插件：语义化提示词分层 + 按模型规则覆盖层文本。
+
+## 安装
+
+```sh
+dsh plugin --profile web add @dsh-agent-toolkit/prompt-stack
+```
+
+依赖 dsh 提供 `systemPrompt` 服务（`@deepseek-ai/dsh-base` 含）。
 
 - 每个语义层注册为 `prompt-stack:<层名>` section，按 `order` 升序拼接。
 - 规则按当前生效模型匹配（`provider` 精确 / `model` 精确 / `modelPattern` glob），打分 model=4、pattern=2、provider=1，取最高分一条（同分取配置序靠前）；命中规则的 `overrides[层名]` 替换该层文本，`append` 渲染为固定追加层 `prompt-stack:model-notes`（order = 最大层 order + 1）。

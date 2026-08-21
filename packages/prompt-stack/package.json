@@ -1,15 +1,45 @@
 {
-  "name": "prompt-stack",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@dsh-agent-toolkit/prompt-stack",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness plugin: semantic system-prompt layers with per-model rule overrides and append notes",
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "system-prompt",
+    "prompt-stack"
+  ],
   "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
     "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "bundle": "tsdown",
+    "watch": "tsdown --watch",
+    "prepack": "pnpm run bundle"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "link:../../deepseek-harness/vendor/cordis",
@@ -20,6 +50,7 @@
     "@deepseek-ai/dsh-system-prompt": "link:../../deepseek-harness/packages/core/system-prompt",
     "@deepseek-ai/schemastery": "link:../../deepseek-harness/vendor/schemastery",
     "@types/node": "^22.20.1",
+    "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
     "vitest": "^3.0.0"
   }

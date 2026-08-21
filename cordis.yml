@@ -10,7 +10,7 @@
       config:
         clientOnly: true
     - id: prompt-stack
-      name: prompt-stack
+      name: '@dsh-agent-toolkit/prompt-stack'
 - id: token-usage
   config:
     timezone: Asia/Shanghai
