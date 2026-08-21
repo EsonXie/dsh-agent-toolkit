@@ -1,6 +1,6 @@
 {
   "name": "@dsh-agent-toolkit/token-usage",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DeepSeek Harness plugin: per-day token usage statistics — /token-usage command, JSON endpoint, sidebar UI",
   "license": "MIT",
   "keywords": [
