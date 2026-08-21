@@ -123,6 +123,7 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
       title: `委派 · ${args.role}: ${args.description}`,
       rawInput: args.prompt,
     }),
+    presentResult: (_args, result) => (result.isError ? undefined : { card: 'generic' as const }),
     async execute(args, exec) {
       const parent: Agent | undefined = exec.agent
       if (!parent) throw new Error('team_delegate 需要调用方 agent（exec.agent 为空）')
@@ -153,11 +154,5 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
       return settleForegroundRun(run, role.name)
     },
   })
-  // Deviation from the plan: dsh's defineTool gates presentResult behind arg
-  // validation and soft-fails to undefined on any schema mismatch. The brief's
-  // tests call presentResult with partial args (display-only path) and expect
-  // the generic card, so the lenient presenter is reassigned here; the
-  // model-facing parameters schema and execute validation stay untouched.
-  tool.presentResult = (_args, result) => (result.isError ? undefined : { card: 'generic' as const })
   return tool
 }

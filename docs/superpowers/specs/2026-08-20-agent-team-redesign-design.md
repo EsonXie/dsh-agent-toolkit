@@ -192,7 +192,7 @@ persona 文案迁移自现状 `presets/team/teams/default.yml`（内容已被验
 ### 风格合规（硬约束）
 
 - 每组件一个 `.module.css` + `clsx`；token 只用 `--dsw-alias-*` / `--dsw-font-*`；不写主题选择器
-- 24px 行高、默认折叠、整行 toggle、260px 展开内滚、visually-hidden 状态文本
+- 24px 行高、运行中默认折叠、完成后结果区与「查看子对话」按钮自动展开、整行 toggle 控制任务书全文展开、260px 展开内滚、visually-hidden 状态文本
 - i18n：自建 `agent-team` 命名空间（zh 真源 + en 同键集），`ctx.locale.register` + `LocaleNamespaceMap` 声明合并
 - 包依赖照 ui-tool peerDeps 集：`dsh-client-runtime` / `dsh-client-ui-slots` / `dsh-client-ui-primitives` / `dsh-client-ui-tool`（槽位类型）+ react 18 / clsx
 

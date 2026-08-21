@@ -1608,3 +1608,8 @@ git commit -m "chore(agent-team): preset 薄壳化与仓库文档同步"
 - 不加 jobs/goal/plan/compaction/web/skill 行，保持组合最小。
 - 成员经 composeFrom 继承父会话工具层，角色 `tools` 过滤名单必须命中组合内已注册工具名（否则 restrict 响亮失败）——设计 spec §8、AGENTS.md 已同步该约束。
 - 门禁复核：`pnpm --filter agent-team test && pnpm --filter agent-team typecheck && pnpm --filter agent-team bundle` 全绿（不触代码，仅确认无回归）。
+
+### 实施期修订（2026-08-21 终审裁决）
+
+1. **presentResult 部分参数断言**建立在对 defineTool 软校验的错误假设上——测试改传完整 args，移除重挂偏离（终审裁决）。
+2. **委派卡展开语义**：settled 自动展开结果区（计划测试 3 驱动），aria-expanded 同步实际可见性，spec §7 已修订。

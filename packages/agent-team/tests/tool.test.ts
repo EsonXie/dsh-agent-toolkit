@@ -133,8 +133,8 @@ test('presentCall/presentResult 保持 generic 兜底；presentationMeta 投影 
   }
   expect(tool.presentCall({ role: 'reviewer', description: '审查登录模块', prompt: '请审查 src/auth/' }))
     .toEqual({ card: 'generic', title: '委派 · reviewer: 审查登录模块', rawInput: '请审查 src/auth/' })
-  expect(tool.presentResult({ role: 'reviewer' }, { isError: false })).toEqual({ card: 'generic' })
-  expect(tool.presentResult({ role: 'reviewer' }, { isError: true })).toBeUndefined()
+  expect(tool.presentResult({ role: 'reviewer', description: '审查登录模块', prompt: '请审查 src/auth/' }, { isError: false })).toEqual({ card: 'generic' })
+  expect(tool.presentResult({ role: 'reviewer', description: '审查登录模块', prompt: '请审查 src/auth/' }, { isError: true })).toBeUndefined()
   expect(tool.output.presentationMeta({}, {
     kind: 'foreground', role: 'reviewer', runId: 'r1', childSessionId: 'c1', output: [{ type: 'text', text: 'x' }],
   })).toEqual({ role: 'reviewer', runId: 'r1', childSessionId: 'c1' })

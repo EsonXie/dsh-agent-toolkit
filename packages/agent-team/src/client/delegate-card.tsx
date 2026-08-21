@@ -3,7 +3,6 @@ import type { SessionId, SubagentAddress, ToolCallBlock } from '@deepseek-ai/dsh
 import { MarkdownText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
-import clsx from 'clsx'
 import { useState } from 'react'
 import css from './delegate-card.module.css'
 import type { NS } from './locales.ts'
@@ -56,7 +55,7 @@ export function DelegateCard(props: DelegateCardProps) {
         className={css.row}
         role="button"
         tabIndex={0}
-        aria-expanded={expanded}
+        aria-expanded={expanded || settled}
         onClick={() => setExpanded(v => !v)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(v => !v) } }}
       >
