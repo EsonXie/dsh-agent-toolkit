@@ -1,80 +1,38 @@
-import { basename, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { expect, test, vi } from 'vitest'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { Config } from '../src/index.ts'
-import type { TeamStateView } from '../src/types.ts'
-
-const FIXTURE_DIR = join(import.meta.dirname, 'fixtures', 'team-preset')
-/** 夹具 preset id = preset 目录名（宿主 discovery.ts:160 id: child.name）。 */
-const FIXTURE_PRESET_ID = basename(FIXTURE_DIR)
 
 interface RegisteredTool { name: string; description: string }
-type RouteRes = {
-  writeHead(status: number, headers?: Record<string, string>): RouteRes
-  end(chunk?: string): unknown
-}
-type Handler = (req: { method?: string; url?: string } & AsyncIterable<unknown>, res: RouteRes) => Promise<void>
 type Disposer = () => void | Promise<void>
 type ProviderCaps = { outputSchema: boolean; depthLimit: boolean; toolFilter: boolean; persona: boolean }
 const FULL_CAPS: ProviderCaps = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
-type FakeSessionRecord = {
-  events?: SessionEvent[]
-  /** 会话所属 preset id；缺省按本 preset（fixture 目录名）。 */
-  agentPreset?: string
-}
 type FakeCtxOptions = {
-  webServer?: boolean
-  kv?: Map<string, string>
-  failPut?: boolean
-  /** sid → 会话记录；提供后未列出的 sid 视为"会话不存在"。缺省则任意 sid 都是本 preset 的 blank 会话。 */
-  sessions?: Map<string, FakeSessionRecord>
   providerCapabilities?: Partial<ProviderCaps>
   providerAbsent?: boolean
 }
 
-// index.ts 持有模块级共享 domain 单例，每个测试须取全新模块实例以隔离跨测试共享状态。
-type FreshMod = typeof import('../src/index.ts')
-async function load(): Promise<FreshMod> {
-  vi.resetModules()
-  return import('../src/index.ts')
-}
+let home: string
+beforeEach(async () => {
+  home = await mkdtemp(join(tmpdir(), 'agent-team-home-'))
+  vi.stubEnv('DSH_HOME', home)
+})
+afterEach(async () => {
+  vi.unstubAllEnvs()
+  await rm(home, { recursive: true, force: true })
+})
 
-function fakeCtx(baseUrl?: string, opts: FakeCtxOptions = {}) {
-  const tools: RegisteredTool[] = []                                // 注册日志（断言只注册一次）
-  const activeTools = new Map<string, RegisteredTool>()             // 生效注册（HMR 卸载断言用）
+function fakeCtx(opts: FakeCtxOptions = {}) {
+  const tools: RegisteredTool[] = []
+  const activeTools = new Map<string, RegisteredTool>()
   const sections: { name: string; order: number; text: unknown }[] = []
-  const routes = new Map<string, Handler>()
   const disposers: Disposer[] = []
   const listeners: { event: string; cb: (payload: unknown) => void }[] = []
-  const kv = opts.kv ?? new Map<string, string>()
-  const sessions = opts.sessions
-  const errors: string[] = []                                     // logger.error 记录（provider 后到 fail loud 断言用）
-  const reads: string[] = []                                      // table.get 调用记录（"不建 TeamState" 反证用）
-  let openCount = 0
-  let closeCount = 0
-  const services: Record<string, unknown> = {
-    ...(opts.webServer === false ? {} : {
-      webServer: {
-        register: (route: { kind: string; path: string; handler: Handler }) => {
-          routes.set(route.path, route.handler)
-          const disposer: Disposer = () => { routes.delete(route.path) }
-          disposers.push(disposer)
-          return disposer
-        },
-      },
-    }),
-  }
-  const table = {
-    get: (k: string) => { reads.push(k); return kv.get(k) },
-    put: async (k: string, v: string) => {
-      if (opts.failPut === true) throw new Error('kv write failed')
-      kv.set(k, v)
-    },
-  }
+  const errors: string[] = []
+  const infos: string[] = []
   const ctx = {
-    baseUrl,
     tools: {
       register: (tool: RegisteredTool) => {
         tools.push(tool)
@@ -102,28 +60,6 @@ function fakeCtx(baseUrl?: string, opts: FakeCtxOptions = {}) {
         return { name, capabilities: { ...FULL_CAPS, ...opts.providerCapabilities }, inheritsParentContext: false }
       },
     },
-    sessions: {
-      get: (id: SessionId) => {
-        const sid = String(id)
-        const rec = sessions?.get(sid)
-        if (sessions !== undefined && rec === undefined) return undefined
-        return {
-          id,
-          events: rec?.events ?? [],
-          header: { agentPreset: rec?.agentPreset ?? FIXTURE_PRESET_ID },
-        }
-      },
-    },
-    storageDomain: {
-      open: async () => {
-        openCount++
-        return { table: () => table, close: async () => { closeCount++ } }
-      },
-    },
-    inject: (names: string[], cb: (c: unknown) => void) => {
-      const service = services[names[0]]
-      if (service !== undefined) cb({ ...ctx, [names[0]]: service })
-    },
     on: (event: string, cb: (payload: unknown) => void) => {
       listeners.push({ event, cb })
       return () => {}
@@ -132,349 +68,109 @@ function fakeCtx(baseUrl?: string, opts: FakeCtxOptions = {}) {
       const disposer = fn()
       if (typeof disposer === 'function') disposers.push(disposer as Disposer)
     },
-    logger: { info: () => {}, warn: () => {}, error: (msg: string) => { errors.push(String(msg)) } },
+    logger: {
+      info: (msg: string) => { infos.push(String(msg)) },
+      warn: () => {},
+      error: (msg: string) => { errors.push(String(msg)) },
+    },
   }
   return {
     ctx: ctx as unknown as Context,
-    tools,
-    activeTools,
-    sections,
-    routes,
-    kv,
-    sessions,
-    reads,
-    errors,
-    disposers,
+    tools, activeTools, sections, disposers, errors, infos,
     emit: (event: string, payload: unknown) => {
       for (const l of listeners) if (l.event === event) l.cb(payload)
     },
-    get openCount() { return openCount },
-    get closeCount() { return closeCount },
   }
 }
 
-const presetUrl = () => pathToFileURL(FIXTURE_DIR + '/').href
-
-function fakeReqRes(method: string, url: string, body?: unknown) {
-  const req = {
-    method,
-    url,
-    [Symbol.asyncIterator]: async function* () {
-      if (body !== undefined) yield Buffer.from(JSON.stringify(body))
-    },
-  }
-  const res = {
-    status: 0,
-    body: '',
-    writeHead(status: number) { res.status = status; return res },
-    end(chunk?: string) { if (chunk !== undefined) res.body += chunk; return res },
-  }
-  return { req, res }
+async function loadMod(): Promise<typeof import('../src/index.ts')> {
+  vi.resetModules()
+  return import('../src/index.ts')
 }
 
-async function callRoute(routes: Map<string, Handler>, url: string, method: string, body?: unknown) {
-  const handler = routes.get('/agent-team')
-  expect(handler, '路由已注册：/agent-team').toBeDefined()
-  const { req, res } = fakeReqRes(method, url, body)
-  await handler!(req, res)
-  return { status: res.status, json: res.body === '' ? undefined : JSON.parse(res.body) as TeamStateView & { error?: string } }
-}
-
-/** 以指定会话 agent 调用 prompt 段 text 函数；agent 缺省模拟非 agent 组装。 */
-function renderSection(sections: { text: unknown }[], agent?: { session: { id: string } }): string {
-  const text = sections[0].text as (context: unknown) => string
-  return agent === undefined ? text({}) : text({ agent })
-}
-
-test('挂载：工具仅注册一次且 description 静态，prompt 段为函数，注册一条 prefix 路由', async () => {
-  const mod = await load()
-  const { ctx, tools, sections, routes } = fakeCtx(presetUrl())
+test('挂载：工具注册一次、提示段为静态文本且列出内置角色、无路由无 KV', async () => {
+  const mod = await loadMod()
+  const { ctx, tools, sections } = fakeCtx()
   await mod.apply(ctx, {} as Config)
   expect(tools.map(t => t.name)).toEqual(['team_delegate'])
   expect(tools).toHaveLength(1)
-  expect(tools[0].description).not.toContain('reviewer')
-  expect(tools[0].description).toMatch(/current session/)
-  expect(routes.size).toBe(1)
-  expect(routes.has('/agent-team')).toBe(true)
   expect(sections).toHaveLength(1)
-  expect(typeof sections[0].text).toBe('function')
+  const text = sections[0].text
+  expect(typeof text).toBe('string')
+  expect(text).toContain('explorer:')
+  expect(text).toContain('general:')
+  expect(sections[0].name).toBe('plugin:agent-team')
+  expect(mod.inject).toEqual(['tools', 'subagents', 'systemPrompt'])
 })
 
-test('prompt 段 text 函数：带 agent 渲染该会话当前团队名册（每角色一行 name: description）；缺省返回通用介绍', async () => {
-  const mod = await load()
-  const { ctx, sections } = fakeCtx(presetUrl())
-  await mod.apply(ctx, {} as Config)
-  const withAgent = renderSection(sections, { session: { id: 's1' } })
-  expect(withAgent).toContain('当前团队')
-  expect(withAgent).toContain('reviewer: 代码审查员')
-  expect(withAgent).not.toContain('researcher')
-  expect(renderSection(sections)).toContain('team_delegate')
-  expect(renderSection(sections)).not.toContain('reviewer')
-})
-
-test('GET /agent-team/<sid>/state：惰性建态返回 200', async () => {
-  const mod = await load()
-  const { ctx, routes } = fakeCtx(presetUrl())
-  await mod.apply(ctx, {} as Config)
-  const { status, json } = await callRoute(routes, '/agent-team/s1/state', 'GET')
-  expect(status).toBe(200)
-  expect(json?.currentId).toBe('alpha')
-  expect(json?.options).toEqual([
-    { id: 'alpha', summary: '代码审查员' },
-    { id: 'beta', summary: '资料调研与分析' },
-  ])
-})
-
-test('POST select 切到 beta：同 sid 的 prompt 段名册变化，工具注册不变，KV 写入', async () => {
-  const mod = await load()
-  const { ctx, tools, routes, sections, kv } = fakeCtx(presetUrl())
-  await mod.apply(ctx, {} as Config)
-  const { status, json } = await callRoute(routes, '/agent-team/s1/select', 'POST', { team: 'beta' })
-  expect(status).toBe(200)
-  expect(json?.currentId).toBe('beta')
-  expect(tools).toHaveLength(1)                                   // 注册一次，切换不重注册
-  expect(renderSection(sections, { session: { id: 's1' } })).toContain('researcher: 资料调研与分析')
-  expect(renderSection(sections, { session: { id: 's1' } })).not.toContain('reviewer')
-  expect(kv.get('s1')).toBe('beta')
-})
-
-test('两个不同 sid 各自独立切换互不影响', async () => {
-  const mod = await load()
-  const { ctx, routes, sections } = fakeCtx(presetUrl())
-  await mod.apply(ctx, {} as Config)
-  await callRoute(routes, '/agent-team/s1/select', 'POST', { team: 'beta' })
-  const { json } = await callRoute(routes, '/agent-team/s2/state', 'GET')
-  expect(json?.currentId).toBe('alpha')                           // s2 未切换，默认 alpha
-  expect(renderSection(sections, { session: { id: 's1' } })).toContain('researcher: 资料调研与分析')
-  expect(renderSection(sections, { session: { id: 's2' } })).toContain('reviewer: 代码审查员')
-})
-
-test('已发 turn/start 的会话 POST select：409 锁定，不写 KV', async () => {
-  const mod = await load()
-  const { ctx, routes, kv } = fakeCtx(presetUrl(), {
-    sessions: new Map([['s1', { events: [{ type: 'turn/start', data: {} } as SessionEvent] }]]),
+test('用户目录角色进入提示段；同名覆盖写激活日志', async () => {
+  const rolesDir = join(home, 'agent-team', 'roles')
+  await writeFile(join(rolesDir, 'reviewer.yml'), 'description: 代码审查\npersona: 你是审查员。\n', { recursive: true } as never).catch(async () => {
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(rolesDir, { recursive: true })
+    await writeFile(join(rolesDir, 'reviewer.yml'), 'description: 代码审查\npersona: 你是审查员。\n')
   })
+  const mod = await loadMod()
+  const { ctx, sections, infos } = fakeCtx()
   await mod.apply(ctx, {} as Config)
-  const { status, json } = await callRoute(routes, '/agent-team/s1/select', 'POST', { team: 'beta' })
-  expect(status).toBe(409)
-  expect(json?.error).toContain('锁定')
-  expect(kv.has('s1')).toBe(false)
+  expect(sections[0].text).toContain('reviewer: 代码审查')
+  // 同名覆盖日志
+  await writeFile(join(rolesDir, 'explorer.yml'), 'description: 定制\npersona: 定制。\n')
+  const mod2 = await loadMod()
+  const second = fakeCtx()
+  await mod2.apply(second.ctx, {} as Config)
+  expect(second.sections[0].text).toContain('explorer: 定制')
+  expect(second.infos.join('\n')).toContain('explorer')
 })
 
-test('session/disposed 清 Map：该 sid 状态清除后重新懒建', async () => {
-  const mod = await load()
-  const kv = new Map<string, string>()
-  const { ctx, routes, emit } = fakeCtx(presetUrl(), { kv })
-  await mod.apply(ctx, {} as Config)
-  await callRoute(routes, '/agent-team/s1/select', 'POST', { team: 'beta' })
-  kv.delete('s1')                                                 // 模拟 KV 记录已失效
-  emit('session/disposed', { id: 's1', events: [] })
-  const { json } = await callRoute(routes, '/agent-team/s1/state', 'GET')
-  expect(json?.currentId).toBe('alpha')                           // 旧缓存已清，重新懒建回默认
-})
-
-test('KV 冷恢复：切换写 KV 后，新挂载代 GET 返回已选团队', async () => {
-  const mod = await load()
-  const kv = new Map<string, string>()
-  const first = fakeCtx(presetUrl(), { kv })
-  await mod.apply(first.ctx, {} as Config)
-  await callRoute(first.routes, '/agent-team/s1/select', 'POST', { team: 'beta' })
-  const second = fakeCtx(presetUrl(), { kv })                     // 新挂载代（HMR/新 preset 代）
-  await mod.apply(second.ctx, {} as Config)
-  const { json } = await callRoute(second.routes, '/agent-team/s1/state', 'GET')
-  expect(json?.currentId).toBe('beta')
-})
-
-test('clientOnly: true：无工具/路由/提示段注册', async () => {
-  const mod = await load()
-  const { ctx, tools, routes, sections } = fakeCtx(presetUrl())
+test('clientOnly: true：无工具/提示段注册，不读名册', async () => {
+  const mod = await loadMod()
+  const { ctx, tools, sections } = fakeCtx()
   await mod.apply(ctx, { clientOnly: true } as Config)
   expect(tools).toHaveLength(0)
-  expect(routes.size).toBe(0)
   expect(sections).toHaveLength(0)
 })
 
-test('POST select 未知团队：400 列出可用团队，不写 KV', async () => {
-  const mod = await load()
-  const { ctx, routes, kv } = fakeCtx(presetUrl())
-  await mod.apply(ctx, {} as Config)
-  const { status, json } = await callRoute(routes, '/agent-team/s1/select', 'POST', { team: 'ghost' })
-  expect(status).toBe(400)
-  expect(json?.error).toContain('alpha, beta')
-  expect(kv.has('s1')).toBe(false)
+test('用户目录含非法文件：激活期响亮失败', async () => {
+  const rolesDir = join(home, 'agent-team', 'roles')
+  const { mkdir } = await import('node:fs/promises')
+  await mkdir(rolesDir, { recursive: true })
+  await writeFile(join(rolesDir, 'bad.yml'), 'description: [未闭合')
+  const mod = await loadMod()
+  const { ctx } = fakeCtx()
+  await expect(mod.apply(ctx, {} as Config)).rejects.toThrowError(/bad\.yml/)
 })
 
-test('POST select 同团队：200 但不写 KV', async () => {
-  const mod = await load()
-  const { ctx, routes, kv } = fakeCtx(presetUrl())
-  await mod.apply(ctx, {} as Config)
-  const { status } = await callRoute(routes, '/agent-team/s1/select', 'POST', { team: 'alpha' })
-  expect(status).toBe(200)
-  expect(kv.has('s1')).toBe(false)
-})
-
-test('会话不存在（sessions 无该 sid）按非本 preset 处理：GET/POST 均 404，不建 TeamState', async () => {
-  const mod = await load()
-  const { ctx, routes, reads } = fakeCtx(presetUrl(), { sessions: new Map() })
-  await mod.apply(ctx, {} as Config)
-  expect((await callRoute(routes, '/agent-team/ghost/state', 'GET')).status).toBe(404)
-  expect((await callRoute(routes, '/agent-team/ghost/select', 'POST', { team: 'beta' })).status).toBe(404)
-  expect(reads).not.toContain('ghost')
-})
-
-test('非本 preset 的会话：GET/POST 均 404，不为其建 TeamState（不触发 KV 读）', async () => {
-  const mod = await load()
-  const { ctx, routes, reads } = fakeCtx(presetUrl(), {
-    sessions: new Map([['s1', { agentPreset: 'other-preset' }]]),
-  })
-  await mod.apply(ctx, {} as Config)
-  expect((await callRoute(routes, '/agent-team/s1/state', 'GET')).status).toBe(404)
-  expect((await callRoute(routes, '/agent-team/s1/select', 'POST', { team: 'beta' })).status).toBe(404)
-  expect(reads).not.toContain('s1')
-})
-
-test('blank 期切到其他 preset 的会话：按最新 selected 事件判定非本 preset，GET 404', async () => {
-  const mod = await load()
-  const { ctx, routes } = fakeCtx(presetUrl(), {
-    sessions: new Map([['s1', {
-      events: [{ type: 'agent-preset/selected', data: { agentPreset: 'other-preset' } } as SessionEvent],
-    }]]),
-  })
-  await mod.apply(ctx, {} as Config)
-  expect((await callRoute(routes, '/agent-team/s1/state', 'GET')).status).toBe(404)
-})
-
-test('畸形 % 编码的 sessionId：GET/POST 均 404（decodeURIComponent 不抛）', async () => {
-  const mod = await load()
-  const { ctx, routes } = fakeCtx(presetUrl())
-  await mod.apply(ctx, {} as Config)
-  expect((await callRoute(routes, '/agent-team/%zz/state', 'GET')).status).toBe(404)
-  expect((await callRoute(routes, '/agent-team/%zz/select', 'POST', { team: 'beta' })).status).toBe(404)
-})
-
-test('非 state/select 路径与方法：404', async () => {
-  const mod = await load()
-  const { ctx, routes } = fakeCtx(presetUrl())
-  await mod.apply(ctx, {} as Config)
-  expect((await callRoute(routes, '/agent-team/s1/unknown', 'GET')).status).toBe(404)
-  expect((await callRoute(routes, '/agent-team/s1', 'GET')).status).toBe(404)
-  expect((await callRoute(routes, '/agent-team', 'GET')).status).toBe(404)
-  expect((await callRoute(routes, '/agent-team/s1/select', 'GET')).status).toBe(404)
-})
-
-test('POST select：KV 写失败时返回非 200、状态不变', async () => {
-  const mod = await load()
-  const { ctx, routes } = fakeCtx(presetUrl(), { failPut: true })
-  await mod.apply(ctx, {} as Config)
-  const { status } = await callRoute(routes, '/agent-team/s1/select', 'POST', { team: 'beta' })
-  expect(status).not.toBe(200)
-  const { json } = await callRoute(routes, '/agent-team/s1/state', 'GET')
-  expect(json?.currentId).toBe('alpha')                           // state.current 不变（回滚）
-})
-
-test('teamsDir 指向缺失目录时激活失败', async () => {
-  const mod = await load()
-  const { ctx } = fakeCtx(presetUrl())
-  await expect(mod.apply(ctx, { teamsDir: './missing' } as Config)).rejects.toThrowError(/missing/)
-})
-
-test('defaultTeam 未命中时激活失败', async () => {
-  const mod = await load()
-  const { ctx } = fakeCtx(presetUrl())
-  await expect(mod.apply(ctx, { defaultTeam: 'ghost' } as Config)).rejects.toThrowError(/ghost/)
-})
-
-test('无 webServer 服务（headless）：激活成功，无路由，工具与提示段在', async () => {
-  const mod = await load()
-  const { ctx, tools, sections, routes } = fakeCtx(presetUrl(), { webServer: false })
-  await mod.apply(ctx, {} as Config)
-  expect(tools.map(t => t.name)).toEqual(['team_delegate'])
-  expect(sections).toHaveLength(1)
-  expect(routes.size).toBe(0)
-})
-
-test('多会话共享 domain 单例：一次 open，KV 按 sessionId 互不干扰', async () => {
-  const mod = await load()
-  const kv = new Map<string, string>()
-  const a = fakeCtx(presetUrl(), { kv })
-  const b = fakeCtx(presetUrl(), { kv })
-  await mod.apply(a.ctx, {} as Config)
-  await mod.apply(b.ctx, {} as Config)
-  expect(a.openCount).toBe(1)                                     // 首次 open
-  expect(b.openCount).toBe(0)                                     // 复用同一 Promise
-  await callRoute(a.routes, '/agent-team/sA/select', 'POST', { team: 'beta' })
-  expect(kv.get('sA')).toBe('beta')
-  expect(kv.has('sB')).toBe(false)
-  await callRoute(b.routes, '/agent-team/sB/select', 'POST', { team: 'beta' })
-  expect(kv.get('sB')).toBe('beta')
-  expect(kv.get('sA')).toBe('beta')                               // 各自 key，互不干扰
-})
-
-test('共享 domain 卸载：close 仅一次且发生在最后一次卸载后', async () => {
-  const mod = await load()
-  const a = fakeCtx(presetUrl())
-  const b = fakeCtx(presetUrl())
-  await mod.apply(a.ctx, {} as Config)
-  await mod.apply(b.ctx, {} as Config)
-  expect(a.openCount).toBe(1)
-  expect(b.openCount).toBe(0)
-  for (const dispose of a.disposers) await dispose()              // 第一次卸载：refs 2→1
-  expect(a.closeCount + b.closeCount).toBe(0)
-  for (const dispose of b.disposers) await dispose()              // 最后一次卸载：refs 1→0 → close
-  expect(a.closeCount + b.closeCount).toBe(1)
-  expect(a.closeCount).toBe(1)                                    // 被关的是 a 打开的 domain
-})
-
-test('HMR 安全：卸载后工具/路由/提示段全部摘除，fresh ctx 重挂载成功', async () => {
-  const mod = await load()
-  const first = fakeCtx(presetUrl())
+test('HMR 安全：卸载后工具/提示段摘除，fresh ctx 重挂载成功', async () => {
+  const mod = await loadMod()
+  const first = fakeCtx()
   await mod.apply(first.ctx, {} as Config)
-  expect(first.tools.map(t => t.name)).toEqual(['team_delegate'])
-  expect(first.routes.size).toBe(1)
-  expect(first.sections).toHaveLength(1)
-  for (const dispose of first.disposers) await dispose()          // 模拟 fiber 卸载
-  expect(first.activeTools.size).toBe(0)                          // 工具已摘除
-  expect(first.routes.size).toBe(0)
+  for (const dispose of first.disposers) await dispose()
+  expect(first.activeTools.size).toBe(0)
   expect(first.sections).toHaveLength(0)
-  const second = fakeCtx(presetUrl())                              // HMR 重挂载
+  const second = fakeCtx()
   await mod.apply(second.ctx, {} as Config)
   expect(second.tools.map(t => t.name)).toEqual(['team_delegate'])
-  expect(second.routes.size).toBe(1)
   expect(second.sections).toHaveLength(1)
 })
 
-test('provider 缺 persona 能力：激活响亮失败（挂载点能力校验）', async () => {
-  const mod = await load()
-  const { ctx } = fakeCtx(presetUrl(), { providerCapabilities: { persona: false } })
-  await expect(mod.apply(ctx, {} as Config)).rejects.toThrowError(/persona/)
+test('provider 缺 persona/depthLimit 能力：激活响亮失败', async () => {
+  const mod = await loadMod()
+  await expect(mod.apply(fakeCtx({ providerCapabilities: { persona: false } }).ctx, {} as Config))
+    .rejects.toThrowError(/persona/)
+  await expect(mod.apply(fakeCtx({ providerCapabilities: { depthLimit: false } }).ctx, {} as Config))
+    .rejects.toThrowError(/depthLimit/)
 })
 
-test('provider 缺 depthLimit 能力：激活响亮失败（挂载点能力校验）', async () => {
-  const mod = await load()
-  const { ctx } = fakeCtx(presetUrl(), { providerCapabilities: { depthLimit: false } })
-  await expect(mod.apply(ctx, {} as Config)).rejects.toThrowError(/depthLimit/)
-})
-
-test('provider 尚未注册：激活成功但工具延迟挂载，provider-added 后注册', async () => {
-  const mod = await load()
-  const { ctx, tools, emit } = fakeCtx(presetUrl(), { providerAbsent: true })
+test('provider 尚未注册：工具延迟挂载，provider-added 后注册；缺能力则 logger.error 且可恢复', async () => {
+  const mod = await loadMod()
+  const { ctx, tools, errors, emit } = fakeCtx({ providerAbsent: true })
   await mod.apply(ctx, {} as Config)
   expect(tools).toHaveLength(0)
-  emit('subagent/provider-added', { name: 'spawn', capabilities: FULL_CAPS, inheritsParentContext: false })
-  expect(tools.map(t => t.name)).toEqual(['team_delegate'])
-})
-
-test('provider 后到但缺能力：provider-added 不注册工具、logger.error 响亮记录，移除后重加全能力可恢复', async () => {
-  const mod = await load()
-  const { ctx, tools, errors, emit } = fakeCtx(presetUrl(), { providerAbsent: true })
-  await mod.apply(ctx, {} as Config)
+  emit('subagent/provider-added', { name: 'spawn', capabilities: { ...FULL_CAPS, persona: false }, inheritsParentContext: false })
   expect(tools).toHaveLength(0)
-  emit('subagent/provider-added', {
-    name: 'spawn', capabilities: { ...FULL_CAPS, persona: false }, inheritsParentContext: false,
-  })
-  expect(tools).toHaveLength(0)                                   // 缺能力：不挂载
-  expect(errors.join('\n')).toContain('persona')                  // fail loud：错误进 logger.error
-  emit('subagent/provider-removed', 'spawn')                      // 移除后再加：失败态复位，可恢复
+  expect(errors.join('\n')).toContain('persona')
+  emit('subagent/provider-removed', 'spawn')
   emit('subagent/provider-added', { name: 'spawn', capabilities: FULL_CAPS, inheritsParentContext: false })
   expect(tools.map(t => t.name)).toEqual(['team_delegate'])
 })
