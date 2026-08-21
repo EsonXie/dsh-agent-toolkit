@@ -39,6 +39,8 @@
 
 - id: tool-fs-search
   name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
 
 # ── agent-team 挂载（置于组合末尾）────────────────────────────────────────
 
