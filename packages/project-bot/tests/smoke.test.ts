@@ -8,7 +8,7 @@ describe('project-bot 插件导出', () => {
   })
 
   test('Config 默认值', () => {
-    const config = Config({})
+    const config = Config()
     expect(config.cardUpdateThrottleMs).toBe(500)
     expect(config.cardMaxBytes).toBe(28_000)
     expect(config.registerAppTimeoutMs).toBe(600_000)
