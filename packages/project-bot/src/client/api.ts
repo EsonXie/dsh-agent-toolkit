@@ -30,7 +30,14 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
 
 export const fetchBots = () => request<{ bots: BotListItem[] }>('/project-bot/api/bots').then((r) => r.bots)
 
-export const fetchTools = () => request<{ tools: string[] }>('/project-bot/api/tools').then((r) => r.tools)
+export interface ProviderOption { id: string; name: string }
+export interface ModelOption { id: string; name: string }
+
+export const fetchProviders = () =>
+  request<{ providers: ProviderOption[] }>('/project-bot/api/providers').then((r) => r.providers)
+
+export const fetchModels = (provider: string) =>
+  request<{ models: ModelOption[] }>(`/project-bot/api/models?provider=${encodeURIComponent(provider)}`).then((r) => r.models)
 
 export function createBot(input: BotInput): Promise<unknown> {
   return request('/project-bot/api/bots', { method: 'POST', body: JSON.stringify(input) })

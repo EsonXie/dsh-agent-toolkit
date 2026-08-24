@@ -4,7 +4,7 @@ import { Config, inject, name } from '../src/index.ts'
 describe('project-bot 插件导出', () => {
   test('导出名与依赖声明', () => {
     expect(name).toBe('project-bot')
-    expect(inject).toEqual(['agents', 'credentials', 'storageDomain', 'tools'])
+    expect(inject).toEqual(['agents', 'credentials', 'storageDomain', 'tools', 'llm'])
   })
 
   test('Config 默认值', () => {

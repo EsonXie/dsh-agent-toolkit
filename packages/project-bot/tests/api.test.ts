@@ -3,7 +3,7 @@ import { Readable } from 'node:stream'
 import { describe, expect, test, vi } from 'vitest'
 import { createApiHandler, type ApiDeps } from '../src/api.ts'
 import { RegisterAppService } from '../src/register-app.ts'
-import type { BotRecord } from '../src/store.ts'
+import { BOT_ID_RE, type BotRecord } from '../src/store.ts'
 
 const BOT: BotRecord = {
   id: 'reviewer', name: '评审', channel: 'feishu',
@@ -28,7 +28,7 @@ function mockRes(): MockRes {
   return res
 }
 
-function harness() {
+function harness(overrides: Partial<ApiDeps> = {}) {
   const bots = new Map<string, BotRecord>([['reviewer', BOT]])
   const reconciled: string[] = []
   const stopped: string[] = []
@@ -57,10 +57,16 @@ function harness() {
     } as unknown as ApiDeps['runtime'],
     registerApp,
     listTools: () => ['bash', 'fs_read', 'fs_write'],
-    storeSecret: async (key, secret) => { storedSecrets.push({ key, secret }); return `project_bot_${key}` },
+    listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
+    listModels: async () => [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }],
+    storeSecret: async (key, secret) => {
+      storedSecrets.push({ key, secret })
+      return `project_bot_${key.replace(/[^A-Za-z0-9_]/g, '_')}`
+    },
     deleteSecret: async (ref) => { deletedSecrets.push(ref) },
     validateProject: () => true,
     now: () => 1000,
+    ...overrides,
   }
   return { deps, bots, reconciled, stopped, deletedSecrets, storedSecrets, handler: createApiHandler(deps), registerApp }
 }
@@ -102,6 +108,21 @@ describe('POST /bots', () => {
     expect(res.status).toBe(200)
     expect(bots.get('scan-bot')).toMatchObject({ feishu: { appSecretRef: 'project_bot_ffffffff' } })
     expect(storedSecrets).toEqual([])
+  })
+
+  test('缺省 id：自动生成 bot-<8 位随机小写字母数字>（过 BOT_ID_RE）', async () => {
+    const { handler, bots, storedSecrets } = harness()
+    const res = mockRes()
+    await handler(mockReq('POST', '/project-bot/api/bots', {
+      name: '自动', project: 'D:\\work\\ops',
+      feishu: { appId: 'cli_000000000000000d', appSecret: 'plain-secret' },
+    }), res)
+    expect(res.status).toBe(200)
+    const body = JSON.parse(res.body) as { bot: { id: string } }
+    expect(body.bot.id).toMatch(/^bot-[a-z0-9]{8}$/)
+    expect(BOT_ID_RE.test(body.bot.id)).toBe(true)
+    expect(bots.get(body.bot.id)).toBeDefined()
+    expect(storedSecrets).toEqual([{ key: body.bot.id, secret: 'plain-secret' }])
   })
 
   test('非法 appId → 400；重复 appId → 409；重复 id → 409', async () => {
@@ -187,6 +208,32 @@ test('GET /tools 返回已注册工具名', async () => {
   const res = mockRes()
   await handler(mockReq('GET', '/project-bot/api/tools'), res)
   expect(JSON.parse(res.body)).toEqual({ tools: ['bash', 'fs_read', 'fs_write'] })
+})
+
+describe('GET /providers 与 GET /models', () => {
+  test('/providers 返回 provider 列表', async () => {
+    const { handler } = harness()
+    const res = mockRes()
+    await handler(mockReq('GET', '/project-bot/api/providers'), res)
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ providers: [{ id: 'deepseek', name: 'DeepSeek' }] })
+  })
+
+  test('/models 按 provider 返回模型列表', async () => {
+    const { handler } = harness()
+    const res = mockRes()
+    await handler(mockReq('GET', '/project-bot/api/models?provider=deepseek'), res)
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] })
+  })
+
+  test('listModels 失败 → 200 空数组降级（不报错）', async () => {
+    const { handler } = harness({ listModels: async () => { throw new Error('network down') } })
+    const res = mockRes()
+    await handler(mockReq('GET', '/project-bot/api/models?provider=deepseek'), res)
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ models: [] })
+  })
 })
 
 test('未知路径 404；已知路径错误方法 405', async () => {

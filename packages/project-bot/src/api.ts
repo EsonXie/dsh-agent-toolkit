@@ -1,4 +1,5 @@
 /** 浏览器半 RPC：单前缀路由 /project-bot/api + 内部路径分发。 */
+import { randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { z } from 'zod'
@@ -6,11 +7,19 @@ import type { BotRuntime } from './core/runtime.ts'
 import type { RegisterAppService } from './register-app.ts'
 import { BOT_ID_RE, BotRecordSchema, FEISHU_APP_ID_RE, type BotRecord } from './store.ts'
 
+/** 一个可选的 provider 路由（id = agentOptions.provider 的值）。 */
+export interface ProviderOption { id: string; name: string }
+/** 一个可选的模型条目（id = agentOptions.model 的值）。 */
+export interface ModelOption { id: string; name: string }
+
 export interface ApiDeps {
   bots: KvTable<string, BotRecord>
   runtime: BotRuntime
   registerApp: RegisterAppService
   listTools(): string[]
+  listProviders(): ProviderOption[]
+  /** 失败由调用方（路由）兜底为空数组，不抛错。 */
+  listModels(provider: string): Promise<ModelOption[]>
   /** 密钥入 credentials，返回 CredentialRef 字符串。 */
   storeSecret(key: string, secret: string): Promise<string>
   deleteSecret(ref: string): Promise<void>
@@ -21,7 +30,8 @@ export interface ApiDeps {
 const MAX_BODY_BYTES = 64 * 1024
 
 const CreateBodySchema = z.object({
-  id: z.string().regex(BOT_ID_RE),
+  /** 缺省时后端自动生成（bot-<8 位随机小写字母数字>）。 */
+  id: z.string().regex(BOT_ID_RE).optional(),
   name: z.string().min(1).max(64),
   project: z.string().min(1),
   persona: z.string().max(8000).optional(),
@@ -48,6 +58,18 @@ const UpdateBodySchema = z.object({
 
 function json(res: ServerResponse, code: number, body: unknown): void {
   res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(body))
+}
+
+const ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789'
+
+/** 生成 bot-<8 位随机小写字母数字>（符合 BOT_ID_RE）；与现有 id 冲突时重试。 */
+function generateBotId(occupied: (id: string) => boolean): string {
+  for (;;) {
+    const bytes = randomBytes(8)
+    let id = 'bot-'
+    for (let i = 0; i < 8; i++) id += ID_CHARS[bytes[i] % ID_CHARS.length]
+    if (!occupied(id)) return id
+  }
 }
 
 /** 读 JSON body；超限 413 / 非法 JSON 400（已写响应时返回 undefined）。 */
@@ -93,8 +115,9 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         return
       }
       const input = parsed.data
-      if (deps.bots.get(input.id) !== undefined) {
-        json(res, 409, { error: `bot id "${input.id}" 已存在` })
+      const id = input.id ?? generateBotId((candidate) => deps.bots.get(candidate) !== undefined)
+      if (deps.bots.get(id) !== undefined) {
+        json(res, 409, { error: `bot id "${id}" 已存在` })
         return
       }
       for (const [, existing] of deps.bots.entries()) {
@@ -113,10 +136,10 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           json(res, 400, { error: '缺少 appSecret 或 appSecretRef' })
           return
         }
-        appSecretRef = await deps.storeSecret(input.id, input.feishu.appSecret)
+        appSecretRef = await deps.storeSecret(id, input.feishu.appSecret)
       }
       const record = BotRecordSchema.parse({
-        id: input.id, name: input.name, channel: 'feishu',
+        id, name: input.name, channel: 'feishu',
         feishu: { appId: input.feishu.appId, appSecretRef },
         project: input.project,
         ...(input.persona !== undefined ? { persona: input.persona } : {}),
@@ -209,7 +232,24 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return
     }
 
-    if (['/bots', '/register-app', '/register-app/status', '/tools'].includes(sub)) {
+    if (sub === '/providers' && method === 'GET') {
+      json(res, 200, { providers: deps.listProviders() })
+      return
+    }
+
+    if (sub === '/models' && method === 'GET') {
+      // 模型列举可能走网络（adapter 探测），失败静默降级为空数组。
+      let models: ModelOption[] = []
+      try {
+        models = await deps.listModels(url.searchParams.get('provider') ?? '')
+      } catch {
+        models = []
+      }
+      json(res, 200, { models })
+      return
+    }
+
+    if (['/bots', '/register-app', '/register-app/status', '/tools', '/providers', '/models'].includes(sub)) {
       json(res, 405, { error: 'method not allowed' })
       return
     }

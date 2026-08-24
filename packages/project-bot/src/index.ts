@@ -9,6 +9,7 @@ import type { AgentHandle } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-llm'
 import { createApiHandler } from './api.ts'
 import { feishuChannel } from './channels/feishu/index.ts'
 import type { BotChannel, ChannelTunables } from './core/channel.ts'
@@ -37,7 +38,7 @@ export const Config: z<Config> = z.object({
 
 export const name = 'project-bot'
 
-export const inject = ['agents', 'credentials', 'storageDomain', 'tools']
+export const inject = ['agents', 'credentials', 'storageDomain', 'tools', 'llm']
 
 export function apply(ctx: Context, config: Config): void {
   const log = { warn: (m: string) => ctx.logger.warn(m), info: (m: string) => ctx.logger.info(m) }
@@ -149,6 +150,8 @@ export function apply(ctx: Context, config: Config): void {
             runtime,
             registerApp: registerAppService,
             listTools: () => ctx.tools.schemas().map((s) => s.name),
+            listProviders: () => ctx.llm.listProviders().map(({ id, name }) => ({ id, name })),
+            listModels: (provider) => ctx.llm.listModels(provider).then((models) => models.map(({ id, name }) => ({ id, name }))),
             storeSecret,
             deleteSecret: async (ref) => ctx.credentials.unset(credentialRef(ref)),
             validateProject: (path) => existsSync(path),

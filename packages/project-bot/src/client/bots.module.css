@@ -88,17 +88,21 @@
 .textarea { padding: 4px 8px; resize: vertical; }
 .select:focus,
 .textarea:focus { outline: none; border-color: var(--dsw-alias-brand-primary); }
-.toolsBlock { margin: 0 0 12px; }
-.toolRow {
+.steps {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 0;
+  margin: 0 0 16px;
   font-size: 13px;
   line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-label-tertiary);
 }
-.toolRow input[type='checkbox'] { accent-color: var(--dsw-alias-brand-primary); }
+.step { color: var(--dsw-alias-label-tertiary); }
+.stepActive {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+.stepSeparator { color: var(--dsw-alias-label-tertiary); }
 .tabs {
   display: inline-flex;
   gap: 2px;

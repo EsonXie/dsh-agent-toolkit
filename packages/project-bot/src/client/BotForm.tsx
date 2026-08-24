@@ -1,12 +1,12 @@
-/** 机器人创建/编辑表单：扫码一键创建（registerApp）或手动填写 app 信息。 */
+/** 机器人创建/编辑表单：两步向导——基本信息 → 飞书渠道绑定。 */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { toCanvas } from 'qrcode'
 import {
-  Button, DisclosureRow, IconSkillOutline16, Input,
+  Button, Input,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  createBot, fetchTools, pollRegisterApp, startRegisterApp, updateBot,
+  createBot, fetchModels, fetchProviders, pollRegisterApp, startRegisterApp, updateBot,
   type BotListItem,
 } from './api.ts'
 import type { UseWorkspaces } from './BotsModal.tsx'
@@ -33,16 +33,15 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
   const workspaces = useWorkspaces((s) => s.items) as { path: string; title: string }[]
   const editing = bot !== undefined
 
+  const [step, setStep] = useState<1 | 2>(1)
   const [name, setName] = useState(bot?.name ?? '')
-  const [id, setId] = useState(bot?.id ?? '')
   const [project, setProject] = useState(bot?.project ?? workspaces[0]?.path ?? '')
   const [persona, setPersona] = useState(bot?.persona ?? '')
   const [provider, setProvider] = useState(bot?.agentOptions?.provider ?? '')
   const [model, setModel] = useState(bot?.agentOptions?.model ?? '')
-  const [toolNames, setToolNames] = useState<string[]>([])
-  const [selectedTools, setSelectedTools] = useState<Set<string> | null>(bot?.tools !== undefined ? new Set(bot.tools) : null)
+  const [providers, setProviders] = useState<{ id: string; name: string }[]>([])
+  const [models, setModels] = useState<{ id: string; name: string }[]>([])
   const [tab, setTab] = useState<BindTab>('manual')
-  const [toolsOpen, setToolsOpen] = useState(true)
   const [appId, setAppId] = useState(bot?.feishu.appId ?? '')
   const [appSecret, setAppSecret] = useState('')
   const [scan, setScan] = useState<ScanState>({ status: 'idle' })
@@ -51,11 +50,24 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const pollTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
 
+  // 第一步渲染时各取一次 providers；models 随 provider 变更重取，失败静默降级为手填。
   useEffect(() => {
     let stale = false
-    fetchTools().then((tools) => { if (!stale) setToolNames(tools) }).catch(() => undefined)
+    fetchProviders().then((ps) => { if (!stale) setProviders(ps) }).catch(() => undefined)
     return () => { stale = true }
   }, [])
+
+  useEffect(() => {
+    let stale = false
+    if (provider.trim().length === 0) {
+      setModels([])
+      return () => { stale = true }
+    }
+    fetchModels(provider.trim())
+      .then((ms) => { if (!stale) setModels(ms) })
+      .catch(() => { if (!stale) setModels([]) })
+    return () => { stale = true }
+  }, [provider])
 
   useEffect(() => () => { if (pollTimer.current !== undefined) clearInterval(pollTimer.current) }, [])
 
@@ -64,6 +76,18 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
       void toCanvas(canvasRef.current, scan.url, { width: 200 }).catch(() => undefined)
     }
   }, [scan])
+
+  /** 第一步放行条件：名称与绑定项目均非空。 */
+  const canAdvance = name.trim().length > 0 && project.trim().length > 0
+
+  function nextStep(): void {
+    setError(null)
+    if (!canAdvance) {
+      setError('请填写名称与绑定项目')
+      return
+    }
+    setStep(2)
+  }
 
   async function beginScan(): Promise<void> {
     setError(null)
@@ -89,14 +113,6 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
 
   async function save(): Promise<void> {
     setError(null)
-    if (name.trim().length === 0 || (!editing && id.trim().length === 0)) {
-      setError('请填写名称与机器人 ID')
-      return
-    }
-    if (project.trim().length === 0) {
-      setError('请选择绑定项目')
-      return
-    }
     const feishu = editing
       ? undefined
       : tab === 'scan'
@@ -119,13 +135,12 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
         name: name.trim(),
         project: project.trim(),
         ...(persona.trim() ? { persona } : {}),
-        ...(selectedTools !== null ? { tools: [...selectedTools] } : {}),
         ...(agentOptions !== undefined ? { agentOptions } : {}),
       }
       if (editing) {
         await updateBot(bot.id, payload)
       } else {
-        await createBot({ ...payload, id: id.trim(), feishu: feishu! })
+        await createBot({ ...payload, feishu: feishu! })
       }
       onSaved()
     } catch (e) {
@@ -135,109 +150,111 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
     }
   }
 
+  const showModelSelect = provider.trim().length > 0 && models.length > 0
+
   return (
     <div>
-      <label className={css.field}>
-        名称
-        <Input value={name} onChange={(e) => { setName(e.target.value) }} aria-label="名称" className={css.input} />
-      </label>
-      {!editing && (
-        <label className={css.field}>
-          机器人 ID
-          <Input value={id} onChange={(e) => { setId(e.target.value) }} aria-label="机器人 ID"
-            placeholder="小写字母/数字/连字符" className={css.input} />
-        </label>
-      )}
-      <label className={css.field}>
-        绑定项目
-        <select className={css.select} value={project} onChange={(e) => { setProject(e.target.value) }} aria-label="绑定项目">
-          {workspaces.map((w) => <option key={w.path} value={w.path}>{w.title}（{w.path}）</option>)}
-        </select>
-      </label>
-      <label className={css.field}>
-        提示词
-        <textarea className={css.textarea} value={persona} onChange={(e) => { setPersona(e.target.value) }} aria-label="提示词" rows={4} />
-      </label>
-      <DisclosureRow
-        icon={<IconSkillOutline16 />}
-        title="可用工具（不选 = 全部可用）"
-        open={toolsOpen}
-        expandable={toolNames.length > 0}
-        onToggle={() => { setToolsOpen((v) => !v) }}
-        className={css.toolsBlock}
-      >
-        {toolNames.map((tool) => (
-          <label key={tool} className={css.toolRow}>
-            <input
-              type="checkbox"
-              aria-label={tool}
-              checked={selectedTools?.has(tool) ?? false}
-              onChange={(e) => {
-                const next = new Set(selectedTools ?? [])
-                if (e.target.checked) next.add(tool)
-                else next.delete(tool)
-                setSelectedTools(next)
-              }}
-            />
-            <span>{tool}</span>
-          </label>
-        ))}
-      </DisclosureRow>
-      <label className={css.field}>
-        Provider（可选）
-        <Input value={provider} onChange={(e) => { setProvider(e.target.value) }} aria-label="Provider（可选）" className={css.input} />
-      </label>
-      <label className={css.field}>
-        模型（可选）
-        <Input value={model} onChange={(e) => { setModel(e.target.value) }} aria-label="模型（可选）" className={css.input} />
-      </label>
+      <div className={css.steps} aria-label="创建步骤">
+        <span className={clsx(css.step, step === 1 && css.stepActive)}>1 基本信息</span>
+        <span className={css.stepSeparator}>·</span>
+        <span className={clsx(css.step, step === 2 && css.stepActive)}>2 飞书渠道绑定</span>
+      </div>
 
-      {!editing && (
-        <section className={css.scanSection}>
-          <div role="tablist" className={css.tabs}>
-            <button type="button" role="tab" aria-selected={tab === 'scan'}
-              className={clsx(css.tab, tab === 'scan' && css.tabActive)}
-              onClick={() => { setTab('scan') }}>扫码一键创建</button>
-            <button type="button" role="tab" aria-selected={tab === 'manual'}
-              className={clsx(css.tab, tab === 'manual' && css.tabActive)}
-              onClick={() => { setTab('manual') }}>手动填写</button>
+      {step === 1 && (
+        <>
+          <label className={css.field}>
+            名称
+            <Input value={name} onChange={(e) => { setName(e.target.value) }} aria-label="名称" className={css.input} />
+          </label>
+          <label className={css.field}>
+            绑定项目
+            <select className={css.select} value={project} onChange={(e) => { setProject(e.target.value) }} aria-label="绑定项目">
+              {workspaces.map((w) => <option key={w.path} value={w.path}>{w.title}（{w.path}）</option>)}
+            </select>
+          </label>
+          <label className={css.field}>
+            提示词
+            <textarea className={css.textarea} value={persona} onChange={(e) => { setPersona(e.target.value) }} aria-label="提示词" rows={4} />
+          </label>
+          <label className={css.field}>
+            Provider（可选）
+            <select className={css.select} value={provider} aria-label="Provider（可选）"
+              onChange={(e) => { setProvider(e.target.value); setModel(''); setModels([]) }}>
+              <option value="">默认</option>
+              {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+          <label className={css.field}>
+            模型（可选）
+            {showModelSelect ? (
+              <select className={css.select} value={model} aria-label="模型（可选）" onChange={(e) => { setModel(e.target.value) }}>
+                <option value="">默认</option>
+                {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            ) : (
+              <Input value={model} onChange={(e) => { setModel(e.target.value) }} aria-label="模型（可选）" className={css.input} />
+            )}
+          </label>
+
+          {error !== null && <p role="alert" className={css.error}>{error}</p>}
+          <div className={css.formActions}>
+            <Button variant="outline" onClick={onCancel}>取消</Button>
+            <Button variant="primary" onClick={nextStep}>下一步</Button>
           </div>
-          {tab === 'scan' ? (
-            <div>
-              {scan.status === 'idle' && <Button variant="outline" onClick={() => { void beginScan() }}>生成二维码</Button>}
-              {scan.status === 'waiting' && (
+        </>
+      )}
+
+      {step === 2 && (
+        <>
+          {!editing && (
+            <section className={css.scanSection}>
+              <div role="tablist" className={css.tabs}>
+                <button type="button" role="tab" aria-selected={tab === 'scan'}
+                  className={clsx(css.tab, tab === 'scan' && css.tabActive)}
+                  onClick={() => { setTab('scan') }}>扫码一键创建</button>
+                <button type="button" role="tab" aria-selected={tab === 'manual'}
+                  className={clsx(css.tab, tab === 'manual' && css.tabActive)}
+                  onClick={() => { setTab('manual') }}>手动填写</button>
+              </div>
+              {tab === 'scan' ? (
+                <div>
+                  {scan.status === 'idle' && <Button variant="outline" onClick={() => { void beginScan() }}>生成二维码</Button>}
+                  {scan.status === 'waiting' && (
+                    <>
+                      <canvas ref={canvasRef} />
+                      <p>等待扫码确认…</p>
+                      <p>（或用飞书打开链接：<a href={scan.url}>{scan.url}</a>）</p>
+                    </>
+                  )}
+                  {scan.status === 'done' && <p>已创建应用：{scan.appId}（密钥已安全保存）</p>}
+                  {scan.status === 'error' && (
+                    <p>扫码创建失败：{scan.message} <Button variant="ghost" onClick={() => { setScan({ status: 'idle' }) }}>重试</Button></p>
+                  )}
+                </div>
+              ) : (
                 <>
-                  <canvas ref={canvasRef} />
-                  <p>等待扫码确认…</p>
-                  <p>（或用飞书打开链接：<a href={scan.url}>{scan.url}</a>）</p>
+                  <label className={css.field}>
+                    App ID
+                    <Input value={appId} onChange={(e) => { setAppId(e.target.value) }} aria-label="App ID" placeholder="cli_…" className={css.input} />
+                  </label>
+                  <label className={css.field}>
+                    App Secret
+                    <Input type="password" value={appSecret} onChange={(e) => { setAppSecret(e.target.value) }} aria-label="App Secret" className={css.input} />
+                  </label>
                 </>
               )}
-              {scan.status === 'done' && <p>已创建应用：{scan.appId}（密钥已安全保存）</p>}
-              {scan.status === 'error' && (
-                <p>扫码创建失败：{scan.message} <Button variant="ghost" onClick={() => { setScan({ status: 'idle' }) }}>重试</Button></p>
-              )}
-            </div>
-          ) : (
-            <>
-              <label className={css.field}>
-                App ID
-                <Input value={appId} onChange={(e) => { setAppId(e.target.value) }} aria-label="App ID" placeholder="cli_…" className={css.input} />
-              </label>
-              <label className={css.field}>
-                App Secret
-                <Input type="password" value={appSecret} onChange={(e) => { setAppSecret(e.target.value) }} aria-label="App Secret" className={css.input} />
-              </label>
-            </>
+            </section>
           )}
-        </section>
-      )}
-      {editing && <p>当前应用：{bot.feishu.appId}（如需换绑请删除后重建）</p>}
+          {editing && <p>当前应用：{bot.feishu.appId}（如需换绑请删除后重建）</p>}
 
-      {error !== null && <p role="alert" className={css.error}>{error}</p>}
-      <div className={css.formActions}>
-        <Button variant="outline" onClick={onCancel}>取消</Button>
-        <Button variant="primary" disabled={saving} onClick={() => { void save() }}>保存</Button>
-      </div>
+          {error !== null && <p role="alert" className={css.error}>{error}</p>}
+          <div className={css.formActions}>
+            <Button variant="outline" onClick={() => { setError(null); setStep(1) }}>上一步</Button>
+            <Button variant="outline" onClick={onCancel}>取消</Button>
+            <Button variant="primary" disabled={saving} onClick={() => { void save() }}>保存</Button>
+          </div>
+        </>
+      )}
     </div>
   )
 }
