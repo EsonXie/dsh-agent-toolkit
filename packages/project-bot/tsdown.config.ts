@@ -1,5 +1,6 @@
 /** project-bot 构建配置：Node 半（lib/index.js，ESM）+ 客户端 bundle（lib/client.js，lazy-CJS factory）。 */
 import { readFile } from 'node:fs/promises'
+import { builtinModules, createRequire } from 'node:module'
 import { basename, dirname, resolve as resolvePath } from 'node:path'
 import { transform } from 'lightningcss'
 import type { UserConfig } from 'tsdown'
@@ -36,12 +37,26 @@ const VENDORED_LIBRARY = /^@deepseek-ai\/(cosmokit|schemastery)(\/|$)/
 const CSS_VIRTUAL_PREFIX = '\0dsh-css:'
 const CSS_VIRTUAL_SUFFIX = '.mjs'
 
+// qrcode 的 NODE 入口图（renderer/png.js 等）依赖 fs，浏览器半禁止引入；
+// 别名到其 browser 入口（只含 canvas + svg-tag 渲染器，无 fs）。
+const require = createRequire(import.meta.url)
+const QRCODE_BROWSER_ENTRY = require.resolve('qrcode/lib/browser.js').replace(/\\/g, '/')
+
+// Node 内建模块名（含 node: 前缀变体）：浏览器半命中即构建错误。
+const NODE_BUILTINS = new Set<string>([
+  ...builtinModules,
+  ...builtinModules.map((m) => `node:${m}`),
+])
+
 const clientConfig = {
   name: `${ID}/client`,
   entry: { client: 'src/client/index.ts' },
   outDir: 'lib',
   format: 'cjs',
   platform: 'browser',
+  alias: {
+    qrcode: QRCODE_BROWSER_ENTRY,
+  },
   dts: false,
   sourcemap: true,
   clean: false,
@@ -58,6 +73,9 @@ const clientConfig = {
     // 纯净度门禁：跨插件值导入即构建错误；协作走 cordis 服务/slot。
     name: 'dsh-client-bundle-purity',
     resolveId(source: string) {
+      if (NODE_BUILTINS.has(source)) {
+        throw new Error(`client bundle purity: "${source}" 是 Node 内建模块——浏览器半禁止引入`)
+      }
       if (!source.startsWith('@deepseek-ai/')) return null
       if ((CLIENT_EXTERNALS as readonly string[]).includes(source)) return null
       if (VENDORED_LIBRARY.test(source)) return null
