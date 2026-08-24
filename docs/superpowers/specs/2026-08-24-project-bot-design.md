@@ -1,0 +1,177 @@
+# project-bot（项目机器人）插件设计
+
+> 日期：2026-08-24
+> 状态：设计已获用户批准，待实现
+> 前置文档：`docs/2026-08-18-插件组技术可行性评估.md` 第二节（飞书机器人，源码闭环）
+
+## 需求
+
+1. 一个项目（dsh workspace，cwd）可以绑定多个机器人，每个机器人作为 Agent 的交互入口
+2. 每个机器人绑定的 Agent 可使用提示词分层插件（prompt-stack）配置提示词
+3. 机器人使用飞书卡片消息与用户交互
+4. 提供配置 UI：侧边栏入口 → 机器人列表 → 编辑/创建表单；飞书机器人支持扫码一键创建或手动填写 app 信息
+5. 飞书只是机器人的一个消息渠道，架构上渠道可扩展
+
+## 关键决策（已与用户确认）
+
+| 决策点 | 结论 |
+|---|---|
+| 包名 | `project-bot`（项目机器人），飞书为第一个渠道实现 |
+| 渠道抽象 | 单包 + 内部 `BotChannel` 接口，第二个渠道出现时再拆包（不预防性拆分 seam） |
+| 项目绑定 | 一 bot 一项目（`project` 单值）；一项目多 bot = 多条 bot 记录指向同一 cwd |
+| prompt-stack 集成 | prompt-stack 不动；bot 差异走 agent 创建参数 `persona` 透传，prompt-stack 继续按模型做公共分层，两者正交叠加 |
+| 会话粒度 | （botId + chatId）→ 一个长期 dsh session；群内多人共享同一 agent 上下文；`/new` 开新会话 |
+| 多机器人组织 | 单插件条目管理全部 bot |
+| 飞书接入库 | 官方 `@larksuiteoapi/node-sdk`（≥1.61.1，长连接 + API + `registerApp` 扫码创建） |
+| 卡片交互范围 | v1：流式更新回复卡片（无审批按钮等交互回调） |
+| 卡片映射 | 一个 turn（一轮 ReAct 循环）= 一张流式卡片；内容超长同 turn 内顺序拆多张续卡；新 turn 开新卡 |
+| 配置 UI 入口 | `sidebar.footer.action` 按钮 → 自持 Modal（token-usage 同款）；项目行更多菜单不可扩展（`ui-workspace/.../Rows.tsx:125-128` 硬编码 rename/delete，拒绝式分发），已排除 |
+| 配置存储 | bot 配置存 storage domain 表（UI 可写）；appSecret 进 `ctx.credentials`，表里只存 CredentialRef；cordis.yml Config 只留全局可调参数 |
+
+## 架构
+
+```
+packages/project-bot/
+├─ package.json          ← peerDeps 拷贝 ACP 依赖集；dependencies 加 @larksuiteoapi/node-sdk；
+│                           dsh.client manifest（platform: 'web'）+ ./client → lib/client.js
+├─ src/
+│   ├─ index.ts          ← 命名导出 name / inject / Config(Schemastery) / apply(ctx)
+│   ├─ core/             ← 渠道无关核心
+│   │   ├─ channel.ts    ← BotChannel 接口 + ChannelIO（入站回调 + 出站回复句柄）
+│   │   ├─ registry.ts   ← bot 名册（storage domain 表 + 内存索引 + 校验）
+│   │   ├─ router.ts     ← (botId, chatId) → sessionId 绑定路由；agent 创建/复用
+│   │   ├─ inbound.ts    ← 准入（单会话单 in-flight 槽）→ createUserMessage → followup
+│   │   └─ outbound.ts   ← session/event → per-session Promise 链 → turn 级卡片流
+│   ├─ channels/
+│   │   └─ feishu/       ← BotChannel 实现：WS 长连接、事件解析、卡片渲染（CardKit 流式更新）
+│   ├─ store.ts          ← defineDomain：bots 表 + bindings 表（zod schema）
+│   ├─ api.ts            ← webServer HTTP 路由（浏览器半 RPC）
+│   └─ client/           ← 浏览器半：sidebar.footer.action 入口 + Modal（列表 + 表单）
+└─ tests/                ← vitest 单测
+```
+
+`inject: ['agents', 'credentials', 'storageDomain', 'webServer']`。
+
+## BotChannel 接口（渠道抽象）
+
+```ts
+interface BotChannel {
+  readonly type: string                        // 'feishu'
+  start(bot: ResolvedBotConfig, io: ChannelIO): Promise<Disposer>
+}
+
+interface ChannelIO {
+  onMessage(msg: InboundMessage): Promise<void>
+  // InboundMessage: { chatId, userId, text, reply: ReplyHandle }
+}
+
+interface ReplyHandle {
+  beginTurn(): Promise<void>      // 开新卡片（流式模式）
+  update(markdown: string): Promise<void>   // 更新当前卡片（渠道内部节流/拆卡）
+  finalize(status: 'done' | 'error' | 'cancelled', detail?: string): Promise<void>
+  notice(text: string): Promise<void>       // 普通文本消息（准入拒绝、/status 等）
+}
+```
+
+插件核心与渠道严格分工：**核心**负责名册/校验、绑定路由、agent 生命周期、入站准入、turn 事件归集；**渠道**只负责协议、卡片渲染与频率控制。
+
+## 数据模型
+
+### bots 表（storage domain，zod schema）
+
+```ts
+{
+  id: string                // 机器人标识（唯一）
+  name: string              // 展示名
+  channel: 'feishu'         // 渠道类型（v1 唯一值）
+  feishu: { appId: string, appSecretRef: CredentialRef }
+  project: string           // cwd 绝对路径（一 bot 一项目）
+  persona?: string          // 透传 agent 创建参数
+  tools?: string[]          // 可用工具白名单（缺省 = 不限制）
+  agentOptions?: { provider?: string, model?: string }
+}
+```
+
+### bindings 表
+
+`(botId, chatId) → { sessionId }`，进程重启后凭此 `agents.resume()` 恢复。
+
+### cordis.yml Config（仅全局可调参数）
+
+`cardUpdateThrottleMs`（默认 500）、`registerAppTimeoutMs`（扫码轮询超时，默认 600000）等；**不含 bot 定义**。
+
+## 消息流
+
+### 入站
+
+```
+飞书 WS 事件(im.message.receive_v1) → 渠道解析 → core.onMessage
+  → 文本指令分流（不走模型）：/new 新会话、/stop 取消、/status 绑定与状态
+  → 路由：botId 查名册 → (botId, chatId) 查 bindings
+      无绑定：agents.create({ sessionId: uuid, meta: { cwd: project }, agentOptions, persona? })
+              → 按 bot.tools 白名单做 agent-scoped tools.restrict({ allow })（未命中响亮失败）
+              → 写 bindings
+      有绑定：复用进程内 handle 或 agents.resume(sessionId)
+  → 单会话单 in-flight 槽准入；失败 → reply.notice('上一条还在处理中')（v1 不排队）
+  → createUserMessage({ content, source: { kind: 'project-bot', channel: 'feishu', botId, chatId, userId } })
+  → agent.followup()
+```
+
+`MessageSourceMap` 扩展 `{ kind: 'project-bot', channel, botId, chatId, userId }`（照 7 处先例）。
+
+### 出站（turn 级卡片流）
+
+```
+ctx.on('session/event') 过滤本插件 session（按 header.id 匹配 + session 对象校验防伪造）
+  → per-session Promise 链串行化保序
+  → turn 开始（turn/* 事件定界）→ reply.beginTurn() 建流式卡片
+  → assistant/message → reply.update(markdown)（渠道内节流 ≥cardUpdateThrottleMs，合并更新）
+  → 内容接近卡片上限 → 渠道定格当前卡、自动开续卡（同 turn 内追加）
+  → agent.whenIdle() → reply.finalize('done')
+  异常 → finalize('error', 摘要)；取消 → finalize('cancelled')
+```
+
+卡片内容：Markdown 正文 + 头部状态条（进行中/完成/失败/已取消）；工具调用细节 v1 不进卡片（仅 Web UI 可见）。
+
+## 配置 UI（浏览器半）
+
+- 入口：`ctx.slots.inject('sidebar.footer.action', ...)` 注册「消息机器人」按钮 → 本地 `open` state → 自持 `Modal`（token-usage `UsageEntry`/`UsageModal` 模板）。
+- Modal 内两个视图：
+  - **机器人列表**：按项目分组，每项显示名称 + 渠道标记 + 运行状态（已连接/未连接）；点击进编辑表单；「新建机器人」按钮进创建表单。
+  - **编辑/创建表单**：名称、渠道（v1 仅飞书）、绑定方式（仅创建时：扫码一键创建 / 手动填写 appId+appSecret）、绑定项目（workspace 选择器）、提示词（persona）、可用工具白名单（默认全部）、模型（可选）。
+- 扫码创建流：表单选「扫码一键创建」→ 后端 `lark.registerApp({ createOnly: true, onQRCodeReady })` → 前端把返回 URL 渲染为二维码 + 链接 → 用户飞书扫码确认 → 前端轮询 status 端点 → 拿到 appId/appSecret 自动回填（secret 直入 credentials，不回显）。
+- `registerApp` 默认模板已含所需全部权限：`cardkit:card:read/write`、`im:message:send_as_bot`、`im:message:update`、事件 `im.message.receive_v1`（长连接）、回调 `card.action.trigger`（v1 暂不消费，留作后续卡片交互）。
+
+### HTTP API（webServer 路由，token-usage 模式）
+
+| 路由 | 用途 |
+|---|---|
+| `GET /project-bot/api/bots` | 机器人列表（含运行状态） |
+| `POST /project-bot/api/bots` | 创建 / `PUT` 更新 / `DELETE` 删除 |
+| `POST /project-bot/api/register-app` | 发起扫码创建，返回 `{ url, expireIn }` |
+| `GET /project-bot/api/register-app/status` | 轮询扫码结果（pending / done{credentialRef, appId} / error） |
+| `GET /project-bot/api/workspaces` | 可选项目列表（workspace 选择器数据源） |
+
+bot 增删改 → 核心就地重连该 bot 的 WS 渠道（不重载整个插件）；新建即生效。
+
+## 生命周期与错误处理
+
+- **卸载/HMR**（照 ACP 模式）：`ctx.effect` 内：拒新消息 → `agent.cancel({ kind: 'user' })` 取消在飞会话 → 未定格卡片定格为"已中断" → 等 quiesce → 断开全部 WS → 关闭 storage domain 句柄。
+- **Config 非法**（节流值越界等）：加载时响亮失败；bot 记录非法（project 路径不存在等）：该 bot 标记不可用并告警，不影响其他 bot。
+- **WS 断连**：SDK 自动重连，期间消息由飞书侧重推。
+- **卡片 API 失败**（限流等）：指数退避重试；最终失败降级 `reply.notice` 普通文本兜底。
+- **扫码流程**：`AbortSignal` 取消（关弹窗/超时）；`access_denied`/`expired_token` 映射为表单内错误提示。
+
+## 测试
+
+- **核心层**：fake `BotChannel` + fake `agents` 服务单测——路由/绑定/准入/turn 归集/卸载时序，不碰真实飞书。
+- **飞书渠道层**：卡片渲染决策（turn 事件流 → beginTurn/update/finalize 序列、拆卡时机、节流合并）做成纯函数单测；SDK 交互薄封装不单测，靠开发回路手测。
+- **API 层**：路由 handler 单测（内存 store）。
+- **开发回路验证**：`pnpm dsh web --patch` 挂插件 + 真实飞书测试机器人（扫码创建）收发。
+
+## 非目标（v1 不做）
+
+- 审批按钮、user-questions 等卡片交互回调（`card.action.trigger` 权限已预留）
+- 钉钉/企微等第二渠道（接口已预留）
+- 消息排队（v1 准入失败直接提示）
+- 工具调用过程在卡片内展示
