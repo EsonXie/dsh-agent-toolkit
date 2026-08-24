@@ -53,6 +53,12 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
 
   useEffect(() => () => { if (pollTimer.current !== undefined) clearInterval(pollTimer.current) }, [])
 
+  useEffect(() => {
+    if (scan.status === 'waiting' && canvasRef.current !== null) {
+      void toCanvas(canvasRef.current, scan.url, { width: 200 }).catch(() => undefined)
+    }
+  }, [scan])
+
   async function beginScan(): Promise<void> {
     setError(null)
     try {
@@ -60,12 +66,7 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
       pollTimer.current = setInterval(() => {
         void pollRegisterApp(regId).then((state) => {
           if (state.status === 'pending' && state.url !== undefined) {
-            setScan((prev) => {
-              if (prev.status !== 'waiting') {
-                void toCanvas(canvasRef.current, state.url!, { width: 200 }).catch(() => undefined)
-              }
-              return { status: 'waiting', url: state.url! }
-            })
+            setScan({ status: 'waiting', url: state.url })
           } else if (state.status === 'done') {
             if (pollTimer.current !== undefined) clearInterval(pollTimer.current)
             setScan({ status: 'done', appId: state.appId, credentialRef: state.credentialRef })

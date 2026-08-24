@@ -5,6 +5,8 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 // jsdom 无 canvas：QR 渲染打桩，只断言被调用。
 vi.mock('qrcode', () => ({ default: { toCanvas: vi.fn(async () => undefined) }, toCanvas: vi.fn(async () => undefined) }))
 
+import { toCanvas } from 'qrcode'
+
 import { BotForm } from '../src/client/BotForm.tsx'
 
 const useWorkspaces = <S,>(selector: (s: { items: { path: string; title: string }[] }) => S): S =>
@@ -80,6 +82,13 @@ test('扫码创建：生成二维码 → 轮询 → 完成后自动回填 appId 
   fireEvent.click(screen.getByRole('button', { name: '生成二维码' }))
 
   expect(await screen.findByText('等待扫码确认…')).toBeTruthy()
+  await vi.waitFor(() => {
+    expect(toCanvas).toHaveBeenCalledWith(
+      expect.any(HTMLCanvasElement),
+      'https://open.feishu.cn/page/launcher?user_code=ABCD-EFGH',
+      { width: 200 },
+    )
+  })
   expect(await screen.findByText(/已创建应用/, undefined, { timeout: 3000 })).toBeTruthy()
 
   fireEvent.click(screen.getByRole('button', { name: '保存' }))
