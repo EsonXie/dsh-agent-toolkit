@@ -50,7 +50,7 @@ packages/project-bot/
 └─ tests/                ← vitest 单测
 ```
 
-`inject: ['agents', 'credentials', 'storageDomain', 'webServer']`。
+`inject: ['agents', 'credentials', 'storageDomain', 'tools', 'llm', 'agentDefaultModel']`（实现阶段新增 `llm` 与 `agentDefaultModel`）。
 
 ## BotChannel 接口（渠道抽象）
 
@@ -96,7 +96,8 @@ interface InboundMessage {
   project: string           // cwd 绝对路径（一 bot 一项目）
   persona?: string          // 透传 agent 创建参数
   tools?: string[]          // 可用工具白名单（缺省 = 不限制）
-  agentOptions?: { provider?: string, model?: string }
+  agentOptions?: { provider?: string, model?: string }  // 新建 bot 恒为 { provider, model }（均必填）；
+                                                         // 存量 undefined 记录在运行时回退宿主默认模型（见下入站段）
 }
 ```
 
@@ -117,6 +118,8 @@ interface InboundMessage {
   → 文本指令分流（不走模型）：/new 新会话、/stop 取消、/status 绑定与状态
   → 路由：botId 查名册 → (botId, chatId) 查 bindings
       无绑定：agents.create({ sessionId: uuid, meta: { cwd: project }, agentOptions, persona? })
+              （agentOptions 缺省时回退 `ctx.agentDefaultModel.currentSelection()`——宿主默认模型服务；
+               agent-loop 工厂自身不兜底，无 provider/model 会抛 no provider/model）
               → 按 bot.tools 白名单做 agent-scoped tools.restrict({ allow })（未命中响亮失败）
               → 写 bindings
       有绑定：复用进程内 handle 或 agents.resume(sessionId)
@@ -148,8 +151,10 @@ ctx.on('session/event') 过滤本插件 session（按 header.id 匹配 + session
 - 入口：`ctx.slots.inject('sidebar.footer.action', ...)` 注册「消息机器人」按钮 → 本地 `open` state → 自持 `Modal`（token-usage `UsageEntry`/`UsageModal` 模板）。
 - Modal 内两个视图：
   - **机器人列表**：按项目分组，每项显示名称 + 渠道标记 + 运行状态（已连接/未连接）；点击进编辑表单；「新建机器人」按钮进创建表单。
-  - **编辑/创建表单**：名称、渠道（v1 仅飞书）、绑定方式（仅创建时：扫码一键创建 / 手动填写 appId+appSecret）、绑定项目（workspace 选择器）、提示词（persona）、可用工具白名单（默认全部）、模型（可选）。
-- 扫码创建流：表单选「扫码一键创建」→ 后端 `lark.registerApp({ createOnly: true, onQRCodeReady })` → 前端把返回 URL 渲染为二维码 + 链接 → 用户飞书扫码确认 → 前端轮询 status 端点 → 拿到 appId/appSecret 自动回填（secret 直入 credentials，不回显）。
+  - **编辑/创建表单**：两步向导（创建与编辑同构，Pill 式步骤指示「1 基本信息 · 2 飞书渠道绑定」，当前步高亮）——第一步「基本信息」：名称、绑定项目（workspace 选择器）、提示词（persona）、Provider 下拉、模型级联下拉；第二步「飞书渠道绑定」：扫码 / 手动。无机器人 ID 输入框（后端生成）；无工具白名单 UI（数据模型/API 的 `tools` 字段保留，缺省 = 不限制）。
+  - Provider **必选**：下拉选项全部来自宿主已注册 provider（`GET /project-bot/api/providers` → `ctx.llm.listProviders()`），无「默认」占位项，默认选中第一项；providers 清单为空时 select 置 disabled 并提示「未发现可用 Provider」。模型**必填**：级联自 `GET /project-bot/api/models?provider=<id>`（`ctx.llm.listModels`，失败/空清单回退手填 Input），默认选中第一个模型；两步校验：第一步名称 + 项目非空才放行，保存前 provider/model 非空才提交。
+  - 表单组件统一使用宿主 `ui-primitives`（Modal/Button/Input/Pill/StateDot/DisclosureRow 等）+ CSS Modules。
+- 扫码创建流：创建模式第二步默认选中「扫码一键创建」tab，进入即自动发起 `registerApp` 生成二维码（零点击）；「手动填写」为备选 tab。前端把返回 URL 渲染为二维码 + 链接 → 用户飞书扫码确认 → 前端轮询 status 端点 → 拿到 appId/appSecret 自动回填（secret 直入 credentials，不回显）；扫码失败「重试」直接重新发起。
 - `registerApp` 默认模板已含所需全部权限：`cardkit:card:read/write`、`im:message:send_as_bot`、`im:message:update`、事件 `im.message.receive_v1`（长连接）、回调 `card.action.trigger`（v1 暂不消费，留作后续卡片交互）。
 
 ### HTTP API（webServer 路由，token-usage 模式）
@@ -157,9 +162,11 @@ ctx.on('session/event') 过滤本插件 session（按 header.id 匹配 + session
 | 路由 | 用途 |
 |---|---|
 | `GET /project-bot/api/bots` | 机器人列表（含运行状态） |
-| `POST /project-bot/api/bots` | 创建 / `PUT` 更新 / `DELETE` 删除 |
+| `POST /project-bot/api/bots` | 创建（`id` 可选，缺省后端生成 `bot-<8位[a-z0-9]>`，过 BOT_ID_RE，冲突重试）/ `PUT` 更新 / `DELETE` 删除 |
 | `POST /project-bot/api/register-app` | 发起扫码创建，返回 `{ url, expireIn }` |
 | `GET /project-bot/api/register-app/status` | 轮询扫码结果（pending / done{credentialRef, appId} / error） |
+| `GET /project-bot/api/providers` | 宿主已注册 provider 清单（Provider 下拉数据源） |
+| `GET /project-bot/api/models?provider=<id>` | 该 provider 已配置模型清单（失败降级 200 空数组） |
 | `GET /project-bot/api/workspaces` | 可选项目列表（workspace 选择器数据源） |
 
 bot 增删改 → 核心就地重连该 bot 的 WS 渠道（不重载整个插件）；新建即生效。
@@ -192,7 +199,10 @@ bot 增删改 → 核心就地重连该 bot 的 WS 渠道（不重载整个插�
 | # | 条目 | 偏差 | 核实依据 |
 |---|---|---|---|
 | a | 开发回路挂载 | 用户裁定：挂载走 bundle 层——包自带 `cordis.patch.yml`（含 `insert id: project-bot`），经 `dsh plugin add` 注册进 profile 的 `dsh.profile.bundles` 自动应用；根 `cordis.yml` 只留注释、不再 insert（避免 duplicate loader entry id，token-usage 同款坑） | `packages/project-bot/cordis.patch.yml`；根 `cordis.yml` |
-| b | 扫码 tab 默认 | 表单绑定方式默认「手动填写」（`useState<BindTab>('manual')`），扫码为可选切换，非默认 | `src/client/BotForm.tsx:39` |
+| b | 扫码 tab 默认 | 绑定方式默认扫码一键创建并自动生成二维码，手动填写为备选（用户裁定，实现于 `src/client/BotForm.tsx`） | `src/client/BotForm.tsx:45,131-135` |
 | c | 扫码轮询间隔 | `POLL_INTERVAL_MS = 200`（非 spec 无明确数值；测试裁定 2000→200） | `src/client/BotForm.tsx:25` |
 | d | PUT /bots 清除语义 | `persona` / `tools` / `agentOptions` 传 `null` = 清除字段（更新 schema 为 nullable，修复计划自相矛盾的实现） | `src/api.ts:164-169`、`UpdateBodySchema` |
 | e | Config 声明形态 | 用 Schemastery 函数调用形态 `z.object({...})` 声明并导出（`z<Config>` 断言），非 `.parse`（schemastery 3.18.1 无此 API） | `src/index.ts:31-36` |
+| f | 浏览器半 bundle | `qrcode` 经 tsdown alias 固定到其浏览器入口 `lib/browser.js`（Node 入口图含 `require("fs")` 会被 client-modules 拒绝）；纯净度门禁扩展：Node 内建模块（builtinModules + `node:` 前缀）进浏览器半即构建错误 | `packages/project-bot/tsdown.config.ts` |
+| g | 表单组件库 | 统一用宿主 `@deepseek-ai/dsh-client-ui-primitives`（不引第三方库；Checkbox/Select/Textarea 平台无组件故保留原生） | `src/client/BotForm.tsx`、`BotsModal.tsx` |
+| h | footer 入口布局 | 平台 `.footerActions` 为 flex 行布局，多入口须紧凑并排：project-bot 与 token-usage 的入口按钮同步改为 `flex:none; width:auto` 紧凑样式 | `src/client/bots.module.css`、`packages/token-usage/src/client/UsageEntry.module.css` |
