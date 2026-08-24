@@ -163,8 +163,8 @@ ctx.on('session/event') 过滤本插件 session（按 header.id 匹配 + session
 |---|---|
 | `GET /project-bot/api/bots` | 机器人列表（含运行状态） |
 | `POST /project-bot/api/bots` | 创建（`id` 可选，缺省后端生成 `bot-<8位[a-z0-9]>`，过 BOT_ID_RE，冲突重试）/ `PUT` 更新 / `DELETE` 删除 |
-| `POST /project-bot/api/register-app` | 发起扫码创建，返回 `{ url, expireIn }` |
-| `GET /project-bot/api/register-app/status` | 轮询扫码结果（pending / done{credentialRef, appId} / error） |
+| `POST /project-bot/api/register-app` | 发起扫码创建，返回 `{ id }`（轮询凭据） |
+| `GET /project-bot/api/register-app/status?id=<id>` | 轮询扫码结果（pending{url} / done{credentialRef, appId} / error） |
 | `GET /project-bot/api/providers` | 宿主已注册 provider 清单（Provider 下拉数据源） |
 | `GET /project-bot/api/models?provider=<id>` | 该 provider 已配置模型清单（失败降级 200 空数组） |
 | `GET /project-bot/api/workspaces` | 可选项目列表（workspace 选择器数据源） |
