@@ -1,6 +1,8 @@
 /** 机器人管理模态框：列表视图（按项目分组）+ 创建/编辑表单视图。 */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  Button, Modal, Pill, StateDot, type StateDotState,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import { fetchBots, type BotListItem } from './api.ts'
 import { BotForm } from './BotForm.tsx'
 import css from './bots.module.css'
@@ -31,6 +33,16 @@ const STATUS_LABEL: Record<string, string> = {
   idle: '空闲',
   failed: '连接失败',
   'not-running': '未运行',
+}
+
+/** 连接状态 → StateDot 四色语义：正常绿 / 过渡蓝跑马 / 非故障停止琥珀 / 故障红。 */
+const STATUS_DOT: Record<string, StateDotState> = {
+  connected: 'done',
+  connecting: 'ongoing',
+  reconnecting: 'ongoing',
+  idle: 'warning',
+  failed: 'error',
+  'not-running': 'warning',
 }
 
 export function BotsModal({ open, onClose, useWorkspaces, onEdit, onCreate }: BotsModalProps): ReactNode {
@@ -76,16 +88,19 @@ export function BotsModal({ open, onClose, useWorkspaces, onEdit, onCreate }: Bo
                 <button key={bot.id} type="button" className={css.botRow}
                   onClick={() => { onEdit !== undefined ? onEdit(bot) : setView({ mode: 'edit', bot }) }}>
                   <span className={css.botName}>{bot.name}</span>
-                  <span className={css.channelBadge}>飞书</span>
-                  <span className={css.status}>{STATUS_LABEL[bot.status] ?? bot.status}</span>
+                  <Pill className={css.channelBadge}>飞书</Pill>
+                  <span className={css.status}>
+                    <StateDot state={STATUS_DOT[bot.status] ?? 'warning'} size={8} />
+                    <span>{STATUS_LABEL[bot.status] ?? bot.status}</span>
+                  </span>
                 </button>
               ))}
             </section>
           ))}
-          <button type="button" className={css.createButton}
+          <Button variant="primary" className={css.createButton}
             onClick={() => { onCreate !== undefined ? onCreate() : setView({ mode: 'create' }) }}>
             新建机器人
-          </button>
+          </Button>
         </>
       ) : (
         <BotForm
