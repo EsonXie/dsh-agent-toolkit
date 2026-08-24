@@ -71,6 +71,14 @@ interface ReplyHandle {
   finalize(status: 'done' | 'error' | 'cancelled', detail?: string): Promise<void>
   notice(text: string): Promise<void>       // 普通文本消息（准入拒绝、/status 等）
 }
+
+interface InboundMessage {
+  chatId: string
+  userId: string
+  text: string
+  reply: ReplyHandle
+  ackProcessing(): Promise<Disposer>   // 给该用户消息加「处理中」表情回复；disposer = 删除表情
+}
 ```
 
 插件核心与渠道严格分工：**核心**负责名册/校验、绑定路由、agent 生命周期、入站准入、turn 事件归集；**渠道**只负责协议、卡片渲染与频率控制。
@@ -98,7 +106,7 @@ interface ReplyHandle {
 
 ### cordis.yml Config（仅全局可调参数）
 
-`cardUpdateThrottleMs`（默认 500）、`registerAppTimeoutMs`（扫码轮询超时，默认 600000）等；**不含 bot 定义**。
+`cardUpdateThrottleMs`（默认 500）、`registerAppTimeoutMs`（扫码轮询超时，默认 600000）、`processingReactionEmoji`（「处理中」表情类型，默认值在实现时对照飞书 emoji_type 目录校验）等；**不含 bot 定义**。
 
 ## 消息流
 
@@ -113,8 +121,10 @@ interface ReplyHandle {
               → 写 bindings
       有绑定：复用进程内 handle 或 agents.resume(sessionId)
   → 单会话单 in-flight 槽准入；失败 → reply.notice('上一条还在处理中')（v1 不排队）
+  → 准入成功 → ackProcessing()：给用户该条消息加「处理中」表情回复（飞书 reaction）
   → createUserMessage({ content, source: { kind: 'project-bot', channel: 'feishu', botId, chatId, userId } })
   → agent.followup()
+  → turn 定格（done/error/cancelled 任一）→ 调 ack 的 disposer 删除表情回复
 ```
 
 `MessageSourceMap` 扩展 `{ kind: 'project-bot', channel, botId, chatId, userId }`（照 7 处先例）。
@@ -161,6 +171,7 @@ bot 增删改 → 核心就地重连该 bot 的 WS 渠道（不重载整个插�
 - **WS 断连**：SDK 自动重连，期间消息由飞书侧重推。
 - **卡片 API 失败**（限流等）：指数退避重试；最终失败降级 `reply.notice` 普通文本兜底。
 - **扫码流程**：`AbortSignal` 取消（关弹窗/超时）；`access_denied`/`expired_token` 映射为表单内错误提示。
+- **表情回复失败**（reaction API 限流/消息已撤回等）：仅日志告警，不阻塞消息处理；删除失败同样只告警（表情残留无害）。所需权限 `im:message.reactions:write_only` 已含在扫码创建的默认模板内。
 
 ## 测试
 
