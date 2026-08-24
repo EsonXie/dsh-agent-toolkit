@@ -161,12 +161,12 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         feishu,
         updatedAt: deps.now(),
       }
-      const persona = input.persona === null ? undefined : input.persona ?? existing.persona
-      const tools = input.tools === null ? undefined : input.tools ?? existing.tools
-      const agentOptions = input.agentOptions === null ? undefined : input.agentOptions ?? existing.agentOptions
-      if (persona !== undefined) merged.persona = persona
-      if (tools !== undefined) merged.tools = tools
-      if (agentOptions !== undefined) merged.agentOptions = agentOptions
+      if (input.persona === null) delete merged.persona
+      else if (input.persona !== undefined) merged.persona = input.persona
+      if (input.tools === null) delete merged.tools
+      else if (input.tools !== undefined) merged.tools = input.tools
+      if (input.agentOptions === null) delete merged.agentOptions
+      else if (input.agentOptions !== undefined) merged.agentOptions = input.agentOptions
       const record = BotRecordSchema.parse(merged)
       await deps.bots.put(id, record)
       await deps.runtime.reconcile(id)

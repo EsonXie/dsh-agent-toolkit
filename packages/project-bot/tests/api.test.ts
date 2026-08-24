@@ -136,6 +136,20 @@ describe('PUT /bots', () => {
     await handler(mockReq('PUT', '/project-bot/api/bots?id=ghost', { name: 'x' }), res)
     expect(res.status).toBe(404)
   })
+
+  test('null 清除 persona/tools 字段，其余不变', async () => {
+    const { handler, bots } = harness()
+    const add = mockRes()
+    await handler(mockReq('PUT', '/project-bot/api/bots?id=reviewer', { persona: '新人设', tools: ['bash'] }), add)
+    expect(add.status).toBe(200)
+    const clear = mockRes()
+    await handler(mockReq('PUT', '/project-bot/api/bots?id=reviewer', { persona: null, tools: null }), clear)
+    expect(clear.status).toBe(200)
+    const record = bots.get('reviewer')
+    expect(record).not.toHaveProperty('persona')
+    expect(record).not.toHaveProperty('tools')
+    expect(record).toMatchObject({ id: 'reviewer', name: '评审', feishu: { appSecretRef: 'project_bot_reviewer' } })
+  })
 })
 
 describe('DELETE /bots', () => {
