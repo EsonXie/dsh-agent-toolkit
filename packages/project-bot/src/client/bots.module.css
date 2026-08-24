@@ -1,0 +1,38 @@
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  border-radius: 6px;
+}
+.trigger:hover { background: var(--dsh-hover, rgba(0, 0, 0, 0.06)); }
+.rail { justify-content: center; padding: 6px 0; }
+.triggerLabel { font-size: 13px; }
+.dialog { width: 560px; }
+.group { margin-bottom: 12px; }
+.groupTitle { font-size: 12px; opacity: 0.6; margin: 0 0 4px; word-break: break-all; }
+.botRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--dsh-border, rgba(0, 0, 0, 0.12));
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  margin-bottom: 4px;
+  text-align: left;
+}
+.botName { flex: 1; }
+.channelBadge { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: rgba(30, 100, 220, 0.12); }
+.status { font-size: 12px; opacity: 0.7; }
+.createButton { margin-top: 8px; }
