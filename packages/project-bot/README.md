@@ -25,7 +25,7 @@ dsh plugin --profile web add link:path/to/packages/project-bot
 侧边栏底栏点「消息机器人」打开管理弹窗：
 
 - **列表**：按绑定项目分组，每项显示名称 + 渠道标记（飞书）+ 运行状态（已连接/连接中/重连中/空闲/连接失败/未运行）
-- **新建机器人**：填写名称、机器人 ID（小写字母/数字/连字符）、绑定项目（workspace 选择器）、提示词（persona）、可用工具白名单（默认全部）、Provider/模型（可选，透传 agent 创建参数）
+- **新建机器人**：填写名称、机器人 ID（小写字母/数字/连字符）、绑定项目（workspace 选择器）、提示词（persona）、可用工具白名单（默认全部）、Provider/模型（必选，Provider 下拉全量来自宿主注册 provider，默认选中第一项；模型随 Provider 级联，清单为空可手填，透传 agent 创建参数）
   - 绑定方式二选一（仅创建时）：
     - **扫码一键创建**：生成二维码 → 飞书扫码确认 → 自动回填 appId（secret 直入 credentials，不回显）
     - **手动填写**：填 appId + appSecret

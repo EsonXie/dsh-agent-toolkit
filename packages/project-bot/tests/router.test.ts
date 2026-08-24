@@ -30,7 +30,7 @@ function fakeBindings(): BindingStore & { map: Map<string, string> } {
 
 const reply = {} as ReplyHandle
 
-function setup() {
+function setup(defaultModel = () => ({ provider: 'deepseek', model: 'deepseek-v4' })) {
   const created: { input: Record<string, unknown>; agent: AgentPort }[] = []
   const resumed: { input: Record<string, unknown>; agent: AgentPort }[] = []
   const agents: AgentsPort = {
@@ -39,7 +39,8 @@ function setup() {
   }
   const bindings = fakeBindings()
   const sessions = new Map<string, SessionRuntime>()
-  return { agents, bindings, sessions, router: new Router(agents, bindings, sessions), created, resumed }
+  const defaultModelFn = vi.fn(defaultModel)
+  return { agents, bindings, sessions, router: new Router(agents, bindings, sessions, defaultModelFn), created, resumed, defaultModel: defaultModelFn }
 }
 
 describe('Router.ensure', () => {
@@ -71,6 +72,28 @@ describe('Router.ensure', () => {
     expect(resumed).toHaveLength(1)
     expect(resumed[0].input.sessionId).toBe('sess-old')
     expect(rt.sessionId).toBe('sess-old')
+  })
+
+  test('bot 无 agentOptions：create 回退宿主默认模型（{provider, model}）', async () => {
+    const { router, created, defaultModel } = setup()
+    await router.ensure(fakeBot(), 'oc_1', reply)
+    expect(defaultModel).toHaveBeenCalledOnce()
+    expect(created[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-v4' })
+  })
+
+  test('bot 有 agentOptions：原样透传，不触发默认模型回退', async () => {
+    const { router, created, defaultModel } = setup()
+    await router.ensure(fakeBot({ agentOptions: { provider: 'openai', model: 'gpt-4o' } }), 'oc_1', reply)
+    expect(defaultModel).not.toHaveBeenCalled()
+    expect(created[0].input.agentOptions).toEqual({ provider: 'openai', model: 'gpt-4o' })
+  })
+
+  test('resume 恢复路径：无 agentOptions 同样回退默认模型', async () => {
+    const { router, bindings, resumed, defaultModel } = setup()
+    await bindings.set('reviewer', 'oc_1', 'sess-old')
+    await router.ensure(fakeBot(), 'oc_1', reply)
+    expect(defaultModel).toHaveBeenCalledOnce()
+    expect(resumed[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-v4' })
   })
 })
 

@@ -40,6 +40,7 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
   const [provider, setProvider] = useState(bot?.agentOptions?.provider ?? '')
   const [model, setModel] = useState(bot?.agentOptions?.model ?? '')
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([])
+  const [providersLoaded, setProvidersLoaded] = useState(false)
   const [models, setModels] = useState<{ id: string; name: string }[]>([])
   const [tab, setTab] = useState<BindTab>('scan')
   const [appId, setAppId] = useState(bot?.feishu.appId ?? '')
@@ -50,12 +51,20 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const pollTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
 
-  // 第一步渲染时各取一次 providers；models 随 provider 变更重取，失败静默降级为手填。
+  // 第一步渲染时各取一次 providers；初始选中第一项（编辑模式若 bot 的 provider 在清单内则保留）；models 随 provider 变更重取，失败静默降级为手填。
   useEffect(() => {
     let stale = false
-    fetchProviders().then((ps) => { if (!stale) setProviders(ps) }).catch(() => undefined)
+    fetchProviders().then((ps) => {
+      if (stale) return
+      setProviders(ps)
+      setProvidersLoaded(true)
+      setProvider((current) => {
+        if (editing && current !== '' && ps.some((p) => p.id === current)) return current
+        return ps[0]?.id ?? ''
+      })
+    }).catch(() => { if (!stale) setProvidersLoaded(true) })
     return () => { stale = true }
-  }, [])
+  }, [editing])
 
   useEffect(() => {
     let stale = false
@@ -64,10 +73,17 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
       return () => { stale = true }
     }
     fetchModels(provider.trim())
-      .then((ms) => { if (!stale) setModels(ms) })
+      .then((ms) => {
+        if (stale) return
+        setModels(ms)
+        setModel((current) => {
+          if (editing && current !== '' && ms.some((m) => m.id === current)) return current
+          return ms[0]?.id ?? current
+        })
+      })
       .catch(() => { if (!stale) setModels([]) })
     return () => { stale = true }
-  }, [provider])
+  }, [provider, editing])
 
   useEffect(() => () => { if (pollTimer.current !== undefined) clearInterval(pollTimer.current) }, [])
 
@@ -133,16 +149,24 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
       setError('请填写 App ID 与 App Secret，或先完成扫码创建')
       return
     }
-    const agentOptions = provider.trim().length > 0 || model.trim().length > 0
-      ? { ...(provider.trim() ? { provider: provider.trim() } : {}), ...(model.trim() ? { model: model.trim() } : {}) }
-      : undefined
+    const providerValue = provider.trim()
+    const modelValue = model.trim()
+    if (providerValue.length === 0) {
+      setError('请选择 Provider')
+      return
+    }
+    if (modelValue.length === 0) {
+      setError('请选择或填写模型')
+      return
+    }
+    const agentOptions = { provider: providerValue, model: modelValue }
     setSaving(true)
     try {
       const payload = {
         name: name.trim(),
         project: project.trim(),
         ...(persona.trim() ? { persona } : {}),
-        ...(agentOptions !== undefined ? { agentOptions } : {}),
+        agentOptions,
       }
       if (editing) {
         await updateBot(bot.id, payload)
@@ -184,22 +208,21 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
             <textarea className={css.textarea} value={persona} onChange={(e) => { setPersona(e.target.value) }} aria-label="提示词" rows={4} />
           </label>
           <label className={css.field}>
-            Provider（可选）
-            <select className={css.select} value={provider} aria-label="Provider（可选）"
+            Provider
+            <select className={css.select} value={provider} aria-label="Provider" disabled={providers.length === 0}
               onChange={(e) => { setProvider(e.target.value); setModel(''); setModels([]) }}>
-              <option value="">默认</option>
               {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </label>
+          {providersLoaded && providers.length === 0 && <p role="alert" className={css.error}>未发现可用 Provider</p>}
           <label className={css.field}>
-            模型（可选）
+            模型
             {showModelSelect ? (
-              <select className={css.select} value={model} aria-label="模型（可选）" onChange={(e) => { setModel(e.target.value) }}>
-                <option value="">默认</option>
+              <select className={css.select} value={model} aria-label="模型" onChange={(e) => { setModel(e.target.value) }}>
                 {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
             ) : (
-              <Input value={model} onChange={(e) => { setModel(e.target.value) }} aria-label="模型（可选）" className={css.input} />
+              <Input value={model} onChange={(e) => { setModel(e.target.value) }} aria-label="模型" className={css.input} />
             )}
           </label>
 

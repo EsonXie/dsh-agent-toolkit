@@ -10,6 +10,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { createApiHandler } from './api.ts'
 import { feishuChannel } from './channels/feishu/index.ts'
 import type { BotChannel, ChannelTunables } from './core/channel.ts'
@@ -38,7 +39,7 @@ export const Config: z<Config> = z.object({
 
 export const name = 'project-bot'
 
-export const inject = ['agents', 'credentials', 'storageDomain', 'tools', 'llm']
+export const inject = ['agents', 'credentials', 'storageDomain', 'tools', 'llm', 'agentDefaultModel']
 
 export function apply(ctx: Context, config: Config): void {
   const log = { warn: (m: string) => ctx.logger.warn(m), info: (m: string) => ctx.logger.info(m) }
@@ -119,6 +120,10 @@ export function apply(ctx: Context, config: Config): void {
       bots: botsTable!,
       bindings: bindingsTable!,
       agents: agentsPort,
+      defaultModel: () => {
+        const selection = ctx.agentDefaultModel.currentSelection()
+        return { provider: selection.provider, model: selection.model }
+      },
       channels,
       tunables,
       resolveSecret: async (ref) => (await ctx.credentials.resolve(credentialRef(ref)))?.value,

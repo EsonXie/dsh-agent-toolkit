@@ -29,6 +29,9 @@ export interface AgentsPort {
   }): Promise<AgentPort>
 }
 
+/** 无 agentOptions 的存量 bot 回退宿主默认模型（取 {provider, model}）。 */
+export type DefaultModelAccessor = () => { provider: string; model: string }
+
 export interface BindingStore {
   get(botId: string, chatId: string): string | undefined
   set(botId: string, chatId: string, sessionId: string): Promise<void>

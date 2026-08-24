@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import type { BotRecord } from '../store.ts'
 import type { ReplyHandle } from './channel.ts'
-import { hooksOf, type AgentsPort, type BindingStore, type SessionRuntime } from './ports.ts'
+import { hooksOf, type AgentsPort, type BindingStore, type DefaultModelAccessor, type SessionRuntime } from './ports.ts'
 
 export class Router {
   constructor(
@@ -10,6 +10,8 @@ export class Router {
     private readonly bindings: BindingStore,
     /** sessionId → runtime（进程内活跃会话表，与 bindings 持久表互补）。 */
     private readonly sessions: Map<string, SessionRuntime>,
+    /** 存量 bot 无 agentOptions 时回退宿主默认模型。 */
+    private readonly defaultModel: DefaultModelAccessor,
   ) {}
 
   /** 取（或建/恢复）该 chat 的会话 runtime；reply 刷新为最近一次入站携带的句柄。 */
@@ -21,13 +23,18 @@ export class Router {
         existing.reply = reply
         return existing
       }
-      const agent = await this.agents.resume({ sessionId: bound, agentOptions: bot.agentOptions, hooks: hooksOf(bot) })
+      const agent = await this.agents.resume({ sessionId: bound, agentOptions: this.resolveOptions(bot), hooks: hooksOf(bot) })
       return this.adopt(bot.id, chatId, bound, agent, reply)
     }
     const sessionId = randomUUID()
-    const agent = await this.agents.create({ sessionId, cwd: bot.project, agentOptions: bot.agentOptions, hooks: hooksOf(bot) })
+    const agent = await this.agents.create({ sessionId, cwd: bot.project, agentOptions: this.resolveOptions(bot), hooks: hooksOf(bot) })
     await this.bindings.set(bot.id, chatId, sessionId)
     return this.adopt(bot.id, chatId, sessionId, agent, reply)
+  }
+
+  /** 有 agentOptions 原样透传；无则回退宿主默认模型（存量 bot 不抛 no provider/model）。 */
+  private resolveOptions(bot: BotRecord): { provider?: string; model?: string } {
+    return bot.agentOptions ?? this.defaultModel()
   }
 
   /** /new：取消旧会话、清绑定、开新会话。 */

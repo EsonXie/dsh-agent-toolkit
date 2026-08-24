@@ -4,13 +4,15 @@ import { bindingKey, type Binding, type BotRecord } from '../store.ts'
 import type { BotChannel, ChannelHandle, ChannelStatus, ChannelTunables } from './channel.ts'
 import { Inbound } from './inbound.ts'
 import { Outbound } from './outbound.ts'
-import type { AgentsPort, BindingStore, SessionRuntime } from './ports.ts'
+import type { AgentsPort, BindingStore, DefaultModelAccessor, SessionRuntime } from './ports.ts'
 import { Router } from './router.ts'
 
 export interface RuntimeDeps {
   bots: KvTable<string, BotRecord>
   bindings: KvTable<string, Binding>
   agents: AgentsPort
+  /** 存量 bot 无 agentOptions 时回退宿主默认模型。 */
+  defaultModel: DefaultModelAccessor
   channels: ReadonlyMap<string, BotChannel>
   tunables: ChannelTunables
   resolveSecret(ref: string): Promise<string | undefined>
@@ -29,7 +31,7 @@ export class BotRuntime {
 
   constructor(private readonly deps: RuntimeDeps) {
     const bindingStore = this.bindingStore()
-    this.router = new Router(deps.agents, bindingStore, this.sessions)
+    this.router = new Router(deps.agents, bindingStore, this.sessions, deps.defaultModel)
     this.inbound = new Inbound({ router: this.router, bots: deps.bots, onError: (m) => deps.log.warn(m) })
     this.outbound = new Outbound(this.sessions, (m) => deps.log.warn(m))
   }

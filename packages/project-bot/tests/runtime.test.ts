@@ -40,6 +40,7 @@ function harness(overrides: Partial<RuntimeDeps> = {}) {
     bots: fakeTable<BotRecord>({ reviewer: BOT }) as unknown as RuntimeDeps['bots'],
     bindings: fakeTable() as unknown as RuntimeDeps['bindings'],
     agents: { create: vi.fn(), resume: vi.fn() } as unknown as RuntimeDeps['agents'],
+    defaultModel: () => ({ provider: 'deepseek', model: 'deepseek-v4' }),
     channels: new Map([['feishu', channel]]),
     tunables: { cardUpdateThrottleMs: 10, cardMaxBytes: 1024, processingReactionEmoji: 'OneSecond' },
     resolveSecret: async () => 'secret',

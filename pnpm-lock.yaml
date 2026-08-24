@@ -142,6 +142,9 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: link:../../deepseek-harness/packages/core/agent
         version: link:../../deepseek-harness/packages/core/agent
+      '@deepseek-ai/dsh-agent-default-model':
+        specifier: link:../../deepseek-harness/packages/core/agent-default-model
+        version: link:../../deepseek-harness/packages/core/agent-default-model
       '@deepseek-ai/dsh-client-runtime':
         specifier: link:../../deepseek-harness/packages/client/runtime
         version: link:../../deepseek-harness/packages/client/runtime

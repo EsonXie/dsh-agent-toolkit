@@ -33,21 +33,24 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-test('手动填写创建：名称/项目/persona + Provider/模型下拉 + 密钥；不携带 id 与 tools', async () => {
+test('手动填写创建：名称/项目/persona + Provider/模型默认选中第一项 + 密钥；不携带 id 与 tools', async () => {
   const calls = stubFetch({
-    '/project-bot/api/providers': () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek' }] }),
+    '/project-bot/api/providers': () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek' }, { id: 'openai', name: 'OpenAI' }] }),
     '/project-bot/api/models?provider=deepseek': () => ({ models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }),
     '/project-bot/api/bots': () => ({ bot: {} }),
   })
   const saved = vi.fn()
   render(<BotForm useWorkspaces={useWorkspaces} onSaved={saved} onCancel={() => undefined} />)
 
+  // Provider 与模型均默认选中第一项（无「默认」空值项）
+  await screen.findByRole('option', { name: 'DeepSeek' })
+  expect(screen.getByLabelText('Provider')).toHaveProperty('value', 'deepseek')
+  await screen.findByRole('option', { name: 'DeepSeek Chat' })
+  expect(screen.getByLabelText('模型')).toHaveProperty('value', 'deepseek-chat')
+
   fireEvent.change(screen.getByLabelText('名称'), { target: { value: '运维机器人' } })
   fireEvent.change(screen.getByLabelText('绑定项目'), { target: { value: 'D:\\work\\ops' } })
   fireEvent.change(screen.getByLabelText('提示词'), { target: { value: '你是运维助手' } })
-  await screen.findByRole('option', { name: 'DeepSeek' })
-  fireEvent.change(screen.getByLabelText('Provider（可选）'), { target: { value: 'deepseek' } })
-  fireEvent.change(await screen.findByRole('combobox', { name: '模型（可选）' }), { target: { value: 'deepseek-chat' } })
   fireEvent.click(screen.getByRole('button', { name: '下一步' }))
   // 第二步：默认扫码 tab，切到「手动填写」再填 feishu
   fireEvent.click(screen.getByRole('tab', { name: '手动填写' }))
@@ -70,7 +73,8 @@ test('手动填写创建：名称/项目/persona + Provider/模型下拉 + 密�
 test('扫码创建：进入第二步自动发起扫码 → 轮询 → 完成后自动回填 appId 与 credentialRef', async () => {
   let polls = 0
   const calls = stubFetch({
-    '/project-bot/api/providers': () => ({ providers: [] }),
+    '/project-bot/api/providers': () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek' }] }),
+    '/project-bot/api/models?provider=deepseek': () => ({ models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }),
     '/project-bot/api/register-app/status': () => {
       polls += 1
       return polls < 2
@@ -101,13 +105,18 @@ test('扫码创建：进入第二步自动发起扫码 → 轮询 → 完成后�
   const create = calls.find((c) => c.url === '/project-bot/api/bots' && c.method === 'POST')
   expect(create?.body).toMatchObject({
     feishu: { appId: 'cli_ffffffffffffffff', appSecretRef: 'project_bot_ffffffff' },
+    agentOptions: { provider: 'deepseek', model: 'deepseek-chat' },
   })
   expect(create?.body).not.toHaveProperty('id')
 })
 
-test('必填校验：第一步缺名称不放行；第二步缺 App ID/Secret 不提交', async () => {
+test('必填校验：无 Provider 时下拉禁用并提示；第一步缺名称不放行；第二步缺 App ID/Secret 不提交', async () => {
   const calls = stubFetch({ '/project-bot/api/providers': () => ({ providers: [] }) })
   render(<BotForm useWorkspaces={useWorkspaces} onSaved={() => undefined} onCancel={() => undefined} />)
+
+  // Provider 清单为空：select 禁用 + role=alert 提示
+  await screen.findByText(/未发现可用 Provider/)
+  expect(screen.getByLabelText('Provider')).toHaveProperty('disabled', true)
 
   // 第一步：缺名称点「下一步」不放行，提示错误、不发请求
   fireEvent.click(screen.getByRole('button', { name: '下一步' }))
@@ -119,5 +128,26 @@ test('必填校验：第一步缺名称不放行；第二步缺 App ID/Secret �
   fireEvent.click(screen.getByRole('button', { name: '下一步' }))
   fireEvent.click(screen.getByRole('button', { name: '保存' }))
   expect(await screen.findByText(/请填写 App ID/)).toBeTruthy()
+  expect(calls.filter((c) => c.method === 'POST' && c.url === '/project-bot/api/bots')).toHaveLength(0)
+})
+
+test('模型必填：models 清单为空回退手填，留空保存被拦且不提交', async () => {
+  const calls = stubFetch({
+    '/project-bot/api/providers': () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek' }] }),
+    '/project-bot/api/models?provider=deepseek': () => ({ models: [] }),
+    '/project-bot/api/bots': () => ({ bot: {} }),
+  })
+  render(<BotForm useWorkspaces={useWorkspaces} onSaved={() => undefined} onCancel={() => undefined} />)
+
+  // 等 provider 就绪并自动选中第一项（models 为空 → 模型回退为手填 Input）
+  await screen.findByRole('option', { name: 'DeepSeek' })
+
+  fireEvent.change(screen.getByLabelText('名称'), { target: { value: '模型测试' } })
+  fireEvent.click(screen.getByRole('button', { name: '下一步' }))
+  fireEvent.click(screen.getByRole('tab', { name: '手动填写' }))
+  fireEvent.change(screen.getByLabelText('App ID'), { target: { value: 'cli_000000000000000a' } })
+  fireEvent.change(screen.getByLabelText('App Secret'), { target: { value: 'plain-secret' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+  expect(await screen.findByText(/请选择或填写模型/)).toBeTruthy()
   expect(calls.filter((c) => c.method === 'POST' && c.url === '/project-bot/api/bots')).toHaveLength(0)
 })
