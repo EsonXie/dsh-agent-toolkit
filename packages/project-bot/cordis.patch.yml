@@ -1,0 +1,5 @@
+# project-bot 组合包层：profile 的 dsh.profile.bundles 列出本包时应用。
+# name 用包名，Node 模块解析以 profile 目录为锚点；config 不写（全部走 Config schema 默认值）。
+- insert:
+    - id: project-bot
+      name: '@dsh-agent-toolkit/project-bot'
