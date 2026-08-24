@@ -49,7 +49,8 @@ test('手动填写创建：名称/项目/persona + Provider/模型下拉 + 密�
   fireEvent.change(screen.getByLabelText('Provider（可选）'), { target: { value: 'deepseek' } })
   fireEvent.change(await screen.findByRole('combobox', { name: '模型（可选）' }), { target: { value: 'deepseek-chat' } })
   fireEvent.click(screen.getByRole('button', { name: '下一步' }))
-  // 第二步：手动填写 feishu
+  // 第二步：默认扫码 tab，切到「手动填写」再填 feishu
+  fireEvent.click(screen.getByRole('tab', { name: '手动填写' }))
   fireEvent.change(screen.getByLabelText('App ID'), { target: { value: 'cli_000000000000000a' } })
   fireEvent.change(screen.getByLabelText('App Secret'), { target: { value: 'plain-secret' } })
   fireEvent.click(screen.getByRole('button', { name: '保存' }))
@@ -66,7 +67,7 @@ test('手动填写创建：名称/项目/persona + Provider/模型下拉 + 密�
   expect(create?.body).not.toHaveProperty('tools')
 })
 
-test('扫码创建：下一步后生成二维码 → 轮询 → 完成后自动回填 appId 与 credentialRef', async () => {
+test('扫码创建：进入第二步自动发起扫码 → 轮询 → 完成后自动回填 appId 与 credentialRef', async () => {
   let polls = 0
   const calls = stubFetch({
     '/project-bot/api/providers': () => ({ providers: [] }),
@@ -84,8 +85,6 @@ test('扫码创建：下一步后生成二维码 → 轮询 → 完成后自动�
 
   fireEvent.change(screen.getByLabelText('名称'), { target: { value: '扫码机器人' } })
   fireEvent.click(screen.getByRole('button', { name: '下一步' }))
-  fireEvent.click(screen.getByRole('tab', { name: '扫码一键创建' }))
-  fireEvent.click(screen.getByRole('button', { name: '生成二维码' }))
 
   expect(await screen.findByText('等待扫码确认…')).toBeTruthy()
   await vi.waitFor(() => {
@@ -115,10 +114,10 @@ test('必填校验：第一步缺名称不放行；第二步缺 App ID/Secret �
   expect(await screen.findByText(/请填写/)).toBeTruthy()
   expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0)
 
-  // 补名称后放行进第二步，缺 feishu 点「保存」不提交
+  // 补名称后放行进第二步，缺 feishu 点「保存」不提交（自动扫码在途，仅 register-app 请求，不创建 bot）
   fireEvent.change(screen.getByLabelText('名称'), { target: { value: '测试机器人' } })
   fireEvent.click(screen.getByRole('button', { name: '下一步' }))
   fireEvent.click(screen.getByRole('button', { name: '保存' }))
   expect(await screen.findByText(/请填写 App ID/)).toBeTruthy()
-  expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0)
+  expect(calls.filter((c) => c.method === 'POST' && c.url === '/project-bot/api/bots')).toHaveLength(0)
 })

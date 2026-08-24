@@ -41,7 +41,7 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
   const [model, setModel] = useState(bot?.agentOptions?.model ?? '')
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([])
   const [models, setModels] = useState<{ id: string; name: string }[]>([])
-  const [tab, setTab] = useState<BindTab>('manual')
+  const [tab, setTab] = useState<BindTab>('scan')
   const [appId, setAppId] = useState(bot?.feishu.appId ?? '')
   const [appSecret, setAppSecret] = useState('')
   const [scan, setScan] = useState<ScanState>({ status: 'idle' })
@@ -110,6 +110,13 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
       setScan({ status: 'error', message: e instanceof Error ? e.message : String(e) })
     }
   }
+
+  // 创建模式进入第二步自动发起扫码：仅当尚未发起（idle）时触发，避免重复 beginScan。
+  useEffect(() => {
+    if (step === 2 && !editing && scan.status === 'idle') {
+      void beginScan()
+    }
+  }, [step, scan.status, editing])
 
   async function save(): Promise<void> {
     setError(null)
@@ -228,7 +235,7 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
                   )}
                   {scan.status === 'done' && <p>已创建应用：{scan.appId}（密钥已安全保存）</p>}
                   {scan.status === 'error' && (
-                    <p>扫码创建失败：{scan.message} <Button variant="ghost" onClick={() => { setScan({ status: 'idle' }) }}>重试</Button></p>
+                    <p>扫码创建失败：{scan.message} <Button variant="ghost" onClick={() => { void beginScan() }}>重试</Button></p>
                   )}
                 </div>
               ) : (
