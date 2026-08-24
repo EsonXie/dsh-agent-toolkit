@@ -8,8 +8,8 @@
 
 ## 开发命令
 
-- 单测：`pnpm --filter @dsh-agent-toolkit/token-usage test`；类型检查：`pnpm --filter @dsh-agent-toolkit/token-usage typecheck`；agent-team 同（`pnpm --filter agent-team test` / `typecheck`）；prompt-stack 同（`pnpm --filter @dsh-agent-toolkit/prompt-stack test` / `typecheck`）
-- 构建：`pnpm --filter @dsh-agent-toolkit/token-usage bundle` 同时产出 Node 半（lib/index.js，exports 入口）与浏览器半（lib/client.js）——token-usage 任何 src 改动后、进开发回路前都要跑（开发期 `pnpm --filter @dsh-agent-toolkit/token-usage watch`）；agent-team 含浏览器半，改动后需 `pnpm --filter agent-team bundle`；prompt-stack 是纯 Node 半（`pnpm --filter @dsh-agent-toolkit/prompt-stack bundle` 只产 lib/index.js + d.ts），src 改动后同样要跑
+- 单测：`pnpm --filter @dsh-agent-toolkit/token-usage test`；类型检查：`pnpm --filter @dsh-agent-toolkit/token-usage typecheck`；agent-team 同（`pnpm --filter agent-team test` / `typecheck`）；prompt-stack 同（`pnpm --filter @dsh-agent-toolkit/prompt-stack test` / `typecheck`）；project-bot 同（`pnpm --filter @dsh-agent-toolkit/project-bot test` / `typecheck`）
+- 构建：`pnpm --filter @dsh-agent-toolkit/token-usage bundle` 同时产出 Node 半（lib/index.js，exports 入口）与浏览器半（lib/client.js）——token-usage 任何 src 改动后、进开发回路前都要跑（开发期 `pnpm --filter @dsh-agent-toolkit/token-usage watch`）；agent-team 含浏览器半，改动后需 `pnpm --filter agent-team bundle`；prompt-stack 是纯 Node 半（`pnpm --filter @dsh-agent-toolkit/prompt-stack bundle` 只产 lib/index.js + d.ts），src 改动后同样要跑；project-bot 同 token-usage 双半产出（`pnpm --filter @dsh-agent-toolkit/project-bot bundle`），src 改动后同样要跑
 - 发布：`powershell -File scripts/publish-token-usage.ps1` / `scripts/publish-prompt-stack.ps1`（六道门禁后 pnpm publish 到官方 registry；不可在 CI/自动化里跑，含人工确认）
 - 开发回路：`cd deepseek-harness && pnpm dsh web --patch D:\work\github\dsh\dsh-agent-toolkit\cordis.yml`（deepseek-harness 首次需 `pnpm install && pnpm run build`）
 
@@ -43,6 +43,8 @@ dsh-agent-toolkit/
 │   ├─ feishu-bot/       ← 飞书机器人
 │   ├─ agent-team/       ← Agent 团队（扁平角色名册：内置 explorer/general +
 │                           $DSH_HOME/agent-team/roles/*.yml 覆盖；presets/team/ 随包发行）
+│   ├─ project-bot/      ← 项目机器人（飞书渠道；包名 @dsh-agent-toolkit/project-bot，双半 bundle：
+│                           cordis.patch.yml 自带 insert，经 dsh plugin add 进 bundles 层挂载）
 └─ prompt-stack/     ← 提示词分层 + 按模型区分提示词（包名 @dsh-agent-toolkit/prompt-stack；
                         纯 Node 半：tsdown 只产 lib/index.js + d.ts，发版流程同 token-usage）
 ├─ cordis.yml            ← 开发用 patch（插件 name 写绝对路径）

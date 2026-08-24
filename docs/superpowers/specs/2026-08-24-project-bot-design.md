@@ -186,3 +186,13 @@ bot 增删改 → 核心就地重连该 bot 的 WS 渠道（不重载整个插�
 - 钉钉/企微等第二渠道（接口已预留）
 - 消息排队（v1 准入失败直接提示）
 - 工具调用过程在卡片内展示
+
+## 实施偏差记录（2026-08-24，实现收尾时核对实际代码）
+
+| # | 条目 | 偏差 | 核实依据 |
+|---|---|---|---|
+| a | 开发回路挂载 | 用户裁定：挂载走 bundle 层——包自带 `cordis.patch.yml`（含 `insert id: project-bot`），经 `dsh plugin add` 注册进 profile 的 `dsh.profile.bundles` 自动应用；根 `cordis.yml` 只留注释、不再 insert（避免 duplicate loader entry id，token-usage 同款坑） | `packages/project-bot/cordis.patch.yml`；根 `cordis.yml` |
+| b | 扫码 tab 默认 | 表单绑定方式默认「手动填写」（`useState<BindTab>('manual')`），扫码为可选切换，非默认 | `src/client/BotForm.tsx:39` |
+| c | 扫码轮询间隔 | `POLL_INTERVAL_MS = 200`（非 spec 无明确数值；测试裁定 2000→200） | `src/client/BotForm.tsx:25` |
+| d | PUT /bots 清除语义 | `persona` / `tools` / `agentOptions` 传 `null` = 清除字段（更新 schema 为 nullable，修复计划自相矛盾的实现） | `src/api.ts:164-169`、`UpdateBodySchema` |
+| e | Config 声明形态 | 用 Schemastery 函数调用形态 `z.object({...})` 声明并导出（`z<Config>` 断言），非 `.parse`（schemastery 3.18.1 无此 API） | `src/index.ts:31-36` |
