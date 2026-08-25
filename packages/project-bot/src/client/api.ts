@@ -9,6 +9,7 @@ export interface BotInput {
   name: string
   project: string
   persona?: string
+  preset?: string | null
   tools?: string[]
   agentOptions?: { provider?: string; model?: string }
   feishu?: { appId: string; appSecret?: string; appSecretRef?: string }
@@ -32,9 +33,13 @@ export const fetchBots = () => request<{ bots: BotListItem[] }>('/project-bot/ap
 
 export interface ProviderOption { id: string; name: string }
 export interface ModelOption { id: string; name: string }
+export interface PresetOption { id: string; name: string; description?: string; broken?: string }
 
 export const fetchProviders = () =>
   request<{ providers: ProviderOption[] }>('/project-bot/api/providers').then((r) => r.providers)
+
+export const fetchPresets = () =>
+  request<{ presets: PresetOption[] }>('/project-bot/api/presets').then((r) => r.presets)
 
 export const fetchModels = (provider: string) =>
   request<{ models: ModelOption[] }>(`/project-bot/api/models?provider=${encodeURIComponent(provider)}`).then((r) => r.models)

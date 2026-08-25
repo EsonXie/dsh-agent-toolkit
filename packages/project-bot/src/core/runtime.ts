@@ -4,7 +4,7 @@ import { bindingKey, type Binding, type BotRecord } from '../store.ts'
 import type { BotChannel, ChannelHandle, ChannelStatus, ChannelTunables } from './channel.ts'
 import { Inbound } from './inbound.ts'
 import { Outbound } from './outbound.ts'
-import type { AgentsPort, BindingStore, DefaultModelAccessor, SessionRuntime } from './ports.ts'
+import type { AgentsPort, BindingStore, DefaultModelAccessor, SessionRuntime, WorkspacePort } from './ports.ts'
 import { Router } from './router.ts'
 
 export interface RuntimeDeps {
@@ -13,8 +13,12 @@ export interface RuntimeDeps {
   agents: AgentsPort
   /** 存量 bot 无 agentOptions 时回退宿主默认模型。 */
   defaultModel: DefaultModelAccessor
+  /** 会话归入 bot 项目 workspace。 */
+  workspace: WorkspacePort
   channels: ReadonlyMap<string, BotChannel>
   tunables: ChannelTunables
+  /** 回传渠道的错误摘要最大字符数。 */
+  maxErrorDetailChars: number
   resolveSecret(ref: string): Promise<string | undefined>
   validateProject(path: string): boolean
   log: { warn(message: string): void; info(message: string): void }
@@ -31,9 +35,9 @@ export class BotRuntime {
 
   constructor(private readonly deps: RuntimeDeps) {
     const bindingStore = this.bindingStore()
-    this.router = new Router(deps.agents, bindingStore, this.sessions, deps.defaultModel)
+    this.router = new Router(deps.agents, bindingStore, this.sessions, deps.defaultModel, deps.workspace, (m) => deps.log.warn(m))
     this.inbound = new Inbound({ router: this.router, bots: deps.bots, onError: (m) => deps.log.warn(m) })
-    this.outbound = new Outbound(this.sessions, (m) => deps.log.warn(m))
+    this.outbound = new Outbound(this.sessions, (m) => deps.log.warn(m), deps.maxErrorDetailChars)
   }
 
   async startAll(): Promise<void> {

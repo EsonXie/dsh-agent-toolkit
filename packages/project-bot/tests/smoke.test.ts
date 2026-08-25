@@ -13,5 +13,6 @@ describe('project-bot 插件导出', () => {
     expect(config.cardMaxBytes).toBe(28_000)
     expect(config.registerAppTimeoutMs).toBe(600_000)
     expect(config.processingReactionEmoji).toBe('OneSecond')
+    expect(config.errorDetailMaxChars).toBe(500)
   })
 })

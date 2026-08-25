@@ -4,7 +4,7 @@
 
 本仓库是 DeepSeek Harness（dsh）插件的开发工作区。包含 `docs/refer/` 下的 dsh 官方文档本地镜像（2026-08 抓取自 <https://deepseek-harness.github.io/deepseek-harness/> 中文站，共 87 篇），以及 `packages/token-usage` 插件（第一个实现：Node 半 + 浏览器半 bundle，20/20 测试通过）。
 
-已是 git 仓库（2026-08-18 初始化）；`deepseek-harness/` 被 .gitignore 排除（它自带独立 .git）。
+已是 git 仓库（2026-08-18 初始化）；`deepseek-harness/` 被 .gitignore 排除。**注意：该 checkout 的 `.git` 已丢失（无法 git 恢复/核对版本），且 2026-08-25 发现 `apps/cli/config/agent-presets/`（内置 code/cordis/minimal/standard preset）缺失，已从上游 master 手动恢复 10 个文件——本地源码版本（08-18）与 master 的 preset 内容可能有轻微错位。**
 
 ## 开发命令
 

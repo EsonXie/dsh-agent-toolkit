@@ -13,8 +13,9 @@ import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { createApiHandler } from './api.ts'
 import { feishuChannel } from './channels/feishu/index.ts'
+import { resolvePresetId, setupAgentScope, type PresetsLike } from './agent-setup.ts'
 import type { BotChannel, ChannelTunables } from './core/channel.ts'
-import type { AgentHooks, AgentPort, AgentsPort } from './core/ports.ts'
+import type { AgentHooks, AgentPort, AgentsPort, WorkspacePort } from './core/ports.ts'
 import { BotRuntime } from './core/runtime.ts'
 import { RegisterAppService } from './register-app.ts'
 import { projectBotDomain, type Binding, type BotRecord } from './store.ts'
@@ -28,6 +29,8 @@ export interface Config {
   registerAppTimeoutMs: number
   /** 「处理中」表情回复的 emoji_type。 */
   processingReactionEmoji: string
+  /** 回传飞书的错误摘要最大字符数。 */
+  errorDetailMaxChars: number
 }
 
 export const Config: z<Config> = z.object({
@@ -35,7 +38,13 @@ export const Config: z<Config> = z.object({
   cardMaxBytes: z.number().default(28_000),
   registerAppTimeoutMs: z.number().default(600_000),
   processingReactionEmoji: z.string().default('OneSecond'),
+  errorDetailMaxChars: z.number().default(500),
 })
+
+/** PresetsLike 的完整形状（list 供 API 层表单下拉用）。 */
+interface AgentPresetsLike extends PresetsLike {
+  list(): Promise<{ id: string; name?: string; description?: string; broken?: string }[]>
+}
 
 export const name = 'project-bot'
 
@@ -56,31 +65,28 @@ export function apply(ctx: Context, config: Config): void {
     return ref
   }
 
-  /** 创作期注入：persona 提示段（order 0 惯例）+ 工具白名单（未命中已注册名时 restrict 响亮失败）。 */
-  const applyHooks = (agentCtx: Context, hooks: AgentHooks): void => {
-    if (hooks.persona !== undefined) {
-      agentCtx.systemPrompt.section({ name: 'project-bot:persona', order: 0, text: hooks.persona })
-    }
-    if (hooks.tools !== undefined) {
-      agentCtx.tools.restrict({ allow: hooks.tools })
-    }
-  }
+  /** 创作期注入已迁至 agent-setup.ts（preset 挂载 + persona/tools），此处不再保留 applyHooks。 */
+
+  // agentPresets 是可选服务：缺失时跳过 preset 挂载（仅 persona/tools 注入）。
+  const presets = ctx.get('agentPresets', false) as AgentPresetsLike | undefined
 
   const agentsPort: AgentsPort = {
     async create(input) {
+      const agentPreset = await resolvePresetId(presets, input.hooks.preset, log.warn)
       const handle: AgentHandle = await ctx.agents.create({
         sessionId: SessionId(input.sessionId),
-        meta: { cwd: input.cwd },
+        meta: { cwd: input.cwd, ...(agentPreset !== undefined ? { agentPreset } : {}) },
         ...(input.agentOptions !== undefined ? { agentOptions: input.agentOptions } : {}),
-        setup: (agentCtx) => applyHooks(agentCtx, input.hooks),
+        setup: (agentCtx) => setupAgentScope(agentCtx, presets, agentPreset, input.hooks),
       })
       return adaptAgent(handle)
     },
     async resume(input) {
+      const agentPreset = await resolvePresetId(presets, input.hooks.preset, log.warn)
       const handle: AgentHandle = await ctx.agents.resume({
         resumeSessionId: SessionId(input.sessionId),
         ...(input.agentOptions !== undefined ? { agentOptions: input.agentOptions } : {}),
-        setup: (agentCtx) => applyHooks(agentCtx, input.hooks),
+        setup: (agentCtx) => setupAgentScope(agentCtx, presets, agentPreset, input.hooks),
       })
       return adaptAgent(handle)
     },
@@ -94,6 +100,20 @@ export function apply(ctx: Context, config: Config): void {
       cancel: () => agent.cancel({ kind: 'user' }),
       whenIdle: () => agent.whenIdle(),
     }
+  }
+
+  // workspaceRegistry 是可选服务（ctx.get 非严格模式）：缺失时 attach 抛错，
+  // 由 Router 捕获降级为"未分组 + 告警"，不阻塞消息处理。
+  interface WorkspaceRegistryLike {
+    create(path: string): Promise<{ attachSession(sessionId: SessionId): Promise<void> }>
+  }
+  const workspaceRegistry = ctx.get('workspaceRegistry', false) as WorkspaceRegistryLike | undefined
+  const workspacePort: WorkspacePort = {
+    async attach(cwd, sessionId) {
+      if (workspaceRegistry === undefined) throw new Error('workspaceRegistry 服务不可用')
+      const workspace = await workspaceRegistry.create(cwd)
+      await workspace.attachSession(SessionId(sessionId))
+    },
   }
 
   // 存储域：open 失败挂 rejection handler 防次生崩溃，调用方仍感知失败（token-usage 同款）。
@@ -124,8 +144,10 @@ export function apply(ctx: Context, config: Config): void {
         const selection = ctx.agentDefaultModel.currentSelection()
         return { provider: selection.provider, model: selection.model }
       },
+      workspace: workspacePort,
       channels,
       tunables,
+      maxErrorDetailChars: config.errorDetailMaxChars,
       resolveSecret: async (ref) => (await ctx.credentials.resolve(credentialRef(ref)))?.value,
       validateProject: (path) => existsSync(path),
       log,
@@ -139,6 +161,14 @@ export function apply(ctx: Context, config: Config): void {
   // 出站：持久会话事件 → runtime.outbound（session id 匹配自有 runtime，其余忽略）。
   ctx.on('session/event', (session, event) => {
     runtime?.outbound.handleSessionEvent(String(session.header.id), event as { type: string; data: Record<string, unknown> })
+  })
+
+  // turn 外错误（无 turn/end 兜底）：agent/error → notice 错误摘要 + 释放 inflight（outbound 内去重）。
+  ctx.on('agent/error', ({ agent, error }) => {
+    const text = error instanceof Error
+      ? error.message
+      : String((error as { message?: unknown } | null)?.message ?? error)
+    runtime?.outbound.handleAgentError(String(agent.session.id), text)
   })
 
   // webServer 是可选能力（headless 无此服务）：ctx.inject 子 fiber + effect 接线 disposer（token-usage 同款）。
@@ -155,6 +185,14 @@ export function apply(ctx: Context, config: Config): void {
             runtime,
             registerApp: registerAppService,
             listTools: () => ctx.tools.schemas().map((s) => s.name),
+            listPresets: async () => {
+              if (presets === undefined) return []
+              return (await presets.list()).map(({ id, name, description, broken }) => ({
+                id, name: name ?? id,
+                ...(description !== undefined ? { description } : {}),
+                ...(broken !== undefined ? { broken } : {}),
+              }))
+            },
             listProviders: () => ctx.llm.listProviders().map(({ id, name }) => ({ id, name })),
             listModels: (provider) => ctx.llm.listModels(provider).then((models) => models.map(({ id, name }) => ({ id, name }))),
             storeSecret,

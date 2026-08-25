@@ -9,10 +9,12 @@ export interface AgentPort {
   whenIdle(): Promise<void>
 }
 
-/** 创作期注入（真实适配器里映射为 setup(agentCtx) 内的 section/restrict）。 */
+/** 创作期注入（真实适配器里映射为 setup(agentCtx) 内的 mount/section/restrict）。 */
 export interface AgentHooks {
   persona?: string
   tools?: readonly string[]
+  /** 挂载的 agent preset id（缺省 = 名册默认）。 */
+  preset?: string
 }
 
 export interface AgentsPort {
@@ -31,6 +33,11 @@ export interface AgentsPort {
 
 /** 无 agentOptions 的存量 bot 回退宿主默认模型（取 {provider, model}）。 */
 export type DefaultModelAccessor = () => { provider: string; model: string }
+
+/** 会话归属：把 session 挂到 cwd 对应 workspace（宿主侧幂等；无则自动建）。 */
+export interface WorkspacePort {
+  attach(cwd: string, sessionId: string): Promise<void>
+}
 
 export interface BindingStore {
   get(botId: string, chatId: string): string | undefined
@@ -61,5 +68,6 @@ export function hooksOf(bot: BotRecord): AgentHooks {
   return {
     ...(bot.persona !== undefined ? { persona: bot.persona } : {}),
     ...(bot.tools !== undefined ? { tools: bot.tools } : {}),
+    ...(bot.preset !== undefined ? { preset: bot.preset } : {}),
   }
 }

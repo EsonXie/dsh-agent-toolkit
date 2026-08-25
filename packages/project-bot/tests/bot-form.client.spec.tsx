@@ -151,3 +151,84 @@ test('模型必填：models 清单为空回退手填，留空保存被拦且不�
   expect(await screen.findByText(/请选择或填写模型/)).toBeTruthy()
   expect(calls.filter((c) => c.method === 'POST' && c.url === '/project-bot/api/bots')).toHaveLength(0)
 })
+
+test('preset 下拉：无「默认」项，缺省选中标准模式；创建携带选中 preset', async () => {
+  const calls = stubFetch({
+    '/project-bot/api/providers': () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek' }] }),
+    '/project-bot/api/models?provider=deepseek': () => ({ models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }),
+    '/project-bot/api/presets': () => ({ presets: [{ id: 'standard', name: '标准模式' }, { id: 'team', name: 'Team' }] }),
+    '/project-bot/api/bots': () => ({ bot: {} }),
+  })
+  const saved = vi.fn()
+  render(<BotForm useWorkspaces={useWorkspaces} onSaved={saved} onCancel={() => undefined} />)
+
+  // 无「默认」空值项；缺省选中 standard（标准模式）
+  await screen.findByRole('option', { name: 'Team' })
+  expect(screen.queryByRole('option', { name: '默认' })).toBeNull()
+  expect(screen.getByLabelText('Preset')).toHaveProperty('value', 'standard')
+
+  fireEvent.change(screen.getByLabelText('Preset'), { target: { value: 'team' } })
+  fireEvent.change(screen.getByLabelText('名称'), { target: { value: '预设机器人' } })
+  fireEvent.click(screen.getByRole('button', { name: '下一步' }))
+  fireEvent.click(screen.getByRole('tab', { name: '手动填写' }))
+  fireEvent.change(screen.getByLabelText('App ID'), { target: { value: 'cli_000000000000000a' } })
+  fireEvent.change(screen.getByLabelText('App Secret'), { target: { value: 'plain-secret' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+  await vi.waitFor(() => { expect(saved).toHaveBeenCalledOnce() })
+  const create = calls.find((c) => c.url === '/project-bot/api/bots' && c.method === 'POST')
+  expect(create?.body).toMatchObject({ preset: 'team' })
+})
+
+test('编辑模式：preset 回显；切换后 PUT 携带新值', async () => {
+  const calls = stubFetch({
+    '/project-bot/api/providers': () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek' }] }),
+    '/project-bot/api/models?provider=deepseek': () => ({ models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }),
+    '/project-bot/api/presets': () => ({ presets: [{ id: 'standard', name: '标准模式' }, { id: 'team', name: 'Team' }] }),
+    '/project-bot/api/bots': () => ({ bot: {} }),
+  })
+  const saved = vi.fn()
+  const bot = {
+    id: 'reviewer', name: '评审', channel: 'feishu' as const,
+    feishu: { appId: 'cli_a1b2c3d4e5f60718', appSecretRef: 'project_bot_reviewer' },
+    project: 'D:\\work\\demo', preset: 'team',
+    agentOptions: { provider: 'deepseek', model: 'deepseek-chat' },
+    createdAt: 1, updatedAt: 1, status: 'connected',
+  }
+  render(<BotForm bot={bot} useWorkspaces={useWorkspaces} onSaved={saved} onCancel={() => undefined} />)
+
+  await screen.findByRole('option', { name: 'Team' })
+  expect(screen.getByLabelText('Preset')).toHaveProperty('value', 'team')
+
+  fireEvent.change(screen.getByLabelText('Preset'), { target: { value: 'standard' } })
+  fireEvent.click(screen.getByRole('button', { name: '下一步' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+  await vi.waitFor(() => { expect(saved).toHaveBeenCalledOnce() })
+  const update = calls.find((c) => c.url.startsWith('/project-bot/api/bots?id=') && c.method === 'PUT')
+  expect(update?.body).toMatchObject({ preset: 'standard' })
+})
+
+test('preset 名册不可用：下拉禁用，提交不携带 preset（服务端回退名册默认）', async () => {
+  const calls = stubFetch({
+    '/project-bot/api/providers': () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek' }] }),
+    '/project-bot/api/models?provider=deepseek': () => ({ models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }),
+    '/project-bot/api/bots': () => ({ bot: {} }),
+  })
+  const saved = vi.fn()
+  render(<BotForm useWorkspaces={useWorkspaces} onSaved={saved} onCancel={() => undefined} />)
+
+  await screen.findByRole('option', { name: 'DeepSeek' })
+  expect(screen.getByLabelText('Preset')).toHaveProperty('disabled', true)
+
+  fireEvent.change(screen.getByLabelText('名称'), { target: { value: '无名册机器人' } })
+  fireEvent.click(screen.getByRole('button', { name: '下一步' }))
+  fireEvent.click(screen.getByRole('tab', { name: '手动填写' }))
+  fireEvent.change(screen.getByLabelText('App ID'), { target: { value: 'cli_000000000000000a' } })
+  fireEvent.change(screen.getByLabelText('App Secret'), { target: { value: 'plain-secret' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+  await vi.waitFor(() => { expect(saved).toHaveBeenCalledOnce() })
+  const create = calls.find((c) => c.url === '/project-bot/api/bots' && c.method === 'POST')
+  expect(create?.body).not.toHaveProperty('preset')
+})

@@ -16,16 +16,37 @@ export function textOf(content: readonly unknown[]): string {
     .join('')
 }
 
-export function mapTurnEnd(reason: string): TurnStatus {
-  if (reason === 'completed') return 'done'
-  if (reason === 'aborted' || reason === 'interrupted') return 'cancelled'
+/** turn/end 的 reason 形状（宿主 TurnEndReason 的窄化视图：核心只读 kind 与 error.message）。 */
+export interface TurnEndReasonLike {
+  kind: string
+  error?: { message?: unknown }
+}
+
+export function mapTurnEnd(reason: TurnEndReasonLike): TurnStatus {
+  if (reason.kind === 'completed') return 'done'
+  if (reason.kind === 'aborted' || reason.kind === 'interrupted') return 'cancelled'
   return 'error'
+}
+
+/** 截断错误摘要到 max 字符，超出追加省略号。 */
+export function truncateDetail(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text
+}
+
+/** 从 turn/end reason 提取错误摘要；非 error 或无 message 返回 undefined。 */
+function errorDetailOf(reason: TurnEndReasonLike, max: number): string | undefined {
+  if (reason.kind !== 'error') return undefined
+  const message = reason.error?.message
+  const text = typeof message === 'string' && message.length > 0 ? message : '未知错误'
+  return truncateDetail(text, max)
 }
 
 export class Outbound {
   constructor(
     private readonly sessions: Map<string, SessionRuntime>,
     private readonly onError: (message: string) => void,
+    /** 回传渠道的错误摘要最大字符数。 */
+    private readonly maxErrorDetailChars = 500,
   ) {}
 
   handleSessionEvent(sessionId: string, event: SessionEventLike): void {
@@ -58,15 +79,34 @@ export class Outbound {
     if (event.type === 'turn/end') {
       const turn = rt.turn
       if (turn === undefined || turn.n !== (event.data.turn as number)) return
-      const status = mapTurnEnd(event.data.reason as string)
+      const reason = event.data.reason as TurnEndReasonLike
+      const status = mapTurnEnd(reason)
+      const detail = errorDetailOf(reason, this.maxErrorDetailChars)
       this.enqueue(rt, async () => {
-        if (turn.began && rt.reply !== undefined) await rt.reply.finalize(status)
+        // 有卡定格；无卡但有错误 detail 时也要调 finalize（渠道降级为文本送出）。
+        if ((turn.began || detail !== undefined) && rt.reply !== undefined) await rt.reply.finalize(status, detail)
         const ack = rt.inflight?.ack
         rt.inflight = undefined
         if (ack !== undefined) await ack()
       })
       rt.turn = undefined
     }
+  }
+
+  /**
+   * turn 外错误（agent/error：resume/驱动边界失败等没有 turn/end 的场景）：
+   * notice 错误摘要并释放 inflight 槽 + 删除表情；turn 进行中的错误由 turn/end 报告，跳过防双发。
+   */
+  handleAgentError(sessionId: string, errorText: string): void {
+    const rt = this.sessions.get(sessionId)
+    if (rt === undefined || rt.turn !== undefined) return
+    const detail = truncateDetail(errorText, this.maxErrorDetailChars)
+    this.enqueue(rt, async () => {
+      if (rt.reply !== undefined) await rt.reply.notice(`出错了：${detail}`)
+      const ack = rt.inflight?.ack
+      rt.inflight = undefined
+      if (ack !== undefined) await ack()
+    })
   }
 
   private enqueue(rt: SessionRuntime, task: () => Promise<void>): void {

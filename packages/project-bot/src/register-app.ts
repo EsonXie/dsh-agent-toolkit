@@ -8,7 +8,6 @@ export interface QRInfo {
 
 /** lark.registerApp 的结构化签名（便于 fake 注入）。 */
 export type RegisterAppFn = (options: {
-  createOnly: true
   signal: AbortSignal
   onQRCodeReady(info: QRInfo): void
 }) => Promise<{ client_id: string; client_secret: string }>
@@ -46,7 +45,6 @@ export class RegisterAppService {
     }
     this.sessions.set(id, entry)
     void this.deps.registerApp({
-      createOnly: true,
       signal: controller.signal,
       onQRCodeReady: (info) => {
         entry.state = { status: 'pending', url: info.url, expireIn: info.expireIn }

@@ -32,7 +32,7 @@ function harness() {
     deleteBot: async () => undefined,
   }
   const sessions = new Map<string, SessionRuntime>()
-  const router = new Router(agents, bindings, sessions, () => ({ provider: 'deepseek', model: 'deepseek-v4' }))
+  const router = new Router(agents, bindings, sessions, () => ({ provider: 'deepseek', model: 'deepseek-v4' }), { attach: async () => undefined }, () => undefined)
   const inbound = new Inbound({
     router,
     bots: { get: (id) => (id === BOT.id ? BOT : undefined) },

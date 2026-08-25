@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest'
 import type { ReplyHandle } from '../src/core/channel.ts'
-import type { AgentPort, AgentsPort, BindingStore, SessionRuntime } from '../src/core/ports.ts'
+import type { AgentPort, AgentsPort, BindingStore, SessionRuntime, WorkspacePort } from '../src/core/ports.ts'
 import { Router } from '../src/core/router.ts'
 import type { BotRecord } from '../src/store.ts'
 
@@ -40,7 +40,9 @@ function setup(defaultModel = () => ({ provider: 'deepseek', model: 'deepseek-v4
   const bindings = fakeBindings()
   const sessions = new Map<string, SessionRuntime>()
   const defaultModelFn = vi.fn(defaultModel)
-  return { agents, bindings, sessions, router: new Router(agents, bindings, sessions, defaultModelFn), created, resumed, defaultModel: defaultModelFn }
+  const workspace: WorkspacePort & { attach: ReturnType<typeof vi.fn> } = { attach: vi.fn(async () => undefined) }
+  const onWarn = vi.fn()
+  return { agents, bindings, sessions, workspace, onWarn, router: new Router(agents, bindings, sessions, defaultModelFn, workspace, onWarn), created, resumed, defaultModel: defaultModelFn }
 }
 
 describe('Router.ensure', () => {
@@ -52,6 +54,12 @@ describe('Router.ensure', () => {
     expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'] })
     expect(bindings.get('reviewer', 'oc_1')).toBe(rt.sessionId)
     expect(rt.reply).toBe(reply)
+  })
+
+  test('bot 配了 preset：随 hooks 透传到创作期注入', async () => {
+    const { router, created } = setup()
+    await router.ensure(fakeBot({ preset: 'team' }), 'oc_1', reply)
+    expect(created[0].input.hooks).toMatchObject({ preset: 'team' })
   })
 
   test('有绑定且进程内有 runtime：直接复用并刷新 reply', async () => {
@@ -94,6 +102,34 @@ describe('Router.ensure', () => {
     await router.ensure(fakeBot(), 'oc_1', reply)
     expect(defaultModel).toHaveBeenCalledOnce()
     expect(resumed[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-v4' })
+  })
+
+  test('create 后 attach 到 bot 项目 workspace（原生 UI 同款挂载）', async () => {
+    const { router, workspace } = setup()
+    const rt = await router.ensure(fakeBot(), 'oc_1', reply)
+    expect(workspace.attach).toHaveBeenCalledWith('D:\\work\\demo', rt.sessionId)
+  })
+
+  test('resume 后同样 attach（bootstrap 之后才建的会话兜底归组）', async () => {
+    const { router, bindings, workspace } = setup()
+    await bindings.set('reviewer', 'oc_1', 'sess-old')
+    await router.ensure(fakeBot(), 'oc_1', reply)
+    expect(workspace.attach).toHaveBeenCalledWith('D:\\work\\demo', 'sess-old')
+  })
+
+  test('进程内复用路径不重复 attach', async () => {
+    const { router, workspace } = setup()
+    await router.ensure(fakeBot(), 'oc_1', reply)
+    await router.ensure(fakeBot(), 'oc_1', reply)
+    expect(workspace.attach).toHaveBeenCalledOnce()
+  })
+
+  test('attach 失败仅告警，不阻塞 ensure', async () => {
+    const { router, workspace, onWarn } = setup()
+    workspace.attach.mockRejectedValueOnce(new Error('no workspaceRegistry'))
+    const rt = await router.ensure(fakeBot(), 'oc_1', reply)
+    expect(rt.sessionId).toBeTruthy()
+    expect(onWarn).toHaveBeenCalledOnce()
   })
 })
 

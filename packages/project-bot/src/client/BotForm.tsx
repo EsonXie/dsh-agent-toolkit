@@ -6,7 +6,7 @@ import {
   Button, Input,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  createBot, fetchModels, fetchProviders, pollRegisterApp, startRegisterApp, updateBot,
+  createBot, fetchModels, fetchPresets, fetchProviders, pollRegisterApp, startRegisterApp, updateBot,
   type BotListItem,
 } from './api.ts'
 import type { UseWorkspaces } from './BotsModal.tsx'
@@ -37,6 +37,8 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
   const [name, setName] = useState(bot?.name ?? '')
   const [project, setProject] = useState(bot?.project ?? workspaces[0]?.path ?? '')
   const [persona, setPersona] = useState(bot?.persona ?? '')
+  const [preset, setPreset] = useState(bot?.preset ?? '')
+  const [presets, setPresets] = useState<{ id: string; name: string; broken?: string }[]>([])
   const [provider, setProvider] = useState(bot?.agentOptions?.provider ?? '')
   const [model, setModel] = useState(bot?.agentOptions?.model ?? '')
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([])
@@ -52,6 +54,22 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
   const pollTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
 
   // 第一步渲染时各取一次 providers；初始选中第一项（编辑模式若 bot 的 provider 在清单内则保留）；models 随 provider 变更重取，失败静默降级为手填。
+  // presets：缺省选中「标准模式」（standard 不在册则取第一个可用项）；名册不可用时下拉禁用、提交不携带 preset（服务端回退名册默认）。
+  useEffect(() => {
+    let stale = false
+    fetchPresets().then((ps) => {
+      if (stale) return
+      setPresets(ps)
+      setPreset((current) => {
+        if (current !== '') return current
+        return ps.find((p) => p.id === 'standard' && p.broken === undefined)?.id
+          ?? ps.find((p) => p.broken === undefined)?.id
+          ?? ''
+      })
+    }).catch(() => undefined)
+    return () => { stale = true }
+  }, [])
+
   useEffect(() => {
     let stale = false
     fetchProviders().then((ps) => {
@@ -166,6 +184,8 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
         name: name.trim(),
         project: project.trim(),
         ...(persona.trim() ? { persona } : {}),
+        // 名册不可用（preset 为空）时不携带字段，服务端回退名册默认。
+        ...(preset !== '' ? { preset } : {}),
         agentOptions,
       }
       if (editing) {
@@ -206,6 +226,13 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
           <label className={css.field}>
             提示词
             <textarea className={css.textarea} value={persona} onChange={(e) => { setPersona(e.target.value) }} aria-label="提示词" rows={4} />
+          </label>
+          <label className={css.field}>
+            Preset
+            <select className={css.select} value={preset} aria-label="Preset" disabled={presets.length === 0}
+              onChange={(e) => { setPreset(e.target.value) }}>
+              {presets.map((p) => <option key={p.id} value={p.id} disabled={p.broken !== undefined}>{p.name}</option>)}
+            </select>
           </label>
           <label className={css.field}>
             Provider
@@ -253,7 +280,7 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
                     <>
                       <canvas ref={canvasRef} />
                       <p>等待扫码确认…</p>
-                      <p>（或用飞书打开链接：<a href={scan.url}>{scan.url}</a>）</p>
+                      <p>（或用飞书打开链接：<a href={scan.url} target="_blank" rel="noopener noreferrer">{scan.url}</a>）</p>
                     </>
                   )}
                   {scan.status === 'done' && <p>已创建应用：{scan.appId}（密钥已安全保存）</p>}

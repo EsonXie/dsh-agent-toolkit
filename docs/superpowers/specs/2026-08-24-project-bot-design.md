@@ -50,7 +50,7 @@ packages/project-bot/
 └─ tests/                ← vitest 单测
 ```
 
-`inject: ['agents', 'credentials', 'storageDomain', 'tools', 'llm', 'agentDefaultModel']`（实现阶段新增 `llm` 与 `agentDefaultModel`）。
+`inject: ['agents', 'credentials', 'storageDomain', 'tools', 'llm', 'agentDefaultModel']`（实现阶段新增 `llm` 与 `agentDefaultModel`）；`workspaceRegistry` 为可选服务，走 `ctx.get('workspaceRegistry')`，缺失时 attach 降级 no-op + 日志。
 
 ## BotChannel 接口（渠道抽象）
 
@@ -95,6 +95,7 @@ interface InboundMessage {
   feishu: { appId: string, appSecretRef: CredentialRef }
   project: string           // cwd 绝对路径（一 bot 一项目）
   persona?: string          // 透传 agent 创建参数
+  preset?: string           // 挂载的 agent preset id（缺省 = 名册默认 preset）
   tools?: string[]          // 可用工具白名单（缺省 = 不限制）
   agentOptions?: { provider?: string, model?: string }  // 新建 bot 恒为 { provider, model }（均必填）；
                                                          // 存量 undefined 记录在运行时回退宿主默认模型（见下入站段）
@@ -107,7 +108,7 @@ interface InboundMessage {
 
 ### cordis.yml Config（仅全局可调参数）
 
-`cardUpdateThrottleMs`（默认 500）、`registerAppTimeoutMs`（扫码轮询超时，默认 600000）、`processingReactionEmoji`（「处理中」表情类型，默认值在实现时对照飞书 emoji_type 目录校验）等；**不含 bot 定义**。
+`cardUpdateThrottleMs`（默认 500）、`registerAppTimeoutMs`（扫码轮询超时，默认 600000）、`processingReactionEmoji`（「处理中」表情类型，默认值在实现时对照飞书 emoji_type 目录校验）、`errorDetailMaxChars`（回传飞书的错误摘要最大字符数，默认 500）等；**不含 bot 定义**。
 
 ## 消息流
 
@@ -117,12 +118,19 @@ interface InboundMessage {
 飞书 WS 事件(im.message.receive_v1) → 渠道解析 → core.onMessage
   → 文本指令分流（不走模型）：/new 新会话、/stop 取消、/status 绑定与状态
   → 路由：botId 查名册 → (botId, chatId) 查 bindings
-      无绑定：agents.create({ sessionId: uuid, meta: { cwd: project }, agentOptions, persona? })
+      无绑定：agents.create({ sessionId: uuid, meta: { cwd: project, agentPreset: 解析出的preset },
+              agentOptions, persona? })（setup 内先 `agentPresets.mount(agentCtx, presetId)` 挂 preset——
+              基础编码工具层与原生 UI 会话同源，再叠 persona/tools 白名单；restrict 必须在 mount 之后；
+              presetId 取 bot.preset ?? 名册默认，解析失败 warn 降级裸跑不阻塞创建）
               （agentOptions 缺省时回退 `ctx.agentDefaultModel.currentSelection()`——宿主默认模型服务；
                agent-loop 工厂自身不兜底，无 provider/model 会抛 no provider/model）
               → 按 bot.tools 白名单做 agent-scoped tools.restrict({ allow })（未命中响亮失败）
               → 写 bindings
       有绑定：复用进程内 handle 或 agents.resume(sessionId)
+      create/resume 成功后均 → workspace.attach(project, sessionId)（WorkspacePort 窄端口；
+              组装层 `ctx.get('workspaceRegistry')` → `registry.create(project)` 按 canonical path
+              幂等复用/自动建 → `attachSession(sessionId)` 幂等；与原生 UI session.create 同款挂载路径，
+              会话归入 bot 项目对应 workspace 而非未分组；attach 失败仅日志告警，不阻塞消息处理）
   → 单会话单 in-flight 槽准入；失败 → reply.notice('上一条还在处理中')（v1 不排队）
   → 准入成功 → ackProcessing()：给用户该条消息加「处理中」表情回复（飞书 reaction）
   → createUserMessage({ content, source: { kind: 'project-bot', channel: 'feishu', botId, chatId, userId } })
@@ -140,9 +148,17 @@ ctx.on('session/event') 过滤本插件 session（按 header.id 匹配 + session
   → turn 开始（turn/* 事件定界）→ reply.beginTurn() 建流式卡片
   → assistant/message → reply.update(markdown)（渠道内节流 ≥cardUpdateThrottleMs，合并更新）
   → 内容接近卡片上限 → 渠道定格当前卡、自动开续卡（同 turn 内追加）
-  → agent.whenIdle() → reply.finalize('done')
-  异常 → finalize('error', 摘要)；取消 → finalize('cancelled')
+  → turn/end（reason 为 TurnEndReason 对象，按 reason.kind 定状态：completed→done、
+    aborted/interrupted→cancelled、error/max-tokens/blocked→error）→ reply.finalize(status)
+    → 调 ack 的 disposer 删除表情回复
+  → kind==='error' 时从 reason.error（结构化 LlmFailure）提取错误消息（截断至
+    errorDetailMaxChars）作 detail 传 finalize('error', detail)，无卡时渠道降级为文本
 ```
+
+另订阅 `ctx.on('agent/error')` 覆盖 **turn 外错误**（resume/驱动边界失败等没有 turn/end 的场景）：
+按 `payload.agent.session.id` 匹配本插件 session；仅当该 session 无进行中 turn 时
+`reply.notice(错误摘要)`（turn 内错误由 turn/end 报告，避免双发），同时释放 inflight 槽
+并执行 ack（否则 in-flight 槽永久占用、表情残留，后续消息全被拒）。
 
 卡片内容：Markdown 正文 + 头部状态条（进行中/完成/失败/已取消）；工具调用细节 v1 不进卡片（仅 Web UI 可见）。
 
@@ -167,6 +183,7 @@ ctx.on('session/event') 过滤本插件 session（按 header.id 匹配 + session
 | `GET /project-bot/api/register-app/status?id=<id>` | 轮询扫码结果（pending{url} / done{credentialRef, appId} / error） |
 | `GET /project-bot/api/providers` | 宿主已注册 provider 清单（Provider 下拉数据源） |
 | `GET /project-bot/api/models?provider=<id>` | 该 provider 已配置模型清单（失败降级 200 空数组） |
+| `GET /project-bot/api/presets` | 名册 preset 清单（Preset 下拉数据源；失败降级 200 空数组） |
 | `GET /project-bot/api/workspaces` | 可选项目列表（workspace 选择器数据源） |
 
 bot 增删改 → 核心就地重连该 bot 的 WS 渠道（不重载整个插件）；新建即生效。
@@ -192,6 +209,7 @@ bot 增删改 → 核心就地重连该 bot 的 WS 渠道（不重载整个插�
 - 审批按钮、user-questions 等卡片交互回调（`card.action.trigger` 权限已预留）
 - 钉钉/企微等第二渠道（接口已预留）
 - 消息排队（v1 准入失败直接提示）
+- 会话创建后切换 preset（preset 只在 create/resume 创作期挂载；改 bot.preset 需 /new 开新会话生效）
 - 工具调用过程在卡片内展示
 
 ## 实施偏差记录（2026-08-24，实现收尾时核对实际代码）
@@ -206,3 +224,7 @@ bot 增删改 → 核心就地重连该 bot 的 WS 渠道（不重载整个插�
 | f | 浏览器半 bundle | `qrcode` 经 tsdown alias 固定到其浏览器入口 `lib/browser.js`（Node 入口图含 `require("fs")` 会被 client-modules 拒绝）；纯净度门禁扩展：Node 内建模块（builtinModules + `node:` 前缀）进浏览器半即构建错误 | `packages/project-bot/tsdown.config.ts` |
 | g | 表单组件库 | 统一用宿主 `@deepseek-ai/dsh-client-ui-primitives`（不引第三方库；Checkbox/Select/Textarea 平台无组件故保留原生） | `src/client/BotForm.tsx`、`BotsModal.tsx` |
 | h | footer 入口布局 | 平台 `.footerActions` 为 flex 行布局，多入口须紧凑并排：project-bot 与 token-usage 的入口按钮同步改为 `flex:none; width:auto` 紧凑样式 | `src/client/bots.module.css`、`packages/token-usage/src/client/UsageEntry.module.css` |
+| i | 会话分组归属（2026-08-25 修订） | 原生 UI 会话创建时显式 `workspace.attachSession`，project-bot 此前只靠 cwd 自动归类，bootstrap 之后建的会话落未分组；修订：create/resume 后经 `WorkspacePort` attach 到 bot 项目 workspace（无则自动建） | `src/core/router.ts`、`src/index.ts` |
+| j | turn/end reason 形状（2026-08-25 修复） | 宿主 `TurnEndReason` 是对象 `{ kind, ... }`，原 `mapTurnEnd` 按字符串比较导致生产环境每个 turn 都定格成 error；改按 `reason.kind` 映射 | `src/core/outbound.ts` |
+| k | 报错回传飞书（2026-08-25 新增） | `kind:'error'` 的 turn/end 提取 `LlmFailure` 消息作 detail 传 `finalize`（渠道层已支持无卡降级文本）；另订阅 `agent/error` 覆盖 turn 外错误：无进行中 turn 时 `reply.notice` + 释放 inflight/ack | `src/core/outbound.ts`、`src/index.ts` |
+| l | 会话工具层与 per-bot preset（2026-08-25 修复） | 原实现 `agents.create` 直传 setup，未经过宿主 preset 组合（`composeAgent` → `presets.mount`），bot 会话只有全局工具、缺基础编码工具层；修复：setup 内先 `agentPresets.mount(agentCtx, presetId)`（bot.preset ?? 名册默认），create 时 `meta.agentPreset` 记录；**解析失败 warn 降级裸跑**（根因实录：开发回路 checkout 缺 `apps/cli/config/agent-presets/` 内置 preset，名册只剩用户根，`resolve('standard')` 抛 UnknownPresetError 曾致 /new 全线失败）；preset 存在但组合损坏仍在 mount 阶段响亮失败；表单第一步新增 Preset 下拉（无「默认」项，缺省选中标准模式 standard，broken 项禁用；名册不可用时下拉禁用、提交不携带字段回退服务端名册默认） | `src/agent-setup.ts`（新）、`src/index.ts`、`src/api.ts`、`src/client/BotForm.tsx` |
