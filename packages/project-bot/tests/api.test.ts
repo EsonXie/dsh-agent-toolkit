@@ -1,7 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
 import { describe, expect, test, vi } from 'vitest'
+import type { Client } from '@larksuiteoapi/node-sdk'
 import { createApiHandler, type ApiDeps } from '../src/api.ts'
+import { createFeishuApi } from '../src/channels/feishu/api.ts'
 import { RegisterAppService } from '../src/register-app.ts'
 import { BOT_ID_RE, type BotRecord } from '../src/store.ts'
 
@@ -284,4 +286,67 @@ test('未知路径 404；已知路径错误方法 405', async () => {
   const res405 = mockRes()
   await handler(mockReq('PATCH', '/project-bot/api/bots'), res405)
   expect(res405.status).toBe(405)
+})
+
+describe('createFeishuApi.setCardStreaming', () => {
+  function fakeClient() {
+    const calls: { settings: string; sequence: number }[] = []
+    const client = {
+      cardkit: { v1: { card: { settings: async ({ data }: { data: { settings: string; sequence: number } }) => { calls.push({ settings: data.settings, sequence: data.sequence }); return {} } } } },
+    } as unknown as Client
+    return { client, calls }
+  }
+
+  test('带 summary：settings JSON 含 streaming_mode 与 summary.content', async () => {
+    const { client, calls } = fakeClient()
+    await createFeishuApi(client).setCardStreaming('card_1', false, 3, '✅ 输出完成')
+    expect(calls).toHaveLength(1)
+    expect(calls[0].sequence).toBe(3)
+    const parsed = JSON.parse(calls[0].settings) as { config: { streaming_mode: boolean; summary: { content: string } } }
+    expect(parsed.config.streaming_mode).toBe(false)
+    expect(parsed.config.summary.content).toBe('✅ 输出完成')
+  })
+
+  test('不带 summary：settings JSON 不含 summary 键', async () => {
+    const { client, calls } = fakeClient()
+    await createFeishuApi(client).setCardStreaming('card_1', true, 1)
+    const parsed = JSON.parse(calls[0].settings) as { config: Record<string, unknown> }
+    expect(parsed.config.streaming_mode).toBe(true)
+    expect(parsed.config).not.toHaveProperty('summary')
+  })
+})
+
+describe('createFeishuApi.insertElement', () => {
+  function fakeClient() {
+    const calls: { cardId: string; data: Record<string, unknown> }[] = []
+    const client = {
+      cardkit: {
+        v1: {
+          cardElement: {
+            create: async ({ path, data }: { path: { card_id: string }; data: Record<string, unknown> }) => {
+              calls.push({ cardId: path.card_id, data })
+              return {}
+            },
+          },
+        },
+      },
+    } as unknown as Client
+    return { client, calls }
+  }
+
+  test('insert_before 锚定状态行；elements 为数组字符串；sequence 透传', async () => {
+    const { client, calls } = fakeClient()
+    const elementJson = JSON.stringify({ tag: 'markdown', content: '你好', element_id: 'seg_1' })
+    await createFeishuApi(client).insertElement('card_1', elementJson, 'status', 3)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toEqual({
+      cardId: 'card_1',
+      data: {
+        type: 'insert_before',
+        target_element_id: 'status',
+        elements: `[${elementJson}]`,
+        sequence: 3,
+      },
+    })
+  })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest'
 import type { ReplyHandle, TurnStatus } from '../src/core/channel.ts'
-import { Outbound, mapTurnEnd, textOf } from '../src/core/outbound.ts'
+import { Outbound, mapTurnEnd, processOf, textOf } from '../src/core/outbound.ts'
 import type { SessionRuntime } from '../src/core/ports.ts'
 
 function fakeRuntime(reply: ReplyHandle): SessionRuntime {
@@ -15,7 +15,9 @@ function recorder() {
   const calls: { op: string; arg?: string }[] = []
   const reply: ReplyHandle = {
     beginTurn: async () => { calls.push({ op: 'beginTurn' }) },
-    update: async (md) => { calls.push({ op: 'update', arg: md }) },
+    update: async (segs) => {
+      calls.push({ op: 'update', arg: (segs as readonly { kind: string; content: string }[]).map((s) => `${s.kind}:${s.content}`).join(' | ') })
+    },
     finalize: async (status: TurnStatus, detail?: string) => { calls.push({ op: 'finalize', arg: `${status}${detail ? `:${detail}` : ''}` }) },
     notice: async (text) => { calls.push({ op: 'notice', arg: text }) },
   }
@@ -40,6 +42,24 @@ describe('textOf / mapTurnEnd', () => {
   })
 })
 
+describe('processOf', () => {
+  test('reasoning 取全文；tool_call 渲染摘要行；其余块忽略', () => {
+    expect(processOf([
+      { type: 'reasoning', text: '想一下' },
+      { type: 'text', text: '正文' },
+      { type: 'tool_call', id: 'c1', name: 'shell', arguments: { command: 'ls' } },
+    ])).toBe('想一下\n\n🔧 shell — {"command":"ls"}\n\n')
+    expect(processOf([{ type: 'text', text: 'a' }])).toBe('')
+  })
+
+  test('参数摘要截断到 120 字符', () => {
+    const out = processOf([{ type: 'tool_call', id: 'c', name: 'n', arguments: { x: 'y'.repeat(200) } }])
+    const line = out.split('\n')[0]
+    expect(line.length).toBeLessThan(200)
+    expect(line.endsWith('…')).toBe(true)
+  })
+})
+
 describe('Outbound.handleSessionEvent', () => {
   test('turn 全流程：beginTurn 一次 → 全量 update → turn/end 定格并释放 inflight + 删除表情', async () => {
     const { calls, reply } = recorder()
@@ -49,20 +69,54 @@ describe('Outbound.handleSessionEvent', () => {
     const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
 
     outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
-    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: '你好' }] } } })
-    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: '，世界' }] } } })
+    outbound.handleSessionEvent('s1', { type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '你好' } } })
+    outbound.handleSessionEvent('s1', { type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '，世界' } } })
     outbound.handleSessionEvent('s1', { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
     await drain(rt)
 
     expect(calls).toEqual([
       { op: 'beginTurn' },
-      { op: 'update', arg: '你好' },
-      { op: 'update', arg: '你好，世界' },
+      { op: 'update', arg: 'text:你好' },
+      { op: 'update', arg: 'text:你好，世界' },
       { op: 'finalize', arg: 'done' },
     ])
     expect(ack).toHaveBeenCalledOnce()
     expect(rt.inflight).toBeUndefined()
     expect(rt.turn).toBeUndefined()
+  })
+
+  test('reasoning 与 tool_call 进过程缓冲：block-end 补段分隔后并入同一 process 段', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleSessionEvent('s1', { type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: '先读文件' } } })
+    outbound.handleSessionEvent('s1', { type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'block-end', index: 0, block: { type: 'reasoning', text: '先读文件' } } } })
+    outbound.handleSessionEvent('s1', { type: 'tool/call', data: { turn: 1, step: 1, callId: 'c1', name: 'fs_read', arguments: '{"path":"a.ts"}' } })
+    await drain(rt)
+    expect(calls).toEqual([
+      { op: 'beginTurn' },
+      { op: 'update', arg: 'process:先读文件' },
+      { op: 'update', arg: 'process:先读文件\n\n' },
+      { op: 'update', arg: 'process:先读文件\n\n🔧 fs_read — {"path":"a.ts"}\n\n' },
+    ])
+  })
+
+  test('思考/工具/正文交替进段序列', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleSessionEvent('s1', { type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: '想' } } })
+    outbound.handleSessionEvent('s1', { type: 'tool/call', data: { turn: 1, step: 1, callId: 'c1', name: 'fs_read', arguments: '{}' } })
+    outbound.handleSessionEvent('s1', { type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 1, text: '好' } } })
+    await drain(rt)
+    expect(calls).toEqual([
+      { op: 'beginTurn' },
+      { op: 'update', arg: 'process:想' },
+      { op: 'update', arg: 'process:想🔧 fs_read — {}\n\n' },
+      { op: 'update', arg: 'process:想🔧 fs_read — {}\n\n | text:好' },
+    ])
   })
 
   test('无文本输出的 error turn：finalize 带错误 detail（无卡降级文本），仍释放 inflight 与表情', async () => {
@@ -108,7 +162,7 @@ describe('Outbound.handleSessionEvent', () => {
     const rt = fakeRuntime(reply)
     const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
     outbound.handleSessionEvent('other-session', { type: 'turn/start', data: { turn: 1 } })
-    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 9, message: { content: [{ type: 'text', text: 'x' }] } } })
+    outbound.handleSessionEvent('s1', { type: 'assistant/chunk', data: { turn: 9, step: 1, chunk: { type: 'text-delta', index: 0, text: 'x' } } })
     await drain(rt)
     expect(calls).toEqual([])
   })

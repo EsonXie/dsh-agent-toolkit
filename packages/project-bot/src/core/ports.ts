@@ -1,6 +1,6 @@
 /** 核心对宿主 agents 服务 / 绑定表的结构化端口（测试用 fake 注入）。 */
 import type { BotRecord } from '../store.ts'
-import type { Disposer, ReplyHandle } from './channel.ts'
+import type { Disposer, ReplyHandle, TurnSegment } from './channel.ts'
 
 export interface AgentPort {
   readonly sessionId: string
@@ -60,7 +60,7 @@ export interface SessionRuntime {
   /** 出站操作串行化 Promise 链（保序）。 */
   tail: Promise<unknown>
   /** 当前 turn 归集状态；无进行中 turn 为 undefined。 */
-  turn: { n: number; buffer: string; began: boolean } | undefined
+  turn: { n: number; segments: TurnSegment[]; began: boolean } | undefined
 }
 
 /** 从 bot 记录提取创作期注入。 */

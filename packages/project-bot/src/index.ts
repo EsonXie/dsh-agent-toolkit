@@ -25,6 +25,8 @@ export interface Config {
   cardUpdateThrottleMs: number
   /** 单张卡片内容字节上限（飞书硬上限 30KB，留余量）。 */
   cardMaxBytes: number
+  /** 过程区（思考 + 工具调用）字节上限（截尾保留最近内容）。 */
+  processMaxBytes: number
   /** 扫码创建应用的轮询超时（毫秒）。 */
   registerAppTimeoutMs: number
   /** 「处理中」表情回复的 emoji_type。 */
@@ -36,6 +38,7 @@ export interface Config {
 export const Config: z<Config> = z.object({
   cardUpdateThrottleMs: z.number().default(500),
   cardMaxBytes: z.number().default(28_000),
+  processMaxBytes: z.number().default(8_000),
   registerAppTimeoutMs: z.number().default(600_000),
   processingReactionEmoji: z.string().default('OneSecond'),
   errorDetailMaxChars: z.number().default(500),
@@ -56,6 +59,7 @@ export function apply(ctx: Context, config: Config): void {
   const tunables: ChannelTunables = {
     cardUpdateThrottleMs: config.cardUpdateThrottleMs,
     cardMaxBytes: config.cardMaxBytes,
+    processMaxBytes: config.processMaxBytes,
     processingReactionEmoji: config.processingReactionEmoji,
   }
 

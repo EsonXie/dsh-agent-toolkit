@@ -5,12 +5,15 @@ export type Disposer = () => void | Promise<void>
 
 export type TurnStatus = 'done' | 'error' | 'cancelled'
 
+/** 一段按时间线排列的输出：text = 正文 markdown 段；process = 思考/工具折叠面板段。 */
+export interface TurnSegment { kind: 'text' | 'process'; content: string }
+
 /** 一次回复的出站句柄（chat 作用域；turn 级卡片流 + 普通文本通知）。 */
 export interface ReplyHandle {
   /** 开新一轮 turn 的卡片（惰性实现允许空操作，首次 update 建卡）。 */
   beginTurn(): Promise<void>
-  /** 全量替换当前卡片正文（渠道内部节流、拆卡）。 */
-  update(markdown: string): Promise<void>
+  /** 全量替换当前卡片的段序列视图（渠道内部节流、拆卡、插入新段）。 */
+  update(segments: readonly TurnSegment[]): Promise<void>
   /** turn 定格：关闭流式、按状态着色；无卡且带 detail 时降级为文本。 */
   finalize(status: TurnStatus, detail?: string): Promise<void>
   /** 普通文本消息（准入拒绝、/status 应答等）。 */
@@ -45,6 +48,8 @@ export interface ChannelHandle {
 export interface ChannelTunables {
   cardUpdateThrottleMs: number
   cardMaxBytes: number
+  /** 过程区（思考 + 工具调用）字节上限（截尾保留最近内容）。 */
+  processMaxBytes: number
   processingReactionEmoji: string
 }
 

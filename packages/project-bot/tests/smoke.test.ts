@@ -11,6 +11,7 @@ describe('project-bot 插件导出', () => {
     const config = Config()
     expect(config.cardUpdateThrottleMs).toBe(500)
     expect(config.cardMaxBytes).toBe(28_000)
+    expect(config.processMaxBytes).toBe(8_000)
     expect(config.registerAppTimeoutMs).toBe(600_000)
     expect(config.processingReactionEmoji).toBe('OneSecond')
     expect(config.errorDetailMaxChars).toBe(500)

@@ -19,7 +19,7 @@ export const feishuChannel: BotChannel = {
       'im.message.receive_v1': async (data: unknown) => {
         const parsed = parseMessageEvent(data)
         if (parsed === null || !dedup.check(parsed.messageId)) return
-        const reply = new FeishuReplyHandle(api, parsed.chatId, tunables, bot.record.name, log)
+        const reply = new FeishuReplyHandle(api, parsed.chatId, tunables, log)
         io.onMessage({
           botId: bot.record.id,
           chatId: parsed.chatId,

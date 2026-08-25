@@ -5,7 +5,8 @@ export interface FeishuApi {
   createCard(cardJson: string): Promise<string>
   sendCardMessage(chatId: string, cardId: string): Promise<void>
   updateCardElement(cardId: string, elementId: string, content: string, sequence: number): Promise<void>
-  setCardStreaming(cardId: string, streaming: boolean, sequence: number): Promise<void>
+  insertElement(cardId: string, elementJson: string, targetElementId: string, sequence: number): Promise<void>
+  setCardStreaming(cardId: string, streaming: boolean, sequence: number, summary?: string): Promise<void>
   replaceCard(cardId: string, cardJson: string, sequence: number): Promise<void>
   sendText(chatId: string, text: string): Promise<void>
   addReaction(messageId: string, emojiType: string): Promise<string>
@@ -32,10 +33,24 @@ export function createFeishuApi(client: lark.Client): FeishuApi {
     async updateCardElement(cardId, elementId, content, sequence) {
       await client.cardkit.v1.cardElement.content({ path: { card_id: cardId, element_id: elementId }, data: { content, sequence } })
     },
-    async setCardStreaming(cardId, streaming, sequence) {
+    async insertElement(cardId, elementJson, targetElementId, sequence) {
+      await client.cardkit.v1.cardElement.create({
+        path: { card_id: cardId },
+        data: { type: 'insert_before', target_element_id: targetElementId, elements: `[${elementJson}]`, sequence },
+      })
+    },
+    async setCardStreaming(cardId, streaming, sequence, summary) {
       await client.cardkit.v1.card.settings({
         path: { card_id: cardId },
-        data: { settings: JSON.stringify({ config: { streaming_mode: streaming } }), sequence },
+        data: {
+          settings: JSON.stringify({
+            config: {
+              streaming_mode: streaming,
+              ...(summary !== undefined ? { summary: { content: summary } } : {}),
+            },
+          }),
+          sequence,
+        },
       })
     },
     async replaceCard(cardId, cardJson, sequence) {

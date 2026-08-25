@@ -1,8 +1,8 @@
 /** 出站句柄：turn 级流式卡片（节流合并 + 拆卡 + 定格着色）与表情回复。 */
-import type { ChannelTunables, Disposer, ReplyHandle, TurnStatus } from '../../core/channel.ts'
+import type { ChannelTunables, Disposer, ReplyHandle, TurnSegment, TurnStatus } from '../../core/channel.ts'
 import type { FeishuApi } from './api.ts'
 import {
-  CARD_ELEMENT_ID, initialStreamState, PENDING_CARD_ID,
+  initialStreamState, PENDING_CARD_ID, STATUS_ELEMENT_ID,
   planFinalize, planSync, type CardOp, type StreamState,
 } from './cards.ts'
 
@@ -22,7 +22,7 @@ export async function withRetry<T>(fn: () => Promise<T>, attempts = 3, baseDelay
 
 export class FeishuReplyHandle implements ReplyHandle {
   private state: StreamState = initialStreamState()
-  private buffer = ''
+  private segments: readonly TurnSegment[] = []
   private tail: Promise<unknown> = Promise.resolve()
   private timer: ReturnType<typeof setTimeout> | undefined
   private finalized = false
@@ -31,7 +31,6 @@ export class FeishuReplyHandle implements ReplyHandle {
     private readonly api: FeishuApi,
     private readonly chatId: string,
     private readonly tunables: ChannelTunables,
-    private readonly title: string,
     private readonly log: (message: string) => void,
   ) {}
 
@@ -40,9 +39,9 @@ export class FeishuReplyHandle implements ReplyHandle {
     return Promise.resolve()
   }
 
-  update(markdown: string): Promise<void> {
+  update(segments: readonly TurnSegment[]): Promise<void> {
     if (this.finalized) return Promise.resolve()
-    this.buffer = markdown
+    this.segments = segments
     if (this.timer === undefined) {
       this.timer = setTimeout(() => {
         this.timer = undefined
@@ -63,8 +62,10 @@ export class FeishuReplyHandle implements ReplyHandle {
       this.timer = undefined
     }
     this.flush()
-    const content = this.buffer.slice(this.state.offset, this.state.shownLen)
-    const { ops } = planFinalize(this.state, content, status, this.title)
+    // 等 flush 定局（含失败回退）后再规划定格：失败回退时按未建卡降级为文本，
+    // 而不是按乐观状态对幻影卡发 update/settings。
+    await this.tail
+    const { ops } = planFinalize(this.state, status)
     this.enqueue(() => this.exec(ops))
     if (this.state.cardId === null && detail !== undefined) {
       this.enqueue(() => withRetry(() => this.api.sendText(this.chatId, detail)).then(() => undefined))
@@ -78,16 +79,27 @@ export class FeishuReplyHandle implements ReplyHandle {
   }
 
   private flush(): void {
-    if (this.buffer.length <= this.state.shownLen) return
-    const planned = planSync(this.state, this.buffer, this.tunables.cardMaxBytes, this.title)
+    const planned = planSync(this.state, this.segments, this.tunables.cardMaxBytes, this.tunables.processMaxBytes)
+    if (planned.ops.length === 0) return
     this.state = planned.state
     this.enqueue(() => this.exec(planned.ops))
   }
 
   private enqueue(task: () => Promise<void>): void {
     this.tail = this.tail.then(task).catch((error) => {
-      // 建卡链路失败：回到未建卡状态，让下一次 flush 重新创建。
-      if (this.state.cardId === PENDING_CARD_ID) this.state = { ...this.state, cardId: null }
+      // 建卡链路失败（create 未返回，卡片从未可见）：回到未建卡状态，并把乐观推进的
+      // tail 回卷为 carry（base 保持原位——幻影卡上什么都没真正显示），让下一次
+      // flush 走 insert 分支重新建卡、完整插入未显示内容，而不是对 null 卡号发 update。
+      if (this.state.cardId === PENDING_CARD_ID) {
+        const t = this.state.tail
+        this.state = {
+          ...this.state,
+          cardId: null,
+          ...(t !== undefined
+            ? { tail: undefined, carry: { segIndex: t.segIndex, base: t.base }, closedSegCount: t.segIndex }
+            : {}),
+        }
+      }
       this.log(`[project-bot] 卡片操作失败：${error instanceof Error ? error.message : String(error)}`)
     })
   }
@@ -98,12 +110,12 @@ export class FeishuReplyHandle implements ReplyHandle {
         this.state.cardId = await withRetry(() => this.api.createCard(op.cardJson))
       } else if (op.type === 'send') {
         await withRetry(() => this.api.sendCardMessage(this.chatId, this.state.cardId!))
+      } else if (op.type === 'insert') {
+        await withRetry(() => this.api.insertElement(this.state.cardId!, op.elementJson, STATUS_ELEMENT_ID, op.sequence))
       } else if (op.type === 'update') {
-        await withRetry(() => this.api.updateCardElement(this.state.cardId!, CARD_ELEMENT_ID, op.content, op.sequence))
-      } else if (op.type === 'settings') {
-        await withRetry(() => this.api.setCardStreaming(this.state.cardId!, op.streaming, op.sequence))
+        await withRetry(() => this.api.updateCardElement(this.state.cardId!, op.elementId, op.content, op.sequence))
       } else {
-        await withRetry(() => this.api.replaceCard(this.state.cardId!, op.cardJson, op.sequence))
+        await withRetry(() => this.api.setCardStreaming(this.state.cardId!, op.streaming, op.sequence, op.summary))
       }
     }
   }

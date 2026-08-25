@@ -1,5 +1,5 @@
 /** 出站：持久会话事件 → turn 级回复驱动（per-session Promise 链保序）。 */
-import type { TurnStatus } from './channel.ts'
+import type { TurnSegment, TurnStatus } from './channel.ts'
 import type { SessionRuntime } from './ports.ts'
 
 /** 窄化的事件信封：核心只读 type/data。 */
@@ -8,12 +8,36 @@ export interface SessionEventLike {
   data: Record<string, unknown>
 }
 
-/** 从 assistant 消息内容块提取纯文本（只取 text 块；工具调用等不进卡片）。 */
+/** 从 assistant 消息内容块提取正文纯文本（只取 text 块进正文；reasoning/tool_call 由 processOf 进过程区）。 */
 export function textOf(content: readonly unknown[]): string {
   return (content as readonly { type?: unknown; text?: unknown }[])
     .filter((b): b is { type: 'text'; text: string } => b.type === 'text' && typeof b.text === 'string')
     .map((b) => b.text)
     .join('')
+}
+
+/** 工具调用参数摘要最大字符数。 */
+export const TOOL_ARGS_MAX_CHARS = 120
+
+/** 向段序列追加内容：与尾段同类则合并，异类开新段。 */
+export function appendToSegments(segments: TurnSegment[], kind: 'text' | 'process', text: string): void {
+  const tail = segments[segments.length - 1]
+  if (tail !== undefined && tail.kind === kind) tail.content += text
+  else segments.push({ kind, content: text })
+}
+
+/** （保留供测试）从组装消息提取过程输出：reasoning 全文 + tool_call 摘要行（段落间空行分隔）。 */
+export function processOf(content: readonly unknown[]): string {
+  const parts: string[] = []
+  for (const b of content as readonly { type?: unknown; text?: unknown; name?: unknown; arguments?: unknown }[]) {
+    if (b.type === 'reasoning' && typeof b.text === 'string' && b.text.length > 0) {
+      parts.push(b.text)
+    } else if (b.type === 'tool_call' && typeof b.name === 'string') {
+      const args = typeof b.arguments === 'string' ? b.arguments : JSON.stringify(b.arguments ?? {})
+      parts.push(`🔧 ${b.name} — ${truncateDetail(args, TOOL_ARGS_MAX_CHARS)}`)
+    }
+  }
+  return parts.length === 0 ? '' : `${parts.join('\n\n')}\n\n`
 }
 
 /** turn/end 的 reason 形状（宿主 TurnEndReason 的窄化视图：核心只读 kind 与 error.message）。 */
@@ -54,17 +78,42 @@ export class Outbound {
     if (rt === undefined) return
 
     if (event.type === 'turn/start') {
-      rt.turn = { n: event.data.turn as number, buffer: '', began: false }
+      rt.turn = { n: event.data.turn as number, segments: [], began: false }
       return
     }
 
-    if (event.type === 'assistant/message') {
+    if (event.type === 'assistant/chunk') {
       const turn = rt.turn
       if (turn === undefined || turn.n !== (event.data.turn as number)) return
-      const text = textOf((event.data.message as { content: readonly unknown[] }).content)
-      if (text.length === 0) return
-      turn.buffer += text
-      const snapshot = turn.buffer
+      const chunk = event.data.chunk as { type: string; text?: string; block?: { type?: unknown } }
+      if (chunk.type === 'text-delta' && typeof chunk.text === 'string') {
+        appendToSegments(turn.segments, 'text', chunk.text)
+      } else if (chunk.type === 'reasoning-delta' && typeof chunk.text === 'string') {
+        appendToSegments(turn.segments, 'process', chunk.text)
+      } else if (chunk.type === 'block-end' && chunk.block?.type === 'reasoning' && turn.segments[turn.segments.length - 1]?.kind === 'process') {
+        appendToSegments(turn.segments, 'process', '\n\n')   // 推理块段落分隔
+      } else {
+        return
+      }
+      const snapshot = turn.segments.map((s) => ({ ...s }))
+      this.enqueue(rt, async () => {
+        if (rt.reply === undefined) return
+        if (!turn.began) {
+          await rt.reply.beginTurn()
+          turn.began = true
+        }
+        await rt.reply.update(snapshot)
+      })
+      return
+    }
+
+    if (event.type === 'tool/call') {
+      const turn = rt.turn
+      if (turn === undefined || turn.n !== (event.data.turn as number)) return
+      const name = event.data.name as string
+      const args = typeof event.data.arguments === 'string' ? event.data.arguments : JSON.stringify(event.data.arguments ?? {})
+      appendToSegments(turn.segments, 'process', `🔧 ${name} — ${truncateDetail(args, TOOL_ARGS_MAX_CHARS)}\n\n`)
+      const snapshot = turn.segments.map((s) => ({ ...s }))
       this.enqueue(rt, async () => {
         if (rt.reply === undefined) return
         if (!turn.began) {
