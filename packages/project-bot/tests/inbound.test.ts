@@ -73,13 +73,13 @@ function fakeReply(rec: Recorded): ReplyHandle {
   }
 }
 
-test('普通消息：建会话、表情回复、followup 携带 project-bot source', async () => {
+test('普通消息：建会话、表情回复、followup 携带 user source（与 dsh 原生命名一致）', async () => {
   const { rec, inbound, sessions, msg } = harness()
   inbound.onMessage(msg('帮我评审这段代码'))
   await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
   expect(rec.acked).toBe(1)
   expect(rec.followups[0].text).toBe('帮我评审这段代码')
-  expect(rec.followups[0].source).toMatchObject({ kind: 'project-bot', channel: 'feishu', botId: 'reviewer', chatId: 'oc_1', userId: 'ou_u1' })
+  expect(rec.followups[0].source).toEqual({ kind: 'user' })
   expect(sessions.size).toBe(1)
 })
 

@@ -5,12 +5,6 @@ import type { InboundMessage } from './channel.ts'
 import { parseDirective } from './directive.ts'
 import type { Router } from './router.ts'
 
-declare module '@deepseek-ai/dsh-llm' {
-  interface MessageSourceMap {
-    'project-bot': { kind: 'project-bot'; channel: string; botId: string; chatId: string; userId: string }
-  }
-}
-
 export interface InboundDeps {
   router: Router
   bots: { get(botId: string): BotRecord | undefined }
@@ -63,9 +57,10 @@ export class Inbound {
     // 准入：先占槽再异步；表情回复失败不阻塞处理。
     rt.inflight = { ack: undefined }
     rt.inflight.ack = (await msg.ackProcessing().catch(() => undefined)) ?? undefined
+    // source kind 用 'user'（与 ACP 同款）：dsh sessionTitle 服务只接纳 user 消息生成会话标题。
     const message = createUserMessage({
       content: [{ type: 'text', text: msg.text }],
-      source: { kind: 'project-bot', channel: bot.channel, botId: bot.id, chatId: msg.chatId, userId: msg.userId },
+      source: { kind: 'user' },
     })
     try {
       rt.agent.followup(message)
