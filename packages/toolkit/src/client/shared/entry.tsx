@@ -4,19 +4,25 @@ import clsx from 'clsx'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './entry.module.css'
 
-export interface SidebarEntryDeps {
+export interface SidebarEntryDeps<Extra = Record<never, never>> {
   /** slot 注册元数据（sidebar.footer.action 的 id），由调用方消费。 */
   id: string
   /** slot 注册元数据（sidebar.footer.action 的 order），由调用方消费。 */
   order: number
   icon: ReactNode
   title: string
-  renderModal: (props: { open: boolean; onClose: () => void }) => ReactNode
+  /** renderModal 除 open/onClose 外还可经 Extra 透传入口组件额外 props（如运行时 share）。 */
+  renderModal: (props: { open: boolean; onClose: () => void } & Extra) => ReactNode
 }
 
-export function createSidebarEntry(deps: SidebarEntryDeps): ComponentType<{ wide: boolean }> {
+export function createSidebarEntry<Extra extends object = Record<never, never>>(
+  deps: SidebarEntryDeps<Extra>,
+): ComponentType<{ wide: boolean } & Extra> {
   const { icon, title, renderModal } = deps
-  return function SidebarEntry({ wide }: { wide: boolean }): ReactNode {
+  return function SidebarEntry(props: { wide: boolean } & Extra): ReactNode {
+    const { wide } = props
+    // 交集 {wide} & Extra 可赋值给 Extra（成员交集子类型），透传其余 props 给 renderModal。
+    const extra: Extra = props
     const [open, setOpen] = useState(false)
     return (
       <>
@@ -32,7 +38,7 @@ export function createSidebarEntry(deps: SidebarEntryDeps): ComponentType<{ wide
             {wide && <span className={css.triggerLabel}>{title}</span>}
           </button>
         </Tooltip>
-        {renderModal({ open, onClose: () => { setOpen(false) } })}
+        {renderModal({ open, onClose: () => { setOpen(false) }, ...extra })}
       </>
     )
   }
