@@ -8,4 +8,12 @@ export default defineConfig({
     // ui-primitives primitives never load a second copy (hooks would break).
     dedupe: ['react', 'react-dom'],
   },
+  test: {
+    css: {
+      // entry.spec 断言窄栏按钮带 rail class，需把 *.module.css 处理成真类名
+      // （non-scoped：导出的类名即本地名，如 css.rail === 'rail'）。
+      include: [/\.module\.css$/],
+      modules: { classNameStrategy: 'non-scoped' },
+    },
+  },
 })
