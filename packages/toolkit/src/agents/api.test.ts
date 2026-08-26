@@ -146,6 +146,24 @@ describe('PUT /agents/:id', () => {
     await handler(mockReq('PUT', '/dsh-agent-toolkit/api/agents/main', { id: 'main', name: '改名', builtin: true }), res)
     expect(res.status).toBe(409)
   })
+
+  test('编辑内置角色可保存：不携带 builtin 也保留内置标记', async () => {
+    const { handler, store } = harness()
+    const res = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/agents/explorer', {
+      id: 'explorer', name: 'Explorer 探索员', description: '新描述',
+    }), res)
+    expect(res.status).toBe(200)
+    expect(store.get('explorer')).toMatchObject({ name: 'Explorer 探索员', description: '新描述', builtin: true })
+  })
+
+  test('改 main 的 name 仍被拒（409）：服务端回填 builtin 不绕过 name 不可改守卫', async () => {
+    const { handler, store } = harness()
+    const res = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/agents/main', { id: 'main', name: '改名' }), res)
+    expect(res.status).toBe(409)
+    expect(store.get('main')).toMatchObject({ name: '主 Agent' })
+  })
 })
 
 describe('DELETE /agents/:id', () => {

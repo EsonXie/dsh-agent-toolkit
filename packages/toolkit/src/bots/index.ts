@@ -205,9 +205,10 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
       path: '/dsh-agent-toolkit/api',
       handler: async (req, res) => {
         try {
-          await started
           const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
           if (pathname.startsWith('/dsh-agent-toolkit/api/bots')) {
+            // bots 分支才等待自身启动链：agents/providers/tools 不依赖 bots 域，避免连带 500。
+            await started
             await botsHandler(req, res)
             return
           }

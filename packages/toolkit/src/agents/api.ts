@@ -87,6 +87,10 @@ export function createAgentsApiHandler(deps: AgentsApiDeps): (req: IncomingMessa
         if (body === undefined) return
         // id 以资源路径为准（覆盖 body.id），保证一致性。
         const candidate: Record<string, unknown> = { ...(body as Record<string, unknown>), id }
+        // 服务端保留字段回填：builtin 由既有记录决定（客户端不携带），否则 registry 的
+        // "内置标记不可修改" 守卫会让所有内置角色/主 Agent 的配置编辑必然 409。
+        const existing = deps.registry.get(id)
+        if (existing?.builtin === true) candidate.builtin = true
         const parsed = AgentRecordSchema.safeParse(candidate)
         if (!parsed.success) {
           json(res, 400, { error: parsed.error.issues[0]?.message ?? 'invalid agent record' })

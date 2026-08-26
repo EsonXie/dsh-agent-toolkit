@@ -80,6 +80,8 @@ function AgentsModalBody({ onEdit, onCreate, onDelete }: Omit<AgentsModalProps, 
       <div className={css.editorPane}>
         {state.kind === 'ok' ? (
           <AgentEditor
+            // 按选中对象重挂：切换角色 / 新建时 reset 内部 form 状态（useState 只读挂载时 props）。
+            key={selected === undefined ? '__new__' : selected.id}
             agent={selected}
             onSaved={handleSaved}
             onDeleted={handleDeleted}

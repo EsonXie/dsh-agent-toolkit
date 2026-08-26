@@ -91,6 +91,24 @@ test('main 锁定不可删：默认选中 main 无删除按钮；选中普通角
   expect(screen.getByRole('button', { name: '删除' })).toBeTruthy()
 })
 
+test('选中既有非默认角色：编辑器回显该角色（ID 正确）→ 保存发 PUT /agents/<该id>', async () => {
+  const calls = stubFetch(routes())
+  render(<AgentsModal open onClose={() => undefined} />)
+  await screen.findByText('主 Agent')
+
+  // 默认选中 main（无重挂时 ID 会滞留为 main，此处断言 ID 回显为 scout）
+  fireEvent.click(screen.getByText('侦察'))
+  expect(screen.getByText('ID：scout')).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('名称'), { target: { value: '侦察队长' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+  await vi.waitFor(() => {
+    const put = calls.find((c) => c.url === '/dsh-agent-toolkit/api/agents/scout' && c.method === 'PUT')
+    expect(put).toBeTruthy()
+    expect(put?.body).toMatchObject({ id: 'scout', name: '侦察队长' })
+  })
+})
+
 test('模型级联：选 provider 后拉取该 provider 的模型列表', async () => {
   const calls = stubFetch(routes())
   render(<AgentsModal open onClose={() => undefined} />)
