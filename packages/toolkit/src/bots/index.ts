@@ -46,7 +46,6 @@ export interface BotsDeps {
 }
 
 export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps): void {
-  void deps
   const log = { warn: (m: string) => ctx.logger.warn(m), info: (m: string) => ctx.logger.info(m) }
   const channels: ReadonlyMap<string, BotChannel> = new Map([['feishu', feishuChannel]])
   const tunables: ChannelTunables = {
@@ -140,6 +139,7 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
       bots: botsTable!,
       bindings: bindingsTable!,
       agents: agentsPort,
+      registry: deps.registry,
       defaultModel: () => {
         const selection = ctx.agentDefaultModel.currentSelection()
         return { provider: selection.provider, model: selection.model }
@@ -186,8 +186,6 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
             runtime,
             registerApp: registerAppService,
             listTools: () => ctx.tools.schemas().map((s) => s.name),
-            // 去 preset 化：不再有 preset 服务，枚举固定为空（表单无 preset 可选 ≠ 接口报错）。
-            listPresets: async () => [],
             listProviders: () => ctx.llm.listProviders().map(({ id, name }) => ({ id, name })),
             listModels: (provider) => ctx.llm.listModels(provider).then((models) => models.map(({ id, name }) => ({ id, name }))),
             storeSecret,

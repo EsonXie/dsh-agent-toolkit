@@ -59,7 +59,6 @@ function harness(overrides: Partial<ApiDeps> = {}) {
     } as unknown as ApiDeps['runtime'],
     registerApp,
     listTools: () => ['bash', 'fs_read', 'fs_write'],
-    listPresets: async () => [{ id: 'standard', name: 'Standard' }, { id: 'team', name: 'Team' }],
     listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
     listModels: async () => [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }],
     storeSecret: async (key, secret) => {
@@ -175,25 +174,25 @@ describe('PUT /bots', () => {
     expect(record).toMatchObject({ id: 'reviewer', name: '评审', feishu: { appSecretRef: 'project_bot_reviewer' } })
   })
 
-  test('preset：创建落表、更新覆盖、null 清除', async () => {
+  test('agentRef：创建落表、更新覆盖、null 清除（回主 Agent）', async () => {
     const { handler, bots } = harness()
     const create = mockRes()
     await handler(mockReq('POST', '/dsh-agent-toolkit/api/bots/bots', {
-      id: 'ops', name: '运维', project: 'D:\\work\\ops', preset: 'team',
+      id: 'ops', name: '运维', project: 'D:\\work\\ops', agentRef: 'reviewer',
       feishu: { appId: 'cli_000000000000000a', appSecret: 'plain-secret' },
     }), create)
     expect(create.status).toBe(200)
-    expect(bots.get('ops')).toMatchObject({ preset: 'team' })
+    expect(bots.get('ops')).toMatchObject({ agentRef: 'reviewer' })
 
     const update = mockRes()
-    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=ops', { preset: 'standard' }), update)
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=ops', { agentRef: 'scout' }), update)
     expect(update.status).toBe(200)
-    expect(bots.get('ops')).toMatchObject({ preset: 'standard' })
+    expect(bots.get('ops')).toMatchObject({ agentRef: 'scout' })
 
     const clear = mockRes()
-    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=ops', { preset: null }), clear)
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=ops', { agentRef: null }), clear)
     expect(clear.status).toBe(200)
-    expect(bots.get('ops')).not.toHaveProperty('preset')
+    expect(bots.get('ops')).not.toHaveProperty('agentRef')
   })
 })
 
@@ -232,24 +231,6 @@ test('GET /tools 返回已注册工具名', async () => {
   const res = mockRes()
   await handler(mockReq('GET', '/dsh-agent-toolkit/api/bots/tools'), res)
   expect(JSON.parse(res.body)).toEqual({ tools: ['bash', 'fs_read', 'fs_write'] })
-})
-
-describe('GET /presets', () => {
-  test('返回名册 preset 清单', async () => {
-    const { handler } = harness()
-    const res = mockRes()
-    await handler(mockReq('GET', '/dsh-agent-toolkit/api/bots/presets'), res)
-    expect(res.status).toBe(200)
-    expect(JSON.parse(res.body)).toEqual({ presets: [{ id: 'standard', name: 'Standard' }, { id: 'team', name: 'Team' }] })
-  })
-
-  test('listPresets 失败 → 200 空数组降级', async () => {
-    const { handler } = harness({ listPresets: async () => { throw new Error('roster broken') } })
-    const res = mockRes()
-    await handler(mockReq('GET', '/dsh-agent-toolkit/api/bots/presets'), res)
-    expect(res.status).toBe(200)
-    expect(JSON.parse(res.body)).toEqual({ presets: [] })
-  })
 })
 
 describe('GET /providers 与 GET /models', () => {

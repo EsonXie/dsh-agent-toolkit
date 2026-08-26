@@ -41,6 +41,28 @@ describe('BotRecordSchema', () => {
     expect(BotRecordSchema.safeParse({ ...validBot, id: '1bad' }).success).toBe(false)
     expect(BotRecordSchema.safeParse({ ...validBot, tools: [] }).success).toBe(false)
   })
+
+  test('agentRef 解析后保留：main 与角色 id 均通过且原样保留', () => {
+    expect(BotRecordSchema.parse({ ...validBot, agentRef: 'main' }).agentRef).toBe('main')
+    expect(BotRecordSchema.parse({ ...validBot, agentRef: 'reviewer' }).agentRef).toBe('reviewer')
+  })
+
+  test('零迁移断言：不含 agentRef 的旧序列化记录 round-trip 校验通过', () => {
+    const legacy = { ...validBot } as Record<string, unknown>
+    delete legacy.agentRef
+    const parsed = BotRecordSchema.safeParse(legacy)
+    expect(parsed.success).toBe(true)
+    expect(parsed.success ? parsed.data : {}).not.toHaveProperty('agentRef')
+    const roundTripped = JSON.parse(JSON.stringify(parsed.success ? parsed.data : {}))
+    expect(BotRecordSchema.safeParse(roundTripped).success).toBe(true)
+  })
+
+  test('preset 字段移除后：旧数据携带 preset 仍可加载（未知键剥离，不拒绝）', () => {
+    const legacy = { ...validBot, preset: 'team' } as Record<string, unknown>
+    const parsed = BotRecordSchema.safeParse(legacy)
+    expect(parsed.success).toBe(true)
+    expect(parsed.success ? parsed.data : {}).not.toHaveProperty('preset')
+  })
 })
 
 test('bindingKey 拼接', () => {

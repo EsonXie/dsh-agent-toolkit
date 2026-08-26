@@ -3,6 +3,7 @@ import type { Disposer, InboundMessage, ReplyHandle } from './channel.ts'
 import { Inbound } from './inbound.ts'
 import type { AgentPort, AgentsPort, BindingStore, SessionRuntime } from './ports.ts'
 import { Router } from './router.ts'
+import type { AgentRegistry } from '../agents/registry.ts'
 import type { BotRecord } from '../bots/store.ts'
 
 const BOT: BotRecord = {
@@ -32,7 +33,14 @@ function harness() {
     deleteBot: async () => undefined,
   }
   const sessions = new Map<string, SessionRuntime>()
-  const router = new Router(agents, bindings, sessions, () => ({ provider: 'deepseek', model: 'deepseek-v4' }), { attach: async () => undefined }, () => undefined)
+  const registry: AgentRegistry = {
+    list: () => [],
+    get: () => undefined,
+    upsert: async () => undefined,
+    remove: async () => undefined,
+    subscribe: () => () => undefined,
+  }
+  const router = new Router(agents, bindings, sessions, () => ({ provider: 'deepseek', model: 'deepseek-v4' }), { attach: async () => undefined }, () => undefined, registry)
   const inbound = new Inbound({
     router,
     bots: { get: (id) => (id === BOT.id ? BOT : undefined) },

@@ -31,6 +31,11 @@ export async function setupAgentScope(
   if (hooks.persona !== undefined) {
     agentCtx.systemPrompt.section({ name: 'dsh-agent-toolkit:persona', order: 0, text: hooks.persona })
   }
+  if (hooks.sections !== undefined) {
+    for (const section of hooks.sections) {
+      agentCtx.systemPrompt.section({ name: section.name, order: section.order, text: section.text })
+    }
+  }
   if (hooks.tools !== undefined) {
     agentCtx.tools.restrict({ allow: hooks.tools })
   }

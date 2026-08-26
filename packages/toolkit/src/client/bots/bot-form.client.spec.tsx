@@ -152,23 +152,22 @@ test('模型必填：models 清单为空回退手填，留空保存被拦且不�
   expect(calls.filter((c) => c.method === 'POST' && c.url === '/dsh-agent-toolkit/api/bots/bots')).toHaveLength(0)
 })
 
-test('preset 下拉：无「默认」项，缺省选中标准模式；创建携带选中 preset', async () => {
+test('绑定 Agent 下拉：选项来自 /agents（Task 14 端点），缺省 main；选中角色后创建携带 agentRef', async () => {
   const calls = stubFetch({
     '/dsh-agent-toolkit/api/bots/providers': () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek' }] }),
     '/dsh-agent-toolkit/api/bots/models?provider=deepseek': () => ({ models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }),
-    '/dsh-agent-toolkit/api/bots/presets': () => ({ presets: [{ id: 'standard', name: '标准模式' }, { id: 'team', name: 'Team' }] }),
+    '/dsh-agent-toolkit/api/agents': () => ([{ id: 'main', name: '主 Agent' }, { id: 'reviewer', name: '评审' }]),
     '/dsh-agent-toolkit/api/bots/bots': () => ({ bot: {} }),
   })
   const saved = vi.fn()
   render(<BotForm useWorkspaces={useWorkspaces} onSaved={saved} onCancel={() => undefined} />)
 
-  // 无「默认」空值项；缺省选中 standard（标准模式）
-  await screen.findByRole('option', { name: 'Team' })
-  expect(screen.queryByRole('option', { name: '默认' })).toBeNull()
-  expect(screen.getByLabelText('Preset')).toHaveProperty('value', 'standard')
+  // 下拉含角色选项且缺省选中 main
+  await screen.findByRole('option', { name: '评审' })
+  expect(screen.getByLabelText('绑定 Agent')).toHaveProperty('value', 'main')
 
-  fireEvent.change(screen.getByLabelText('Preset'), { target: { value: 'team' } })
-  fireEvent.change(screen.getByLabelText('名称'), { target: { value: '预设机器人' } })
+  fireEvent.change(screen.getByLabelText('绑定 Agent'), { target: { value: 'reviewer' } })
+  fireEvent.change(screen.getByLabelText('名称'), { target: { value: '评审机器人' } })
   fireEvent.click(screen.getByRole('button', { name: '下一步' }))
   fireEvent.click(screen.getByRole('tab', { name: '手动填写' }))
   fireEvent.change(screen.getByLabelText('App ID'), { target: { value: 'cli_000000000000000a' } })
@@ -177,39 +176,39 @@ test('preset 下拉：无「默认」项，缺省选中标准模式；创建携�
 
   await vi.waitFor(() => { expect(saved).toHaveBeenCalledOnce() })
   const create = calls.find((c) => c.url === '/dsh-agent-toolkit/api/bots/bots' && c.method === 'POST')
-  expect(create?.body).toMatchObject({ preset: 'team' })
+  expect(create?.body).toMatchObject({ agentRef: 'reviewer' })
 })
 
-test('编辑模式：preset 回显；切换后 PUT 携带新值', async () => {
+test('编辑模式：agentRef 回显角色；切回 main 提交 agentRef: null', async () => {
   const calls = stubFetch({
     '/dsh-agent-toolkit/api/bots/providers': () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek' }] }),
     '/dsh-agent-toolkit/api/bots/models?provider=deepseek': () => ({ models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }),
-    '/dsh-agent-toolkit/api/bots/presets': () => ({ presets: [{ id: 'standard', name: '标准模式' }, { id: 'team', name: 'Team' }] }),
+    '/dsh-agent-toolkit/api/agents': () => ([{ id: 'main', name: '主 Agent' }, { id: 'reviewer', name: '评审' }]),
     '/dsh-agent-toolkit/api/bots/bots': () => ({ bot: {} }),
   })
   const saved = vi.fn()
   const bot = {
     id: 'reviewer', name: '评审', channel: 'feishu' as const,
     feishu: { appId: 'cli_a1b2c3d4e5f60718', appSecretRef: 'project_bot_reviewer' },
-    project: 'D:\\work\\demo', preset: 'team',
+    project: 'D:\\work\\demo', agentRef: 'reviewer',
     agentOptions: { provider: 'deepseek', model: 'deepseek-chat' },
     createdAt: 1, updatedAt: 1, status: 'connected',
   }
   render(<BotForm bot={bot} useWorkspaces={useWorkspaces} onSaved={saved} onCancel={() => undefined} />)
 
-  await screen.findByRole('option', { name: 'Team' })
-  expect(screen.getByLabelText('Preset')).toHaveProperty('value', 'team')
+  await screen.findByRole('option', { name: '评审' })
+  expect(screen.getByLabelText('绑定 Agent')).toHaveProperty('value', 'reviewer')
 
-  fireEvent.change(screen.getByLabelText('Preset'), { target: { value: 'standard' } })
+  fireEvent.change(screen.getByLabelText('绑定 Agent'), { target: { value: 'main' } })
   fireEvent.click(screen.getByRole('button', { name: '下一步' }))
   fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
   await vi.waitFor(() => { expect(saved).toHaveBeenCalledOnce() })
   const update = calls.find((c) => c.url.startsWith('/dsh-agent-toolkit/api/bots/bots?id=') && c.method === 'PUT')
-  expect(update?.body).toMatchObject({ preset: 'standard' })
+  expect(update?.body).toMatchObject({ agentRef: null })
 })
 
-test('preset 名册不可用：下拉禁用，提交不携带 preset（服务端回退名册默认）', async () => {
+test('Agent 名册不可用：下拉只剩 main 选项，创建不携带 agentRef（默认主 Agent）', async () => {
   const calls = stubFetch({
     '/dsh-agent-toolkit/api/bots/providers': () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek' }] }),
     '/dsh-agent-toolkit/api/bots/models?provider=deepseek': () => ({ models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }),
@@ -219,7 +218,7 @@ test('preset 名册不可用：下拉禁用，提交不携带 preset（服务端
   render(<BotForm useWorkspaces={useWorkspaces} onSaved={saved} onCancel={() => undefined} />)
 
   await screen.findByRole('option', { name: 'DeepSeek' })
-  expect(screen.getByLabelText('Preset')).toHaveProperty('disabled', true)
+  expect(screen.getByLabelText('绑定 Agent')).toHaveProperty('value', 'main')
 
   fireEvent.change(screen.getByLabelText('名称'), { target: { value: '无名册机器人' } })
   fireEvent.click(screen.getByRole('button', { name: '下一步' }))
@@ -230,5 +229,5 @@ test('preset 名册不可用：下拉禁用，提交不携带 preset（服务端
 
   await vi.waitFor(() => { expect(saved).toHaveBeenCalledOnce() })
   const create = calls.find((c) => c.url === '/dsh-agent-toolkit/api/bots/bots' && c.method === 'POST')
-  expect(create?.body).not.toHaveProperty('preset')
+  expect(create?.body).not.toHaveProperty('agentRef')
 })

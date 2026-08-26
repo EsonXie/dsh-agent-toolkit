@@ -3,6 +3,33 @@ import type { ReplyHandle } from './channel.ts'
 import type { AgentPort, AgentsPort, BindingStore, SessionRuntime, WorkspacePort } from './ports.ts'
 import { Router } from './router.ts'
 import type { BotRecord } from '../bots/store.ts'
+import type { AgentRegistry } from '../agents/registry.ts'
+import type { AgentRecord } from '../agents/store.ts'
+
+function fakeRegistry(records: AgentRecord[] = []): { registry: AgentRegistry; get: ReturnType<typeof vi.fn> } {
+  const map = new Map(records.map((r) => [r.id, r]))
+  const get = vi.fn((id: string) => map.get(id))
+  const registry: AgentRegistry = {
+    list: () => [...map.values()],
+    get,
+    upsert: async () => undefined,
+    remove: async () => undefined,
+    subscribe: () => () => undefined,
+  }
+  return { registry, get }
+}
+
+const MAIN_ROLE: AgentRecord = { id: 'main', name: '主 Agent', description: '默认编码 Agent' }
+
+const REVIEWER_ROLE: AgentRecord = {
+  id: 'reviewer', name: '评审',
+  promptLayers: [
+    { name: 'base', order: 10, text: '你是团队的评审成员。' },
+    { name: 'skill', order: 30, text: '只审查 diff，不修改代码。' },
+  ],
+  model: { provider: 'deepseek', model: 'deepseek-reasoner' },
+  tools: { allow: ['bash', 'fs_read'] },
+}
 
 function fakeBot(overrides: Partial<BotRecord> = {}): BotRecord {
   return {
@@ -30,7 +57,10 @@ function fakeBindings(): BindingStore & { map: Map<string, string> } {
 
 const reply = {} as ReplyHandle
 
-function setup(defaultModel = () => ({ provider: 'deepseek', model: 'deepseek-v4' })) {
+function setup(
+  defaultModel = () => ({ provider: 'deepseek', model: 'deepseek-v4' }),
+  registry: AgentRegistry = fakeRegistry().registry,
+) {
   const created: { input: Record<string, unknown>; agent: AgentPort }[] = []
   const resumed: { input: Record<string, unknown>; agent: AgentPort }[] = []
   const agents: AgentsPort = {
@@ -42,7 +72,7 @@ function setup(defaultModel = () => ({ provider: 'deepseek', model: 'deepseek-v4
   const defaultModelFn = vi.fn(defaultModel)
   const workspace: WorkspacePort & { attach: ReturnType<typeof vi.fn> } = { attach: vi.fn(async () => undefined) }
   const onWarn = vi.fn()
-  return { agents, bindings, sessions, workspace, onWarn, router: new Router(agents, bindings, sessions, defaultModelFn, workspace, onWarn), created, resumed, defaultModel: defaultModelFn }
+  return { agents, bindings, sessions, workspace, onWarn, router: new Router(agents, bindings, sessions, defaultModelFn, workspace, onWarn, registry), created, resumed, defaultModel: defaultModelFn }
 }
 
 describe('Router.ensure', () => {
@@ -54,12 +84,6 @@ describe('Router.ensure', () => {
     expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'] })
     expect(bindings.get('reviewer', 'oc_1')).toBe(rt.sessionId)
     expect(rt.reply).toBe(reply)
-  })
-
-  test('bot 配了 preset：随 hooks 透传到创作期注入', async () => {
-    const { router, created } = setup()
-    await router.ensure(fakeBot({ preset: 'team' }), 'oc_1', reply)
-    expect(created[0].input.hooks).toMatchObject({ preset: 'team' })
   })
 
   test('有绑定且进程内有 runtime：直接复用并刷新 reply', async () => {
@@ -156,4 +180,55 @@ test('Router.lookup 按绑定反查 runtime', async () => {
   expect(router.lookup('reviewer', 'oc_1')).toBeUndefined()
   const rt = await router.ensure(fakeBot(), 'oc_1', reply)
   expect(router.lookup('reviewer', 'oc_1')).toBe(rt)
+})
+
+describe('Router.ensure agentRef 绑定', () => {
+  test('agentRef 指向 main：不注册角色 section、不 restrict，agentOptions 走默认模型回退', async () => {
+    const { router, created, defaultModel } = setup(undefined, fakeRegistry([MAIN_ROLE]).registry)
+    await router.ensure(fakeBot({ agentRef: 'main' }), 'oc_1', reply)
+    expect(defaultModel).toHaveBeenCalledOnce()
+    expect(created[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-v4' })
+    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'] })
+    expect(created[0].input.hooks).not.toHaveProperty('sections')
+  })
+
+  test('agentRef 指向角色：按 layer.order 注册 promptLayers 各 section + tools.restrict({ allow }) + agentOptions=role.model', async () => {
+    const { router, created, defaultModel } = setup(undefined, fakeRegistry([MAIN_ROLE, REVIEWER_ROLE]).registry)
+    await router.ensure(fakeBot({ agentRef: 'reviewer' }), 'oc_1', reply)
+    expect(defaultModel).not.toHaveBeenCalled()
+    expect(created[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-reasoner' })
+    expect(created[0].input.hooks).toEqual({
+      sections: [
+        { name: 'dsh-agent-toolkit:agent:base', order: 10, text: '你是团队的评审成员。' },
+        { name: 'dsh-agent-toolkit:agent:skill', order: 30, text: '只审查 diff，不修改代码。' },
+      ],
+      tools: ['bash', 'fs_read'],
+    })
+  })
+
+  test('resume 恢复路径同样按角色组装 section/tools/agentOptions', async () => {
+    const { router, bindings, resumed, defaultModel } = setup(undefined, fakeRegistry([MAIN_ROLE, REVIEWER_ROLE]).registry)
+    await bindings.set('reviewer', 'oc_1', 'sess-old')
+    await router.ensure(fakeBot({ agentRef: 'reviewer' }), 'oc_1', reply)
+    expect(resumed).toHaveLength(1)
+    expect(defaultModel).not.toHaveBeenCalled()
+    expect(resumed[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-reasoner' })
+    expect(resumed[0].input.hooks).toEqual({
+      sections: [
+        { name: 'dsh-agent-toolkit:agent:base', order: 10, text: '你是团队的评审成员。' },
+        { name: 'dsh-agent-toolkit:agent:skill', order: 30, text: '只审查 diff，不修改代码。' },
+      ],
+      tools: ['bash', 'fs_read'],
+    })
+  })
+
+  test('agentRef 指向不存在角色：warn 并降级 main（默认模型 + hooksOf，不注册 section）', async () => {
+    const { router, created, onWarn } = setup(undefined, fakeRegistry([MAIN_ROLE]).registry)
+    await router.ensure(fakeBot({ agentRef: 'ghost' }), 'oc_1', reply)
+    expect(onWarn).toHaveBeenCalledOnce()
+    expect(onWarn.mock.calls[0][0]).toContain('ghost')
+    expect(created[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-v4' })
+    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'] })
+    expect(created[0].input.hooks).not.toHaveProperty('sections')
+  })
 })

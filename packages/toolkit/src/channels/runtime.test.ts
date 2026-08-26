@@ -2,6 +2,15 @@ import { describe, expect, test, vi } from 'vitest'
 import type { BotChannel, ChannelHandle } from './channel.ts'
 import { BotRuntime, type RuntimeDeps } from './runtime.ts'
 import type { BotRecord } from '../bots/store.ts'
+import type { AgentRegistry } from '../agents/registry.ts'
+
+const fakeRegistry: AgentRegistry = {
+  list: () => [],
+  get: () => undefined,
+  upsert: async () => undefined,
+  remove: async () => undefined,
+  subscribe: () => () => undefined,
+}
 
 const BOT: BotRecord = {
   id: 'reviewer', name: '评审', channel: 'feishu',
@@ -40,6 +49,7 @@ function harness(overrides: Partial<RuntimeDeps> = {}) {
     bots: fakeTable<BotRecord>({ reviewer: BOT }) as unknown as RuntimeDeps['bots'],
     bindings: fakeTable() as unknown as RuntimeDeps['bindings'],
     agents: { create: vi.fn(), resume: vi.fn() } as unknown as RuntimeDeps['agents'],
+    registry: fakeRegistry,
     defaultModel: () => ({ provider: 'deepseek', model: 'deepseek-v4' }),
     workspace: { attach: async () => undefined },
     channels: new Map([['feishu', channel]]),

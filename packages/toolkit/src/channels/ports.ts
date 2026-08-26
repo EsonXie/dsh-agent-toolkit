@@ -9,12 +9,19 @@ export interface AgentPort {
   whenIdle(): Promise<void>
 }
 
+/** 一个创作期注册到 agent 系统提示的提示段（name/order/text 与 LayerConfig 同构）。 */
+export interface AgentSection {
+  name: string
+  order: number
+  text: string
+}
+
 /** 创作期注入（真实适配器里映射为 setup(agentCtx) 内的 mount/section/restrict）。 */
 export interface AgentHooks {
   persona?: string
   tools?: readonly string[]
-  /** 挂载的 agent preset id（缺省 = 名册默认）。 */
-  preset?: string
+  /** 绑定角色时逐层注册的提示段（name = `dsh-agent-toolkit:agent:<layer>`）。 */
+  sections?: readonly AgentSection[]
 }
 
 export interface AgentsPort {
@@ -63,11 +70,10 @@ export interface SessionRuntime {
   turn: { n: number; segments: TurnSegment[]; began: boolean } | undefined
 }
 
-/** 从 bot 记录提取创作期注入。 */
+/** 从 bot 记录提取创作期注入（主 Agent 绑定形态）。 */
 export function hooksOf(bot: BotRecord): AgentHooks {
   return {
     ...(bot.persona !== undefined ? { persona: bot.persona } : {}),
     ...(bot.tools !== undefined ? { tools: bot.tools } : {}),
-    ...(bot.preset !== undefined ? { preset: bot.preset } : {}),
   }
 }

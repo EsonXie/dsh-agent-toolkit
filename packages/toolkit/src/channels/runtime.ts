@@ -1,5 +1,6 @@
 /** BotRuntime：bot 名册 → 渠道生命周期；聚合 router/inbound/outbound。 */
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
+import type { AgentRegistry } from '../agents/registry.ts'
 import { bindingKey, type Binding, type BotRecord } from '../bots/store.ts'
 import type { BotChannel, ChannelHandle, ChannelStatus, ChannelTunables } from './channel.ts'
 import { Inbound } from './inbound.ts'
@@ -11,6 +12,8 @@ export interface RuntimeDeps {
   bots: KvTable<string, BotRecord>
   bindings: KvTable<string, Binding>
   agents: AgentsPort
+  /** Agent 注册表（agentRef → main/角色），Router 会话创建时决定 persona/工具/模型装配。 */
+  registry: AgentRegistry
   /** 存量 bot 无 agentOptions 时回退宿主默认模型。 */
   defaultModel: DefaultModelAccessor
   /** 会话归入 bot 项目 workspace。 */
@@ -35,7 +38,7 @@ export class BotRuntime {
 
   constructor(private readonly deps: RuntimeDeps) {
     const bindingStore = this.bindingStore()
-    this.router = new Router(deps.agents, bindingStore, this.sessions, deps.defaultModel, deps.workspace, (m) => deps.log.warn(m))
+    this.router = new Router(deps.agents, bindingStore, this.sessions, deps.defaultModel, deps.workspace, (m) => deps.log.warn(m), deps.registry)
     this.inbound = new Inbound({ router: this.router, bots: deps.bots, onError: (m) => deps.log.warn(m) })
     this.outbound = new Outbound(this.sessions, (m) => deps.log.warn(m), deps.maxErrorDetailChars)
   }

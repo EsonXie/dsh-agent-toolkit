@@ -11,16 +11,12 @@ import { BOT_ID_RE, BotRecordSchema, FEISHU_APP_ID_RE, type BotRecord } from './
 export interface ProviderOption { id: string; name: string }
 /** 一个可选的模型条目（id = agentOptions.model 的值）。 */
 export interface ModelOption { id: string; name: string }
-/** 一个可选的 agent preset（id = bot.preset 的值）。 */
-export interface PresetOption { id: string; name: string; description?: string; broken?: string }
 
 export interface ApiDeps {
   bots: KvTable<string, BotRecord>
   runtime: BotRuntime
   registerApp: RegisterAppService
   listTools(): string[]
-  /** 失败由调用方（路由）兜底为空数组，不抛错。 */
-  listPresets(): Promise<PresetOption[]>
   listProviders(): ProviderOption[]
   /** 失败由调用方（路由）兜底为空数组，不抛错。 */
   listModels(provider: string): Promise<ModelOption[]>
@@ -39,7 +35,8 @@ const CreateBodySchema = z.object({
   name: z.string().min(1).max(64),
   project: z.string().min(1),
   persona: z.string().max(8000).optional(),
-  preset: z.string().min(1).optional(),
+  /** 绑定的 Agent（'main' 或注册表角色 id；缺省 = main）。 */
+  agentRef: z.string().min(1).optional(),
   tools: z.array(z.string().min(1)).min(1).optional(),
   agentOptions: z.object({ provider: z.string().min(1).optional(), model: z.string().min(1).optional() }).optional(),
   feishu: z.object({
@@ -55,7 +52,7 @@ const UpdateBodySchema = z.object({
   name: z.string().min(1).max(64).optional(),
   project: z.string().min(1).optional(),
   persona: z.string().max(8000).nullable().optional(),
-  preset: z.string().min(1).nullable().optional(),
+  agentRef: z.string().min(1).nullable().optional(),
   tools: z.array(z.string().min(1)).min(1).nullable().optional(),
   agentOptions: z.object({ provider: z.string().min(1).optional(), model: z.string().min(1).optional() }).nullable().optional(),
   /** 换绑应用：明文新密钥（立即入 credentials）。 */
@@ -149,7 +146,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         feishu: { appId: input.feishu.appId, appSecretRef },
         project: input.project,
         ...(input.persona !== undefined ? { persona: input.persona } : {}),
-        ...(input.preset !== undefined ? { preset: input.preset } : {}),
+        ...(input.agentRef !== undefined ? { agentRef: input.agentRef } : {}),
         ...(input.tools !== undefined ? { tools: input.tools } : {}),
         ...(input.agentOptions !== undefined ? { agentOptions: input.agentOptions } : {}),
         createdAt: deps.now(), updatedAt: deps.now(),
@@ -193,8 +190,8 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       }
       if (input.persona === null) delete merged.persona
       else if (input.persona !== undefined) merged.persona = input.persona
-      if (input.preset === null) delete merged.preset
-      else if (input.preset !== undefined) merged.preset = input.preset
+      if (input.agentRef === null) delete merged.agentRef
+      else if (input.agentRef !== undefined) merged.agentRef = input.agentRef
       if (input.tools === null) delete merged.tools
       else if (input.tools !== undefined) merged.tools = input.tools
       if (input.agentOptions === null) delete merged.agentOptions
@@ -241,18 +238,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return
     }
 
-    if (sub === '/presets' && method === 'GET') {
-      // 名册列举失败静默降级为空数组（表单无 preset 可选 ≠ 接口报错）。
-      let presets: PresetOption[] = []
-      try {
-        presets = await deps.listPresets()
-      } catch {
-        presets = []
-      }
-      json(res, 200, { presets })
-      return
-    }
-
     if (sub === '/providers' && method === 'GET') {
       json(res, 200, { providers: deps.listProviders() })
       return
@@ -270,7 +255,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return
     }
 
-    if (['/bots', '/register-app', '/register-app/status', '/tools', '/presets', '/providers', '/models'].includes(sub)) {
+    if (['/bots', '/register-app', '/register-app/status', '/tools', '/providers', '/models'].includes(sub)) {
       json(res, 405, { error: 'method not allowed' })
       return
     }

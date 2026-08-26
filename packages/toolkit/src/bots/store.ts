@@ -24,8 +24,8 @@ export const BotRecordSchema = z.object({
   project: z.string().min(1),
   /** 透传到 agent 创作期的 persona 提示段。 */
   persona: z.string().max(8000).optional(),
-  /** 挂载的 agent preset id（缺省 = 名册默认 preset）。 */
-  preset: z.string().min(1).optional(),
+  /** 绑定的 Agent（'main' 或注册表角色 id，缺省 = 'main'）。 */
+  agentRef: z.string().min(1).optional(),
   /** 可用工具白名单（缺省 = 不限制）；空数组无意义，直接拒绝。 */
   tools: z.array(z.string().min(1)).min(1).optional(),
   agentOptions: z.object({

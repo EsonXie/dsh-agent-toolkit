@@ -9,7 +9,8 @@ export interface BotInput {
   name: string
   project: string
   persona?: string
-  preset?: string | null
+  /** 绑定的 Agent（'main' 或注册表角色 id）；null 清回主 Agent。 */
+  agentRef?: string | null
   tools?: string[]
   agentOptions?: { provider?: string; model?: string }
   feishu?: { appId: string; appSecret?: string; appSecretRef?: string }
@@ -33,13 +34,14 @@ export const fetchBots = () => request<{ bots: BotListItem[] }>('/dsh-agent-tool
 
 export interface ProviderOption { id: string; name: string }
 export interface ModelOption { id: string; name: string }
-export interface PresetOption { id: string; name: string; description?: string; broken?: string }
+/** Agent 下拉选项（Task 14 的 GET /dsh-agent-toolkit/api/agents 返回 AgentRecord[]，此处取子集）。 */
+export interface AgentOption { id: string; name: string; description?: string }
 
 export const fetchProviders = () =>
   request<{ providers: ProviderOption[] }>('/dsh-agent-toolkit/api/bots/providers').then((r) => r.providers)
 
-export const fetchPresets = () =>
-  request<{ presets: PresetOption[] }>('/dsh-agent-toolkit/api/bots/presets').then((r) => r.presets)
+export const fetchAgents = () =>
+  request<AgentOption[]>('/dsh-agent-toolkit/api/agents')
 
 export const fetchModels = (provider: string) =>
   request<{ models: ModelOption[] }>(`/dsh-agent-toolkit/api/bots/models?provider=${encodeURIComponent(provider)}`).then((r) => r.models)

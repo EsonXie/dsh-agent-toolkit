@@ -23,7 +23,7 @@ function fakeAgentCtx() {
       const id = (plugin as { name?: unknown }).name
       calls.push(`plugin:${String(id)}:${config === undefined ? '-' : JSON.stringify(config)}`)
     },
-    systemPrompt: { section: (input: { name: string }) => { calls.push(`section:${input.name}`) } },
+    systemPrompt: { section: (input: { name: string; order?: number; text?: string }) => { calls.push(`section:${input.name}:${input.order}:${input.text ?? '-'}`) } },
     tools: { restrict: (input: { allow: readonly string[] }) => { calls.push(`restrict:${input.allow.join(',')}`) } },
   }
   return { ctx: ctx as unknown as Context, calls }
@@ -37,7 +37,7 @@ describe('setupAgentScope', () => {
     const { ctx, calls } = fakeAgentCtx()
     await setupAgentScope(ctx, { persona: '你是评审助手', tools: ['bash'] }, loadTool)
     expect(loaded).toEqual(BASIC_TOOLS.map((t) => t.id))
-    expect(calls).toEqual([...mountCalls, 'section:dsh-agent-toolkit:persona', 'restrict:bash'])
+    expect(calls).toEqual([...mountCalls, 'section:dsh-agent-toolkit:persona:0:你是评审助手', 'restrict:bash'])
   })
 
   test('无 hooks：只挂载基础工具行，不注册 section/restrict', async () => {
@@ -51,7 +51,33 @@ describe('setupAgentScope', () => {
     const { loadTool } = fakeLoader()
     const { ctx, calls } = fakeAgentCtx()
     await setupAgentScope(ctx, { persona: 'p' }, loadTool)
-    expect(calls.at(-1)).toBe('section:dsh-agent-toolkit:persona')
+    expect(calls.at(-1)).toBe('section:dsh-agent-toolkit:persona:0:p')
     expect(calls).not.toContain('restrict:')
+  })
+
+  test('hooks.sections：逐层注册 systemPrompt.section（按 name/order/text）', async () => {
+    const { loadTool } = fakeLoader()
+    const { ctx, calls } = fakeAgentCtx()
+    await setupAgentScope(ctx, {
+      sections: [
+        { name: 'dsh-agent-toolkit:agent:base', order: 10, text: '你是团队的评审成员。' },
+        { name: 'dsh-agent-toolkit:agent:skill', order: 30, text: '只审查 diff，不修改代码。' },
+      ],
+    }, loadTool)
+    expect(calls).toEqual([
+      ...mountCalls,
+      'section:dsh-agent-toolkit:agent:base:10:你是团队的评审成员。',
+      'section:dsh-agent-toolkit:agent:skill:30:只审查 diff，不修改代码。',
+    ])
+  })
+
+  test('sections + tools 组合（角色绑定形态）：逐层 section 后 restrict', async () => {
+    const { loadTool } = fakeLoader()
+    const { ctx, calls } = fakeAgentCtx()
+    await setupAgentScope(ctx, {
+      sections: [{ name: 'dsh-agent-toolkit:agent:base', order: 10, text: 'b' }],
+      tools: ['bash'],
+    }, loadTool)
+    expect(calls).toEqual([...mountCalls, 'section:dsh-agent-toolkit:agent:base:10:b', 'restrict:bash'])
   })
 })
