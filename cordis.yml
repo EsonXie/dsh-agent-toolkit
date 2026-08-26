@@ -1,18 +1,11 @@
 # 开发用 patch：dsh web --patch 叠加到 web profile。
 # 顶层必须是 loader patch 条目（PatchOptions）数组；insert 追加行。
-# 插件行 name 用裸包名：包已通过 `dsh plugin --profile web add link:<本包路径>` 装进 profile，
-# loader 导入与 client-modules 扫描都以 profile 目录（~/.dsh/profiles/web）为解析锚点。
-# 注意：token-usage 自带 cordis.patch.yml bundle 层（profile dsh.profile.bundles 已列出），
-# 这里只能按 id 覆盖 config，不能再 insert（否则 duplicate loader entry id）。
-# project-bot 同模式：cordis.patch.yml 自带 insert（id: project-bot），经 dsh plugin add 注册进 bundles，
-# 这里只留注释不 insert（避免 duplicate loader entry id）。
-- insert:
-    - id: agent-team
-      name: agent-team
-      config:
-        clientOnly: true
-    - id: prompt-stack
-      name: '@dsh-agent-toolkit/prompt-stack'
-- id: token-usage
+# dsh-agent-toolkit 经 `dsh plugin --profile web add link:<本包路径>` 装进 profile，
+# 由包自带 cordis.patch.yml（bundles 层，id: dsh-agent-toolkit）激活，走 loader 的
+# profile 目录解析锚点（Node 半 import 与 client-modules 扫描都依赖裸包名解析）。
+# 根 patch 不再 insert：本 checkout 的 loader 无法以 Windows 绝对路径 import 插件
+# （ERR_UNSUPPORTED_ESM_URL_SCHEME: protocol 'd:'），绝对路径或 file:// 名都不可用
+# （且 file:// 名会脱离 profile 解析锚点，找不到宿主注入服务）。这里只按 id 覆盖 config。
+- id: dsh-agent-toolkit
   config:
     timezone: Asia/Shanghai
