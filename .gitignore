@@ -5,6 +5,7 @@ deepseek-harness/
 node_modules/
 dist/
 packages/*/lib/
+archive/**/lib/
 *.tsbuildinfo
 *.tgz
 
