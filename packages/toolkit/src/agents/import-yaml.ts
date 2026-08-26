@@ -85,13 +85,21 @@ export function parseRoleYaml(text: string, source: string, fileName: string, wa
   }
 }
 
+/** 一个角色 YAML 文件引用：完整文件名 + 完整路径 + 去 .yml 的文件名（name 缺省取值）。 */
+interface RoleFileRef {
+  name: string
+  path: string
+  fileName: string
+}
+
 /**
- * 读取 roles 目录下全部 .yml 角色文件，按文件名字典序返回（严格模式：任一文件非法即抛错）。
+ * 枚举 roles 目录下全部 .yml 角色文件，按文件名字典序返回。
+ * 共享骨架（readdir/ENOENT/过滤/排序/文件名推导）——YAML 文件命名约定只在这里维护。
  * @param dir - roles 目录绝对路径。
- * @returns 角色记录列表；目录不存在或无 .yml 文件时返回空列表（静默跳过，属正常态）。
- * @throws 目录存在但不可读（非 ENOENT）、任一文件不可读/非法。
+ * @returns 文件引用列表；目录不存在或无 .yml 文件时返回空列表（静默跳过，属正常态）。
+ * @throws 目录存在但不可读（非 ENOENT）。读取/解析的严格与宽容由调用方自行处理。
  */
-export async function loadRolesDir(dir: string): Promise<AgentRecord[]> {
+async function enumerateRoleFiles(dir: string): Promise<RoleFileRef[]> {
   let entries: string[]
   try {
     entries = await readdir(dir)
@@ -99,17 +107,29 @@ export async function loadRolesDir(dir: string): Promise<AgentRecord[]> {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
     throw new Error(`dsh-agent-toolkit: 角色目录不可读：${dir}（${error instanceof Error ? error.message : String(error)}）`)
   }
-  const files = entries.filter(f => f.endsWith('.yml')).sort()
+  return entries
+    .filter(f => f.endsWith('.yml'))
+    .sort()
+    .map(file => ({ name: file, path: join(dir, file), fileName: file.slice(0, -'.yml'.length) }))
+}
+
+/**
+ * 读取 roles 目录下全部 .yml 角色文件，按文件名字典序返回（严格模式：任一文件非法即抛错）。
+ * @param dir - roles 目录绝对路径。
+ * @returns 角色记录列表；目录不存在或无 .yml 文件时返回空列表（静默跳过，属正常态）。
+ * @throws 目录存在但不可读（非 ENOENT）、任一文件不可读/非法。
+ */
+export async function loadRolesDir(dir: string): Promise<AgentRecord[]> {
+  const refs = await enumerateRoleFiles(dir)
   const records: AgentRecord[] = []
-  for (const file of files) {
-    const path = join(dir, file)
+  for (const ref of refs) {
     let text: string
     try {
-      text = await readFile(path, 'utf8')
+      text = await readFile(ref.path, 'utf8')
     } catch (error) {
-      throw new Error(`dsh-agent-toolkit: 角色文件不可读：${path}（${error instanceof Error ? error.message : String(error)}）`)
+      throw new Error(`dsh-agent-toolkit: 角色文件不可读：${ref.path}（${error instanceof Error ? error.message : String(error)}）`)
     }
-    records.push(parseRoleYaml(text, path, file.slice(0, -'.yml'.length)))
+    records.push(parseRoleYaml(text, ref.path, ref.fileName))
   }
   return records
 }
@@ -124,28 +144,24 @@ export async function importRolesYaml(ctx: ImportRolesContext, rolesDir?: string
   const result: ImportResult = { imported: 0, skipped: [] }
   if (ctx.meta.get(ROLES_YAML_IMPORTED_KEY) !== undefined) return result
   const dir = rolesDir ?? join(resolveDshHome(), 'agent-team', 'roles')
-  let entries: string[]
+  let refs: RoleFileRef[]
   try {
-    entries = await readdir(dir)
+    refs = await enumerateRoleFiles(dir)
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    if (code !== 'ENOENT') {
-      ctx.warn(`dsh-agent-toolkit: 角色目录不可读：${dir}（${error instanceof Error ? error.message : String(error)}）`)
-    }
+    // 目录不可读（非 ENOENT）：warn 后标记完成，不阻塞激活。
+    ctx.warn(error instanceof Error ? error.message : String(error))
     await markImported(ctx)
     return result
   }
-  const files = entries.filter(f => f.endsWith('.yml')).sort()
-  for (const file of files) {
-    const path = join(dir, file)
+  for (const ref of refs) {
     try {
-      const text = await readFile(path, 'utf8')
-      const record = parseRoleYaml(text, path, file.slice(0, -'.yml'.length), ctx.warn)
+      const text = await readFile(ref.path, 'utf8')
+      const record = parseRoleYaml(text, ref.path, ref.fileName, ctx.warn)
       await ctx.agents.put(record.id, record)
       result.imported++
     } catch (error) {
-      result.skipped.push(file)
-      ctx.warn(`dsh-agent-toolkit: 角色文件 ${path} 导入失败，已跳过：${error instanceof Error ? error.message : String(error)}`)
+      result.skipped.push(ref.name)
+      ctx.warn(`dsh-agent-toolkit: 角色文件 ${ref.path} 导入失败，已跳过：${error instanceof Error ? error.message : String(error)}`)
     }
   }
   await markImported(ctx)
