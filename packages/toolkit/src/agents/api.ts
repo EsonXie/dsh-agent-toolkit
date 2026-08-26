@@ -1,5 +1,7 @@
-/** Agents RPC 端点组：注册表 CRUD + providers/models 级联 + 工具名列表。挂载于统一 /dsh-agent-toolkit/api 前缀。 */
+/** Agents RPC 端点组：注册表 CRUD + providers/models 级联 + 工具名列表。核心恒启用（不随 feishu 门控）。 */
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { Context } from '@deepseek-ai/cordis'
+import { registerOptionalRoutes } from '../shared/webserver.ts'
 import { AgentRecordSchema } from './store.ts'
 import type { AgentRegistry } from './registry.ts'
 
@@ -85,8 +87,11 @@ export function createAgentsApiHandler(deps: AgentsApiDeps): (req: IncomingMessa
       if (method === 'PUT') {
         const body = await readJsonBody(req, res)
         if (body === undefined) return
+        // builtin 是服务端保留字段：剥离客户端携带值（防经 PUT 自创不可删记录），
         // id 以资源路径为准（覆盖 body.id），保证一致性。
-        const candidate: Record<string, unknown> = { ...(body as Record<string, unknown>), id }
+        const bodyRecord: Record<string, unknown> = { ...(body as Record<string, unknown>) }
+        delete bodyRecord.builtin
+        const candidate: Record<string, unknown> = { ...bodyRecord, id }
         // 服务端保留字段回填：builtin 由既有记录决定（客户端不携带），否则 registry 的
         // "内置标记不可修改" 守卫会让所有内置角色/主 Agent 的配置编辑必然 409。
         const existing = deps.registry.get(id)
@@ -131,4 +136,28 @@ export function createAgentsApiHandler(deps: AgentsApiDeps): (req: IncomingMessa
     }
     json(res, 404, { error: 'not found' })
   }
+}
+
+/**
+ * 注册 agents 核心 RPC 路由（恒启用，不随 modules.feishu 门控——Agents 面板总是挂载，
+ * 这些端点缺失即「加载失败」）。webServer 为可选服务：缺席时经 registerOptionalRoutes
+ * 惰性不注册。挂载点与 bots 同处 /dsh-agent-toolkit/api 前缀，但按路径空间拆成独立
+ * prefix/exact 条目（webServer 精确先于最长前缀），互不重叠：
+ * - prefix /dsh-agent-toolkit/api/agents   → /agents 与 /agents/:id
+ * - prefix /dsh-agent-toolkit/api/providers → /providers 与 /providers/:p/models
+ * - exact /dsh-agent-toolkit/api/tools
+ * - prefix /dsh-agent-toolkit/api           → 兜底：api 前缀下未被更具体路由（bots/usage）
+ *   认领的未知路径仍回 404 JSON（与旧统一分发行为字节一致）。
+ */
+export function setupAgentsApi(ctx: Context, deps: AgentsApiDeps): void {
+  const handler = createAgentsApiHandler(deps)
+  registerOptionalRoutes(ctx, (webCtx) => {
+    const dispose = [
+      webCtx.webServer.register({ kind: 'prefix', path: '/dsh-agent-toolkit/api/agents', handler }),
+      webCtx.webServer.register({ kind: 'prefix', path: '/dsh-agent-toolkit/api/providers', handler }),
+      webCtx.webServer.register({ kind: 'exact', path: '/dsh-agent-toolkit/api/tools', handler }),
+      webCtx.webServer.register({ kind: 'prefix', path: '/dsh-agent-toolkit/api', handler }),
+    ]
+    return () => dispose.forEach((unregister) => unregister())
+  })
 }

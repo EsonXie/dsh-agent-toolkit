@@ -107,6 +107,19 @@ describe('PUT /agents/:id', () => {
     })
   })
 
+  test('upsert：客户端携带 builtin:true 新建 → 剥离为普通记录（可删）', async () => {
+    const { handler, store, deps } = harness()
+    const res = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/agents/sentry', {
+      id: 'sentry', name: '哨兵', builtin: true,
+    }), res)
+    expect(res.status).toBe(200)
+    expect(store.get('sentry')).toMatchObject({ name: '哨兵' })
+    expect(store.get('sentry')?.builtin).toBeUndefined()
+    await expect(deps.registry.remove('sentry')).resolves.toBeUndefined()
+    expect(store.has('sentry')).toBe(false)
+  })
+
   test('upsert：更新既有角色（id 以路径为准，覆盖 body.id）', async () => {
     const { handler, store } = harness()
     const res = mockRes()

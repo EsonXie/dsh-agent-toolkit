@@ -141,7 +141,8 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
         )}
         <label className={css.field}>
           名称
-          <Input value={name} onChange={(e) => { setName(e.target.value) }} aria-label="名称" className={css.input} />
+          {/* main 的 name 服务端不可改（registry 守卫 409），与之一致的只读呈现 */}
+          <Input value={name} onChange={(e) => { setName(e.target.value) }} aria-label="名称" className={css.input} disabled={agent?.id === 'main'} />
         </label>
         <label className={css.field}>
           描述

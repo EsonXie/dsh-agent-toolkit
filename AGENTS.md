@@ -10,7 +10,7 @@
 
 - 单测：`pnpm --filter dsh-agent-toolkit test`；类型检查：`pnpm --filter dsh-agent-toolkit typecheck`；构建：`pnpm --filter dsh-agent-toolkit bundle` 同时产出 Node 半（lib/index.js，exports 入口）与浏览器半（lib/client.js）——任何 src 改动后、进开发回路前都要跑（开发期 `pnpm --filter dsh-agent-toolkit watch`）
 - 发布：`powershell -File scripts/publish-toolkit.ps1`（六道门禁后 pnpm publish 到官方 registry；不可在 CI/自动化里跑，含人工确认）
-- 待办（人工发布操作，不自动执行）：已发布 npm 的三个旧包 `npm deprecate @dsh-agent-toolkit/token-usage "已合并进 dsh-agent-toolkit"`、`@dsh-agent-toolkit/prompt-stack` 同、`@dsh-agent-toolkit/project-bot` 同
+- 待办（人工发布操作，不自动执行）：已发布 npm 的三个旧包 `npm deprecate @dsh-agent-toolkit/token-usage "已合并进 dsh-agent-toolkit"`、`@dsh-agent-toolkit/prompt-stack` 同、`@dsh-agent-toolkit/project-bot` 同；首次发布前需补 `packages/toolkit/README.md` + `LICENSE`（package.json files 已引用），并恢复 `scripts/publish-toolkit.ps1` pack 核查中的对应两项检查
 - 开发回路：`cd deepseek-harness && pnpm dsh plugin --profile web add link:D:\work\github\dsh\dsh-agent-toolkit\packages\toolkit` 把插件装进 web profile（deepseek-harness 首次需 `pnpm install && pnpm run build`）；日常启动 `pnpm dsh web --patch D:\work\github\dsh\dsh-agent-toolkit\cordis.yml`（只按 id 覆盖 config）
 
 ## 文档使用（先读这里）

@@ -19,7 +19,6 @@ import type { BotChannel, ChannelTunables } from '../channels/channel.ts'
 import { feishuChannel } from '../channels/feishu/index.ts'
 import type { AgentPort, AgentsPort, WorkspacePort } from '../channels/ports.ts'
 import { BotRuntime } from '../channels/runtime.ts'
-import { createAgentsApiHandler } from '../agents/api.ts'
 import { createApiHandler } from './api.ts'
 import { RegisterAppService } from './register-app.ts'
 import { projectBotDomain, type Binding, type BotRecord } from './store.ts'
@@ -173,8 +172,8 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
 
   // webServer 是可选能力（headless 无此服务）：经 registerOptionalRoutes 子 fiber 惰性注册
   // （token-usage 同款）；子 fiber 未激活时惰性、随父 fiber 卸载而清理。
-  // 统一挂载点：单前缀 /dsh-agent-toolkit/api，内部按路径空间分发（/usage/* 由 usage 模块
-  // 自己的 exact 路由优先接管，webServer match 先精确后最长前缀，不会落到这里）。
+  // 仅注册本模块自己的 /dsh-agent-toolkit/api/bots 前缀；agents/providers/tools 核心端点由
+  // setupAgentsApi 恒启用注册（同前缀下 longest-prefix 匹配、路径互不重叠），本分支不涉足。
   registerOptionalRoutes(ctx, (webCtx) => {
     // bots handler 请求时才构造：runtime 在 started 落定后才赋值，注册期捕获会拿到 undefined。
     const botsHandler: (req: IncomingMessage, res: ServerResponse) => Promise<void> = async (req, res) => {
@@ -192,31 +191,14 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
         now: () => Date.now(),
       })(req, res)
     }
-    const agentsHandler = createAgentsApiHandler({
-      registry: deps.registry,
-      listTools: () => ctx.tools.schemas().map((s) => s.name),
-      listProviders: () => ctx.llm.listProviders().map(({ id, name }) => ({ id, name })),
-      listModels: (provider) => ctx.llm.listModels(provider).then((models) => models.map(({ id, name }) => ({ id, name }))),
-    })
     const dispose = webCtx.webServer.register({
       kind: 'prefix',
-      path: '/dsh-agent-toolkit/api',
+      path: '/dsh-agent-toolkit/api/bots',
       handler: async (req, res) => {
         try {
-          const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
-          if (pathname.startsWith('/dsh-agent-toolkit/api/bots')) {
-            // bots 分支才等待自身启动链：agents/providers/tools 不依赖 bots 域，避免连带 500。
-            await started
-            await botsHandler(req, res)
-            return
-          }
-          if (pathname.startsWith('/dsh-agent-toolkit/api/agents')
-            || pathname.startsWith('/dsh-agent-toolkit/api/providers')
-            || pathname === '/dsh-agent-toolkit/api/tools') {
-            await agentsHandler(req, res)
-            return
-          }
-          res.writeHead(404, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'not found' }))
+          // 请求时才等待自身启动链：避免连带失败与注册期捕获 undefined runtime。
+          await started
+          await botsHandler(req, res)
         } catch (error) {
           res.writeHead(500, { 'content-type': 'application/json' })
             .end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }))

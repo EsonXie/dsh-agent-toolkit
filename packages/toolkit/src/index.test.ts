@@ -45,14 +45,16 @@ interface ApplyHarness {
   sections: string[]
   tools: string[]
   openedDomains: string[]
+  registered: { kind: string; path: string }[]
 }
 
-/** 记录 apply 经各模块注册的命令/section/工具与打开的存储域。 */
+/** 记录 apply 经各模块注册的命令/section/工具、打开的存储域与 webServer 路由。 */
 function makeCtx(): ApplyHarness {
   const commands: string[] = []
   const sections: string[] = []
   const tools: string[] = []
   const openedDomains: string[] = []
+  const registered: { kind: string; path: string }[] = []
   const ctx = {
     logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
     storageDomain: {
@@ -74,6 +76,7 @@ function makeCtx(): ApplyHarness {
         tools.push(d.name)
         return () => {}
       },
+      schemas: () => [],
     },
     subagents: { getProvider: () => undefined, start: vi.fn() },
     commands: {
@@ -87,9 +90,20 @@ function makeCtx(): ApplyHarness {
     agentDefaultModel: { currentSelection: () => ({ provider: 'spawn', model: 'deepseek-chat' }) },
     llm: { listProviders: () => [], listModels: () => Promise.resolve([]) },
     get: () => undefined,
-    inject: vi.fn(),
+    // 模拟 ctx.inject 的可选服务语义：webServer 在场时激活子 fiber 并记录注册的路由
+    //（registerOptionalRoutes 经此注册 agents/bots 的 RPC 路由；其他依赖不激活回调）。
+    inject: (deps: string[], callback: (webCtx: {
+      effect: (fn: () => unknown) => unknown
+      webServer: { register: (r: { kind: string; path: string }) => () => void }
+    }) => void) => {
+      if (!deps.includes('webServer')) return
+      callback({
+        effect: (fn: () => unknown) => fn(),
+        webServer: { register: (r) => { registered.push(r); return () => {} } },
+      })
+    },
   } as unknown as Context
-  return { ctx, commands, sections, tools, openedDomains }
+  return { ctx, commands, sections, tools, openedDomains, registered }
 }
 
 let tempHome: string
@@ -144,6 +158,26 @@ describe('apply 模块接线与开关', () => {
     await apply(h.ctx, Config({ modules: { feishu: false } }))
     expect(h.openedDomains).toContain('token_usage')
     expect(h.openedDomains).not.toContain('project_bot')
+  })
+
+  test('modules.feishu=false：agents/providers/tools RPC 仍注册（核心恒启用），bots 路由不注册', async () => {
+    const h = makeCtx()
+    await apply(h.ctx, Config({ modules: { feishu: false } }))
+    const paths = h.registered.map((r) => r.path)
+    expect(paths).toContain('/dsh-agent-toolkit/api/agents')
+    expect(paths).toContain('/dsh-agent-toolkit/api/providers')
+    expect(paths).toContain('/dsh-agent-toolkit/api/tools')
+    expect(paths).not.toContain('/dsh-agent-toolkit/api/bots')
+  })
+
+  test('默认配置：agents RPC 与 bots 路由均注册（同一 /dsh-agent-toolkit/api 前缀，路径互不重叠）', async () => {
+    const h = makeCtx()
+    await apply(h.ctx, Config({}))
+    const paths = h.registered.map((r) => r.path)
+    expect(paths).toContain('/dsh-agent-toolkit/api/agents')
+    expect(paths).toContain('/dsh-agent-toolkit/api/providers')
+    expect(paths).toContain('/dsh-agent-toolkit/api/tools')
+    expect(paths).toContain('/dsh-agent-toolkit/api/bots')
   })
 
   test('apply 先校验 prompt 配置：非法 layers 在打开任何存储域前拒绝', async () => {
