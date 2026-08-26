@@ -23,7 +23,14 @@ export function setupUsage(ctx: Context, config: { timezone: string }): void {
   // rejection handler：避免 unhandled rejection 崩掉宿主进程（Node 默认 throw）。
   // domainReady 仍保持 reject，写链（tail 吞掉）/命令（宿主转 kind:'error'）/
   // 端点（宿主 500）/卸载（cordis 记录）均感知失败而不次生崩溃。
-  const domainReady = openDomainSafely(ctx, tokenUsageDomain, (msg) => ctx.logger.warn(msg)).then((domain) => {
+  const domainReady = openDomainSafely(
+    ctx,
+    tokenUsageDomain,
+    (msg) => ctx.logger.warn(msg),
+    // 卸载前排空本模块写链：close 一旦开始（disposing=true）就拒绝新入队的写，
+    // 未落队的采集会被静默丢弃——drain 先于 close 是归档的保证。
+    () => tail.then(() => undefined, () => undefined),
+  ).then((domain) => {
     // openDomainSafely 的句柄是类型擦除的 DomainHandle，table 值类型回落 unknown，此处窄化回 DailyRecord。
     daily = domain.table('daily') as KvTable<string, DailyRecord>
     return domain
@@ -114,10 +121,5 @@ export function setupUsage(ctx: Context, config: { timezone: string }): void {
       disposeDaily()
       disposeRange()
     }
-  })
-
-  ctx.effect(() => async () => {
-    await tail.catch(() => undefined) // 排空的写链落到后端后再关 domain
-    await domainReady.then((domain) => domain.close())
   })
 }

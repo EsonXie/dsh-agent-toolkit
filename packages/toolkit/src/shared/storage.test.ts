@@ -63,3 +63,34 @@ test('open 失败挂 rejection handler：不抛 unhandled，disposer 不抛错',
   const disposer = ctx.effects[0]() as () => Promise<void>
   await expect(disposer()).resolves.toBeUndefined()
 })
+
+test('beforeClose 钩子先排空后 close（drain-then-close 顺序）', async () => {
+  const close = vi.fn(async () => {})
+  const ctx = makeCtx(() => Promise.resolve({ close }))
+  const warn = vi.fn()
+  // gate 未落定前 close 不得触发：close 一旦开始（disposing=true）就拒绝新入队的写。
+  let release!: () => void
+  const gate = new Promise<void>((r) => { release = r })
+  const beforeClose = vi.fn(() => gate)
+  const ready = openDomainSafely(ctx as unknown as Context, SPEC, warn, beforeClose)
+  await ready
+  const done = (ctx.effects[0]() as () => Promise<void>)()
+  await Promise.resolve()
+  expect(close).not.toHaveBeenCalled()
+  release()
+  await done
+  expect(beforeClose).toHaveBeenCalledTimes(1)
+  expect(close).toHaveBeenCalledTimes(1)
+})
+
+test('beforeClose 拒绝不阻断 close（卸载路径不次生崩溃）', async () => {
+  const close = vi.fn(async () => {})
+  const ctx = makeCtx(() => Promise.resolve({ close }))
+  const warn = vi.fn()
+  const beforeClose = vi.fn(() => Promise.reject(new Error('drain boom')))
+  const ready = openDomainSafely(ctx as unknown as Context, SPEC, warn, beforeClose)
+  await ready
+  const disposer = ctx.effects[0]() as () => Promise<void>
+  await expect(disposer()).resolves.toBeUndefined()
+  expect(close).toHaveBeenCalledTimes(1)
+})

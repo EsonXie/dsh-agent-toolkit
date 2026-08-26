@@ -9,6 +9,7 @@ export function openDomainSafely(
   ctx: Context,
   domain: DomainSpec,
   warn: (msg: string) => void,
+  beforeClose?: () => void | Promise<void>,
 ): Promise<DomainHandle> {
   const ready = ctx.storageDomain.open(domain)
   // open 失败（version-mismatch/malformed-medium/invalid-record）时创建即挂
@@ -20,6 +21,10 @@ export function openDomainSafely(
   // 域句柄由本 fiber 持有：卸载时 close（消费方自己不关闭）。open 失败时
   // close 无从谈起，吞掉该 rejection，避免卸载路径次生崩溃。
   ctx.effect(() => async () => {
+    // beforeClose 在 close 前排空消费方自己的写链（如 usage 的 tail）：close 一旦
+    // 开始（disposing=true）就拒绝新入队的写，未落队的采集会被静默丢弃。drain
+    // 失败不阻断 close——卸载路径不因 drain 异常次生崩溃。
+    await Promise.resolve(beforeClose?.()).catch(() => undefined)
     await ready.then((domain) => domain.close()).catch(() => undefined)
   })
   return ready
