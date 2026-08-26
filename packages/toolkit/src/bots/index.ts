@@ -1,5 +1,6 @@
 /** bots 模块：项目机器人（飞书渠道）——多 bot 作为项目 agent 的交互入口（project-bot Node 半迁移，去 preset 化）。 */
 import { existsSync } from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
@@ -19,6 +20,7 @@ import type { BotChannel, ChannelTunables } from '../channels/channel.ts'
 import { feishuChannel } from '../channels/feishu/index.ts'
 import type { AgentPort, AgentsPort, WorkspacePort } from '../channels/ports.ts'
 import { BotRuntime } from '../channels/runtime.ts'
+import { createAgentsApiHandler } from '../agents/api.ts'
 import { createApiHandler } from './api.ts'
 import { RegisterAppService } from './register-app.ts'
 import { projectBotDomain, type Binding, type BotRecord } from './store.ts'
@@ -173,26 +175,49 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
 
   // webServer 是可选能力（headless 无此服务）：经 registerOptionalRoutes 子 fiber 惰性注册
   // （token-usage 同款）；子 fiber 未激活时惰性、随父 fiber 卸载而清理。
+  // 统一挂载点：单前缀 /dsh-agent-toolkit/api，内部按路径空间分发（/usage/* 由 usage 模块
+  // 自己的 exact 路由优先接管，webServer match 先精确后最长前缀，不会落到这里）。
   registerOptionalRoutes(ctx, (webCtx) => {
+    // bots handler 请求时才构造：runtime 在 started 落定后才赋值，注册期捕获会拿到 undefined。
+    const botsHandler: (req: IncomingMessage, res: ServerResponse) => Promise<void> = async (req, res) => {
+      if (runtime === undefined) throw new Error('runtime unavailable')
+      await createApiHandler({
+        bots: botsTable!,
+        runtime,
+        registerApp: registerAppService,
+        listTools: () => ctx.tools.schemas().map((s) => s.name),
+        listProviders: () => ctx.llm.listProviders().map(({ id, name }) => ({ id, name })),
+        listModels: (provider) => ctx.llm.listModels(provider).then((models) => models.map(({ id, name }) => ({ id, name }))),
+        storeSecret,
+        deleteSecret: async (ref) => ctx.credentials.unset(credentialRef(ref)),
+        validateProject: (path) => existsSync(path),
+        now: () => Date.now(),
+      })(req, res)
+    }
+    const agentsHandler = createAgentsApiHandler({
+      registry: deps.registry,
+      listTools: () => ctx.tools.schemas().map((s) => s.name),
+      listProviders: () => ctx.llm.listProviders().map(({ id, name }) => ({ id, name })),
+      listModels: (provider) => ctx.llm.listModels(provider).then((models) => models.map(({ id, name }) => ({ id, name }))),
+    })
     const dispose = webCtx.webServer.register({
       kind: 'prefix',
-      path: '/dsh-agent-toolkit/api/bots',
+      path: '/dsh-agent-toolkit/api',
       handler: async (req, res) => {
         try {
           await started
-          if (runtime === undefined) throw new Error('runtime unavailable')
-          await createApiHandler({
-            bots: botsTable!,
-            runtime,
-            registerApp: registerAppService,
-            listTools: () => ctx.tools.schemas().map((s) => s.name),
-            listProviders: () => ctx.llm.listProviders().map(({ id, name }) => ({ id, name })),
-            listModels: (provider) => ctx.llm.listModels(provider).then((models) => models.map(({ id, name }) => ({ id, name }))),
-            storeSecret,
-            deleteSecret: async (ref) => ctx.credentials.unset(credentialRef(ref)),
-            validateProject: (path) => existsSync(path),
-            now: () => Date.now(),
-          })(req, res)
+          const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
+          if (pathname.startsWith('/dsh-agent-toolkit/api/bots')) {
+            await botsHandler(req, res)
+            return
+          }
+          if (pathname.startsWith('/dsh-agent-toolkit/api/agents')
+            || pathname.startsWith('/dsh-agent-toolkit/api/providers')
+            || pathname === '/dsh-agent-toolkit/api/tools') {
+            await agentsHandler(req, res)
+            return
+          }
+          res.writeHead(404, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'not found' }))
         } catch (error) {
           res.writeHead(500, { 'content-type': 'application/json' })
             .end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }))
