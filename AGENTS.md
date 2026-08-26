@@ -2,16 +2,16 @@
 
 ## 仓库性质
 
-本仓库是 DeepSeek Harness（dsh）插件的开发工作区。包含 `docs/refer/` 下的 dsh 官方文档本地镜像（2026-08 抓取自 <https://deepseek-harness.github.io/deepseek-harness/> 中文站，共 87 篇），以及 `packages/token-usage` 插件（第一个实现：Node 半 + 浏览器半 bundle，20/20 测试通过）。
+本仓库是 DeepSeek Harness（dsh）插件的开发工作区。包含 `docs/refer/` 下的 dsh 官方文档本地镜像（2026-08 抓取自 <https://deepseek-harness.github.io/deepseek-harness/> 中文站，共 87 篇），以及合并后的单插件 `packages/toolkit`（npm 包名 `dsh-agent-toolkit`，Agent 注册表 + 分层提示词 + 并行委派 + 飞书 bots + token 用量，Node 半 + 浏览器半 bundle，305/305 测试通过）。合并前的四包代码快照在 `archive/2026-08-26-merged-plugins/`（只读参考）。
 
 已是 git 仓库（2026-08-18 初始化）；`deepseek-harness/` 被 .gitignore 排除。**注意：该 checkout 的 `.git` 已丢失（无法 git 恢复/核对版本），且 2026-08-25 发现 `apps/cli/config/agent-presets/`（内置 code/cordis/minimal/standard preset）缺失，已从上游 master 手动恢复 10 个文件——本地源码版本（08-18）与 master 的 preset 内容可能有轻微错位。**
 
 ## 开发命令
 
-- 单测：`pnpm --filter @dsh-agent-toolkit/token-usage test`；类型检查：`pnpm --filter @dsh-agent-toolkit/token-usage typecheck`；agent-team 同（`pnpm --filter agent-team test` / `typecheck`）；prompt-stack 同（`pnpm --filter @dsh-agent-toolkit/prompt-stack test` / `typecheck`）；project-bot 同（`pnpm --filter @dsh-agent-toolkit/project-bot test` / `typecheck`）
-- 构建：`pnpm --filter @dsh-agent-toolkit/token-usage bundle` 同时产出 Node 半（lib/index.js，exports 入口）与浏览器半（lib/client.js）——token-usage 任何 src 改动后、进开发回路前都要跑（开发期 `pnpm --filter @dsh-agent-toolkit/token-usage watch`）；agent-team 含浏览器半，改动后需 `pnpm --filter agent-team bundle`；prompt-stack 是纯 Node 半（`pnpm --filter @dsh-agent-toolkit/prompt-stack bundle` 只产 lib/index.js + d.ts），src 改动后同样要跑；project-bot 同 token-usage 双半产出（`pnpm --filter @dsh-agent-toolkit/project-bot bundle`），src 改动后同样要跑
-- 发布：`powershell -File scripts/publish-token-usage.ps1` / `scripts/publish-prompt-stack.ps1`（六道门禁后 pnpm publish 到官方 registry；不可在 CI/自动化里跑，含人工确认）
-- 开发回路：`cd deepseek-harness && pnpm dsh web --patch D:\work\github\dsh\dsh-agent-toolkit\cordis.yml`（deepseek-harness 首次需 `pnpm install && pnpm run build`）
+- 单测：`pnpm --filter dsh-agent-toolkit test`；类型检查：`pnpm --filter dsh-agent-toolkit typecheck`；构建：`pnpm --filter dsh-agent-toolkit bundle` 同时产出 Node 半（lib/index.js，exports 入口）与浏览器半（lib/client.js）——任何 src 改动后、进开发回路前都要跑（开发期 `pnpm --filter dsh-agent-toolkit watch`）
+- 发布：`powershell -File scripts/publish-toolkit.ps1`（六道门禁后 pnpm publish 到官方 registry；不可在 CI/自动化里跑，含人工确认）
+- 待办（人工发布操作，不自动执行）：已发布 npm 的三个旧包 `npm deprecate @dsh-agent-toolkit/token-usage "已合并进 dsh-agent-toolkit"`、`@dsh-agent-toolkit/prompt-stack` 同、`@dsh-agent-toolkit/project-bot` 同
+- 开发回路：`cd deepseek-harness && pnpm dsh plugin --profile web add link:D:\work\github\dsh\dsh-agent-toolkit\packages\toolkit` 把插件装进 web profile（deepseek-harness 首次需 `pnpm install && pnpm run build`）；日常启动 `pnpm dsh web --patch D:\work\github\dsh\dsh-agent-toolkit\cordis.yml`（只按 id 覆盖 config）
 
 ## 文档使用（先读这里）
 
@@ -21,13 +21,13 @@
 ## dsh 插件开发要点（已从文档核实，避免猜错）
 
 - 插件 = 导出 `apply(ctx)` 的 TS 模块，可选导出 `name`、`inject`、`Config`（Schemastery schema）。通过 `ctx` 注册的一切卸载时自动清理；手动资源必须 `ctx.effect(() => disposer)`。
-- 本地开发回路：在 dsh 源码 checkout 中运行 `pnpm dsh web --patch ./cordis.yml`（或已装 CLI 时用 `dsh web --patch`）。**patch 中插件路径必须是绝对路径**，相对路径不会被解析。
+- 本地开发回路：插件经 `dsh plugin --profile web add link:<packages/toolkit 绝对路径>` 装进 web profile，由包自带 `cordis.patch.yml`（bundles 层，id: dsh-agent-toolkit）激活，走 loader 的 profile 目录解析锚点。**根 patch 不要 insert 本地插件**：Windows 绝对路径（`D:\...`）会被 loader 当裸 specifier 报 `ERR_UNSUPPORTED_ESM_URL_SCHEME`（protocol 'd:'），`file://` 名虽可 import 但会脱离 profile 解析锚点（找不到宿主注入服务）；根 `cordis.yml` 只按 id 覆盖 config。
 - 修改 `cordis.yml` 中的插件 config 会触发 HMR 热替换，无需重启。
-- agent-team 例外：经 user preset root（`$DSH_HOME/.agent-presets/team`）接入开发回路，不走 cordis.yml patch（CLI overlay 会重置 roots）；含浏览器半，改动后需 `bundle`。
-- agent-team 双挂载点：preset 内挂载跑 Node 半真实工作；cordis.yml 另需一行全局挂载 `config: { clientOnly: true }`（Node 半空转，仅让浏览器半 bundle 进 boot 清单）。激活失败反馈在 preset chip hover title / select RPC reason，不标 broken、不进服务端控制台。
-- agent-team 扁平角色名册：内置 explorer（只读）/general（可读写）保底，用户级 `$DSH_HOME/agent-team/roles/<name>.yml` 同名整角色覆盖、异名追加；委派走纯 Node 半 `team_delegate`（一次性），浏览器半只渲染委派卡（角色 chip + 折叠 + 跳转只读子会话）。
-- agent-team team preset 组合含基础编码工具行（persona/instructions/shell/fs/fs-search，与 standard 同源）；成员经 composeFrom 继承父会话工具层，角色 tools 过滤名单必须命中组合内已注册工具名（否则委派时 tools.restrict() 响亮失败）。
-- token-usage 的 src/store.ts 运行时值导入 `@deepseek-ai/dsh-storage-domain`，但不进 dependencies/peerDependencies：它由宿主 dsh base 隐式提供，加依赖会导致 pnpm 装副本、storage domain 双实例注册分裂。
+- 单插件入口：`packages/toolkit/src/index.ts` 命名导出 `name`/`inject`/`Config`/`apply`；`inject` 是 merged 模块直接消费的硬依赖服务全集（含 storageDomain/tokenMeter/credentials/agents 等 10 项）。
+- Agent 注册表：UI 管理（Agents 面板，创建/编辑/删除）+ YAML 首启导入（`roles_yaml_imported` 一次性标记）；存储域 `dsh_agent_toolkit`（表 `agents` + `meta`），schema 与 domain 布局的单一来源在 `src/agents/store.ts`。
+- 内存 setup 建会话：`ctx.agents.create` + `setup` 建实时 agent，`setupAgentScope` 在 agentCtx 下 scoped 挂载基础工具行（persona/instructions/shell/fs/fs-search）再叠 persona/tools 白名单（restrict 必须在工具行挂载之后）；委派走 `team_delegate`（一次性），浏览器半渲染委派卡。
+- 共享层约定：`src/shared/` 的 `openDomainSafely`（安全打开存储域 + 卸载时关闭）/`registerOptionalRoutes`（webServer 可选服务下注册路由，headless/CLI 惰性不抛错）；`src/client/shared/` 的 `createSidebarEntry`（侧边栏底栏入口工厂）/`useLoadState`（loading/error/ok 状态机）。
+- toolkit 的 src 运行时值导入 `@deepseek-ai/dsh-storage-domain`，但不进 dependencies/peerDependencies：它由宿主 dsh base 隐式提供（devDependencies link 到 deepseek-harness 源码），加依赖会导致 pnpm 装副本、storage domain 双实例注册分裂。
 - 从一开始就遵守的约定：可调参数进 Config schema（不硬编码）；工具 `execute` 返回规范 JSON 值、args 只读且已校验；策略/权限逻辑放 `tools/*` 事件钩子，不内建进工具。
 
 ## 目录结构（已定案）
@@ -37,25 +37,23 @@ dsh-agent-toolkit/
 ├─ deepseek-harness/     ← dsh 源码 checkout（自带 .git；只读使用，不修改其中文件）
 │                           本仓库 git 化时必须 .gitignore 掉它
 ├─ docs/refer/           ← 官方文档镜像（87 篇）
-├─ packages/             ← 插件，各自独立 package
-│   ├─ token-usage/      ← Token 用量统计（包名 @dsh-agent-toolkit/token-usage，已发布 npm；
-│                           发版流程：test → typecheck → bundle → pack 核查 → pnpm publish）
-│   ├─ feishu-bot/       ← 飞书机器人
-│   ├─ agent-team/       ← Agent 团队（扁平角色名册：内置 explorer/general +
-│                           $DSH_HOME/agent-team/roles/*.yml 覆盖；presets/team/ 随包发行）
-│   ├─ project-bot/      ← 项目机器人（飞书渠道；包名 @dsh-agent-toolkit/project-bot，双半 bundle：
-│                           cordis.patch.yml 自带 insert，经 dsh plugin add 进 bundles 层挂载）
-└─ prompt-stack/     ← 提示词分层 + 按模型区分提示词（包名 @dsh-agent-toolkit/prompt-stack；
-                        纯 Node 半：tsdown 只产 lib/index.js + d.ts，发版流程同 token-usage）
-├─ cordis.yml            ← 开发用 patch（插件 name 写绝对路径）
+├─ docs/superpowers/     ← 设计 spec（specs/）与实施计划（plans/）；历史任务的
+│                           {specs,plans}/archive/ 只读参考
+├─ packages/             ← 插件包
+│   └─ toolkit/          ← 单插件总入口（npm 包名 dsh-agent-toolkit；Node 半 lib/index.js +
+│                          浏览器半 lib/client.js，双半 bundle；发版：test → typecheck →
+│                          bundle → pack 核查 → pnpm publish）
+├─ archive/2026-08-26-merged-plugins/ ← 合并前的四包代码快照（token-usage/agent-team/
+│                           prompt-stack/project-bot + scripts/publish-*.ps1），只读参考
+├─ cordis.yml            ← 开发用 patch（只按 id 覆盖 config；不再 insert 插件）
 └─ package.json + pnpm-workspace.yaml（workspace 只含 packages/*，不含 deepseek-harness）
 ```
 
-插件包内部统一照 `deepseek-harness/packages/acp/acp` 蓝本：`package.json`（peerDeps 拷贝 ACP 依赖集）+ `src/index.ts`（命名导出 `name`/`inject`/`Config`/`apply`，无 default export）。
+包结构照 `deepseek-harness/packages/acp/acp` 蓝本：`package.json`（peerDeps 拷贝 ACP 依赖集）+ `src/index.ts`（命名导出 `name`/`inject`/`Config`/`apply`，无 default export）。
 
 ## 调研成果
 
-- `docs/2026-08-18-插件组技术可行性评估.md`：三个规划插件（飞书机器人 / Agent 团队 / Token 统计）的可行性报告，所有未知点已对照 `deepseek-harness/` 源码逐项闭环（含文件:行号引用）。动手实现前先读它。第四节是开发环境与目录结构的定案。
+- `docs/2026-08-18-插件组技术可行性评估.md`：三个规划插件（飞书机器人 / Agent 团队 / Token 统计）的可行性报告，所有未知点已对照 `deepseek-harness/` 源码逐项闭环（含文件:行号引用）。**注意：对应合并前的四包规划，现状已合并为 `packages/toolkit` 单包（见上方目录结构）**。第四节是开发环境与目录结构的定案（已过时，以本文件当前结构为准）。
 - `deepseek-harness/`：dsh 源码 checkout，用作运行时宿主与类型依赖来源；不要修改其中的文件。
 
 ## 文档镜像的刷新
