@@ -12,7 +12,6 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type { AgentRegistry } from '../agents/registry.ts'
-import type { LayerConfig, Rule } from '../prompt/types.ts'
 import { openDomainSafely } from '../shared/storage.ts'
 import { registerOptionalRoutes } from '../shared/webserver.ts'
 import { setupAgentScope } from '../channels/agent-setup.ts'
@@ -41,10 +40,9 @@ export interface BotsModuleConfig {
   errorDetailMaxChars: number
 }
 
-/** setupBots 的宿主接线依赖（registry / prompt 供 Task 13 的角色 persona 装配消费；本任务只声明接口）。 */
+/** setupBots 的宿主接线依赖（registry 供运行时委派/API 消费；prompt 无消费方，Task 13 定案不装配 persona）。 */
 export interface BotsDeps {
   registry: AgentRegistry
-  prompt: { layers: LayerConfig[]; rules: Rule[] }
 }
 
 export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps): void {
