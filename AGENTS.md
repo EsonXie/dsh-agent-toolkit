@@ -24,6 +24,7 @@
 - 本地开发回路：插件经 `dsh plugin --profile web add link:<packages/toolkit 绝对路径>` 装进 web profile，由包自带 `cordis.patch.yml`（bundles 层，id: dsh-agent-toolkit）激活，走 loader 的 profile 目录解析锚点。**根 patch 不要 insert 本地插件**：Windows 绝对路径（`D:\...`）会被 loader 当裸 specifier 报 `ERR_UNSUPPORTED_ESM_URL_SCHEME`（protocol 'd:'），`file://` 名虽可 import 但会脱离 profile 解析锚点（找不到宿主注入服务）；根 `cordis.yml` 只按 id 覆盖 config。
 - 修改 `cordis.yml` 中的插件 config 会触发 HMR 热替换，无需重启。
 - 单插件入口：`packages/toolkit/src/index.ts` 命名导出 `name`/`inject`/`Config`/`apply`；`inject` 是 merged 模块直接消费的硬依赖服务全集（含 storageDomain/tokenMeter/credentials/agents 等 10 项）。
+- 浏览器半 `packages/toolkit/src/client/index.ts` 同样必须命名导出服务名数组 `inject`（现为 `['sessions', 'slots', 'locale']`）：browser kernel 按插件模块自身导出的 inject 门控 `ctx.<service>` 访问，package.json 的 `dsh.client.inject`（包名数组）只是信息性 boot-graph 边，不参与门控。
 - Agent 注册表：UI 管理（Agents 面板，创建/编辑/删除）+ YAML 首启导入（`roles_yaml_imported` 一次性标记）；存储域 `dsh_agent_toolkit`（表 `agents` + `meta`），schema 与 domain 布局的单一来源在 `src/agents/store.ts`。
 - 内存 setup 建会话：`ctx.agents.create` + `setup` 建实时 agent，`setupAgentScope` 在 agentCtx 下 scoped 挂载基础工具行（persona/instructions/shell/fs/fs-search）再叠 persona/tools 白名单（restrict 必须在工具行挂载之后）；委派走 `team_delegate`（一次性），浏览器半渲染委派卡。
 - 共享层约定：`src/shared/` 的 `openDomainSafely`（安全打开存储域 + 卸载时关闭）/`registerOptionalRoutes`（webServer 可选服务下注册路由，headless/CLI 惰性不抛错）；`src/client/shared/` 的 `createSidebarEntry`（侧边栏底栏入口工厂）/`useLoadState`（loading/error/ok 状态机）。

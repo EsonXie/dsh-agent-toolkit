@@ -5,6 +5,8 @@ import { setupAgentsClient } from './agents/index.ts'
 import { setupUsageClient } from './usage/index.ts'
 import { setupBotsClient } from './bots/index.ts'
 
+export const inject = ['sessions', 'slots', 'locale']
+
 export function apply(ctx: Context): void {
   setupDelegateClient(ctx)
   setupAgentsClient(ctx)
