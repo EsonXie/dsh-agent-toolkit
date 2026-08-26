@@ -1,4 +1,4 @@
-/** usage 模块：per-day token 用量采集、/token-usage 命令与 JSON 路由。 */
+/** usage 模块：per-day token 用量采集、/token-usage 命令与 /dsh-agent-toolkit/api/usage JSON 路由。 */
 import type { Context } from '@deepseek-ai/cordis'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 // Type-only 激活对应包对 cordis Context 的声明合并（inject 的 service 属性）。
@@ -78,7 +78,7 @@ export function setupUsage(ctx: Context, config: { timezone: string }): void {
   registerOptionalRoutes(ctx, (webCtx) => {
     const disposeDaily = webCtx.webServer.register({
       kind: 'exact',
-      path: '/token-usage/api/daily',
+      path: '/dsh-agent-toolkit/api/usage/daily',
       handler: async (req, res) => {
         if (req.method !== 'GET') {
           res.writeHead(405).end()
@@ -99,7 +99,7 @@ export function setupUsage(ctx: Context, config: { timezone: string }): void {
 
     const disposeRange = webCtx.webServer.register({
       kind: 'exact',
-      path: '/token-usage/api/range',
+      path: '/dsh-agent-toolkit/api/usage/range',
       handler: async (req, res) => {
         if (req.method !== 'GET') {
           res.writeHead(405).end()
