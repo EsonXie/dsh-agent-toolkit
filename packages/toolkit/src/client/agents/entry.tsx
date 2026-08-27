@@ -1,4 +1,4 @@
-/** agents 侧边栏底栏入口：createSidebarEntry 工厂产物（宽栏图标+文字 / 窄栏仅图标），点击打开 Agent 管理模态框。 */
+/** agents 侧边栏底栏入口：createSidebarEntry 工厂产物（宽栏窄栏统一仅图标 + Tooltip），点击打开 Agent 管理模态框。 */
 import type { ReactNode } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // 触发 ui-sidebar 对 SlotMap 的声明合并（sidebar.footer.action 键与 owner props）。

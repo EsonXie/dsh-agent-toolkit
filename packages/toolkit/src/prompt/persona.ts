@@ -19,7 +19,11 @@ export function buildAgentPersona(
 ): string {
   const rule = selectRule(config.rules, model?.provider, model?.model)
   // 角色 persona 固定为 order 0 层；数组稳定排序保证同 order 的全局层（如 base）排在 persona 之前。
-  const roleLayers: LayerConfig[] = role.persona === undefined ? [] : [{ name: 'persona', order: 0, text: role.persona }]
+  // 与 router 的角色分支一致：persona 缺失或纯空白时跳过，不产出空段落。
+  const roleLayers: LayerConfig[] =
+    role.persona === undefined || role.persona.trim().length === 0
+      ? []
+      : [{ name: 'persona', order: 0, text: role.persona }]
   const merged = [...config.layers, ...roleLayers].sort((a, b) => a.order - b.order)
   const texts = merged.map(layer => rule?.overrides?.[layer.name] ?? layer.text)
   if (rule?.append !== undefined) texts.push(rule.append)

@@ -93,6 +93,30 @@ test('新建角色→保存：Persona 单文本 + 工具默认全勾（原生+�
   })
 })
 
+test('新建角色：工具名册未解析前保存按钮禁用（防静默产不受限角色）', async () => {
+  // 名册请求挂起（永不 resolve），模拟名册未到达 / fetchTools 失败前的窗口
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    if (url === '/dsh-agent-toolkit/api/tools') return await new Promise<Response>(() => undefined)
+    const routes: Record<string, (init?: RequestInit) => unknown> = {
+      '/dsh-agent-toolkit/api/agents/': () => ({ ok: true }),
+      '/dsh-agent-toolkit/api/agents': () => AGENTS,
+      '/dsh-agent-toolkit/api/providers': () => PROVIDERS,
+    }
+    const handler = Object.entries(routes).find(([prefix]) => url.startsWith(prefix))?.[1]
+    if (handler === undefined) return new Response('not found', { status: 404 })
+    return new Response(JSON.stringify(handler(init)), { status: 200, headers: { 'content-type': 'application/json' } })
+  }))
+  render(<AgentsModal open onClose={() => undefined} />)
+  await screen.findByText('Explorer')
+
+  fireEvent.click(screen.getByRole('button', { name: '新建角色' }))
+  fireEvent.change(screen.getByLabelText('ID'), { target: { value: 'ops' } })
+  fireEvent.change(screen.getByLabelText('名称'), { target: { value: '运维' } })
+  // 名册未到 → 保存禁用（否则 tools 为空会整段省略 allow，产出不受限角色）
+  expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(true)
+})
+
 test('内置角色锁定不可删：初始选中回退首个可见内置角色无删除按钮；选中普通角色有删除按钮', async () => {
   const calls = stubFetch(routes())
   render(<AgentsModal open onClose={() => undefined} />)

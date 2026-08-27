@@ -38,7 +38,7 @@ let dir: string
 beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'dsh-toolkit-roles-')) })
 afterEach(async () => { await rm(dir, { recursive: true, force: true }) })
 
-test('parseRoleYaml：persona 转单个 promptLayers；name 省略取文件名', () => {
+test('parseRoleYaml：persona 直写同名字段；name 省略取文件名', () => {
   const rec = parseRoleYaml(VALID, 'explorer.yml', 'explorer')
   expect(rec).toEqual({
     id: 'explorer',

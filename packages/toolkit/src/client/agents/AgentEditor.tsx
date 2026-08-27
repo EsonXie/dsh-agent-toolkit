@@ -30,6 +30,7 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
   const [models, setModels] = useState<ModelOption[]>([])
   const [tools, setTools] = useState<string[]>(agent?.tools?.allow ?? [])
   const [catalog, setCatalog] = useState<ToolsCatalog>({ native: [], global: [] })
+  const [catalogLoaded, setCatalogLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -40,6 +41,7 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
     fetchTools().then((c) => {
       if (stale) return
       setCatalog(c)
+      setCatalogLoaded(true)
       // 新建模式默认全勾（原生 + 扩展）；编辑模式以记录 allow 为准
       if (creating) setTools([...c.native, ...c.global])
     }).catch(() => undefined)
@@ -195,7 +197,7 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
         {onDeleted !== undefined && !creating && !locked && (
           <Button variant="outline" className={css.dangerButton} disabled={saving} onClick={() => { void remove() }}>删除</Button>
         )}
-        <Button variant="primary" disabled={saving} onClick={() => { void save() }}>保存</Button>
+        <Button variant="primary" disabled={saving || (creating && !catalogLoaded)} onClick={() => { void save() }}>保存</Button>
       </div>
     </div>
   )

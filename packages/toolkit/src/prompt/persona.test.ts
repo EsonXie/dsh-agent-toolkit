@@ -39,6 +39,19 @@ describe('buildAgentPersona', () => {
     expect(persona).toBe(`${SECTION_A('general')}\n\n${SECTION_B}\n\nB\n\nR\n\nT`)
   })
 
+  test('role.persona 为空或纯空白时 roleLayers 为空（对齐 router 跳过语义，不产空段落）', () => {
+    const config = configOf(
+      [
+        { name: 'base', order: 0, text: 'B' },
+        { name: 'task', order: 50, text: 'T' },
+      ],
+      [],
+    )
+    const expected = `${SECTION_A('general')}\n\n${SECTION_B}\n\nB\n\nT`
+    expect(buildAgentPersona(config, { name: 'general', persona: '' })).toBe(expected)
+    expect(buildAgentPersona(config, { name: 'general', persona: '   \n\t ' })).toBe(expected)
+  })
+
   test('命中规则的 overrides 替换对应层文本、append 成为末段', () => {
     const config = configOf(
       [
