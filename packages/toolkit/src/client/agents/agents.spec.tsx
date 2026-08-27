@@ -72,7 +72,7 @@ test('新建角色→保存：Persona 单文本 + 工具默认全勾（原生+�
   fireEvent.click(screen.getByRole('button', { name: '新建角色' }))
   fireEvent.change(screen.getByLabelText('ID'), { target: { value: 'ops' } })
   fireEvent.change(screen.getByLabelText('名称'), { target: { value: '运维' } })
-  fireEvent.change(screen.getByLabelText('Persona'), { target: { value: '你是运维。' } })
+  fireEvent.change(screen.getByLabelText('提示词'), { target: { value: '你是运维。' } })
   // 新建模式默认全勾 native + global（fetchTools 返回 ToolsCatalog 后异步填入）
   await vi.waitFor(() => {
     expect((screen.getByLabelText('工具 bash') as HTMLInputElement).checked).toBe(true)

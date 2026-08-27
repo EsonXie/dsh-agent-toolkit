@@ -1,4 +1,4 @@
-/** Agent 编辑器：基本信息 + Persona + 模型（级联下拉）+ 工具白名单 四区块。 */
+/** Agent 编辑器：基本信息 + 提示词（persona）+ 模型（级联下拉）+ 工具白名单 四区块。 */
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AgentRecord } from '../../agents/store.ts'
@@ -129,9 +129,9 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
       </section>
 
       <section className={css.block}>
-        <h3 className={css.blockTitle}>Persona</h3>
+        <h3 className={css.blockTitle}>提示词</h3>
         <textarea
-          className={css.textarea} value={persona} aria-label="Persona" rows={6}
+          className={css.textarea} value={persona} aria-label="提示词" rows={6}
           placeholder="角色人设与职责（固定分层中唯一可自定义的 persona 层）"
           onChange={(e) => { setPersona(e.target.value) }}
         />
