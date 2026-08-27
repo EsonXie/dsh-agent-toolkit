@@ -60,7 +60,7 @@
 Schema 与迁移：
 
 - `src/agents/store.ts`：`AgentRecord.promptLayers?: LayerConfig[]` 替换为 `persona?: string`；`AgentRecordSchema` 同步（`persona: z.string().optional()`，删除 LayerConfigSchema 引用）。domain version 不变（读取侧迁移兜底，无需升 version 重建）。
-- **读取迁移**（registry/store 读取路径单点实施）：parse 前检查 raw 记录含 `promptLayers` 时，按 `order` 升序取各层 `text` 以 `\n\n` 拼接为 `persona`（空结果则省略该字段），剥离 `promptLayers` 后再过 schema；迁移结果写回存储。注意：zod 默认 strip 未知键，必须先迁移再 parse，否则旧分层静默丢失。
+- **读取迁移**（`createRegistry` 单点实施）：`promptLayers` 保留在 interface/schema 中（标 @deprecated，仅作迁移输入——domain 表读路径可能先行 parse，raw 访问不可靠）；读取时逐条把 `promptLayers` 按 `order` 升序取 `text` 以 `\n\n` 拼接为 `persona`（persona 已存在不覆盖），剥离后写回存储；`upsert` 同样过迁移防旧客户端回写。迁移函数 `migrateAgentRecord` 返回原引用表示无变化，按引用比较决定写回。
 - 与 1.2 的 tools union 迁移合并在同一读取迁移函数中（一次读取、一次写回）。
 
 消费方改造：
