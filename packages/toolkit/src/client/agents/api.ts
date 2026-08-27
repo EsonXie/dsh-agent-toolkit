@@ -26,7 +26,9 @@ export const fetchProviders = () => request<ProviderOption[]>('/dsh-agent-toolki
 export const fetchModels = (provider: string) =>
   request<ModelOption[]>(`/dsh-agent-toolkit/api/providers/${encodeURIComponent(provider)}/models`)
 
-export const fetchTools = () => request<string[]>('/dsh-agent-toolkit/api/tools')
+export interface ToolsCatalog { native: string[]; global: string[] }
+
+export const fetchTools = () => request<ToolsCatalog>('/dsh-agent-toolkit/api/tools')
 
 /** PUT /agents/:id（upsert：全量替换记录）。 */
 export const saveAgent = (record: AgentRecord) =>

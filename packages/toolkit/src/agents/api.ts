@@ -4,6 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { registerOptionalRoutes } from '../shared/webserver.ts'
 import { AgentRecordSchema } from './store.ts'
 import type { AgentRegistry } from './registry.ts'
+import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 
 /** 一个可选的 provider 路由（id = agentOptions.provider 的值）。 */
 export interface ProviderOption { id: string; name: string }
@@ -58,7 +59,8 @@ export function createAgentsApiHandler(deps: AgentsApiDeps): (req: IncomingMessa
     }
 
     if (sub === '/tools' && method === 'GET') {
-      json(res, 200, deps.listTools())
+      // 分组名册：native = BASIC_TOOLS scoped 挂载的原生工具名（常量），global = 顶层注册表全局工具。
+      json(res, 200, { native: [...NATIVE_TOOL_NAMES], global: deps.listTools() })
       return
     }
 

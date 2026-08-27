@@ -4,6 +4,7 @@ import { describe, expect, test } from 'vitest'
 import { createAgentsApiHandler, type AgentsApiDeps } from './api.ts'
 import { AgentRecordSchema, type AgentRecord } from './store.ts'
 import type { AgentRegistry } from './registry.ts'
+import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 
 function mockReq(method: string, url: string, body?: unknown): IncomingMessage {
   const req = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]) as unknown as IncomingMessage
@@ -98,7 +99,7 @@ describe('PUT /agents/:id', () => {
     const res = mockRes()
     await handler(mockReq('PUT', '/dsh-agent-toolkit/api/agents/sentry', {
       id: 'sentry', name: '哨兵', description: '监控',
-      promptLayers: [{ name: 'persona', order: 0, text: '只读观察' }],
+      persona: '只读观察',
       tools: { allow: ['read'] },
     }), res)
     expect(res.status).toBe(200)
@@ -233,12 +234,15 @@ describe('GET /providers 与 GET /providers/:provider/models', () => {
   })
 })
 
-test('GET /tools 返回已注册工具名列表', async () => {
+test('GET /tools 返回分组工具名册（native 常量 + global 全局注册）', async () => {
   const { handler } = harness()
   const res = mockRes()
   await handler(mockReq('GET', '/dsh-agent-toolkit/api/tools'), res)
   expect(res.status).toBe(200)
-  expect(JSON.parse(res.body)).toEqual(['bash', 'read', 'write'])
+  expect(JSON.parse(res.body)).toEqual({
+    native: [...NATIVE_TOOL_NAMES],
+    global: ['bash', 'read', 'write'],
+  })
 })
 
 test('未知路径 404；已知路径错误方法 405', async () => {
