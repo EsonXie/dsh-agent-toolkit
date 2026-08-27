@@ -1,0 +1,65 @@
+.dialog { width: 960px; }
+
+.split {
+  display: flex;
+  gap: 16px;
+  min-height: 420px;
+}
+.listPane {
+  flex: none;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.layerRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.layerRow:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.layerRowActive {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.layerName { font-size: 14px; line-height: 22px; }
+.layerOrder { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary); }
+.createButton { margin-top: 8px; }
+
+.editorPane { flex: 1; min-width: 0; max-height: 70vh; overflow-y: auto; }
+.editor { display: flex; flex-direction: column; gap: 16px; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.input { width: 100%; }
+.textarea {
+  width: 100%;
+  min-height: 160px;
+  padding: 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-elevated, transparent);
+  font: inherit;
+  color: inherit;
+  resize: vertical;
+}
+.rowActions { display: flex; gap: 8px; }
+.actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.dangerButton { color: var(--dsw-alias-status-danger, inherit); }
+
+.rulesPane { flex: none; width: 260px; }
+.ruleList { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ruleItem { display: flex; flex-direction: column; gap: 2px; font-size: 12px; line-height: 18px; }
+.ruleMatch { color: var(--dsw-alias-label-secondary); }
+.ruleOverrides { color: var(--dsw-alias-label-tertiary); }
+.ruleAppend { color: var(--dsw-alias-label-tertiary); }
+.dangling { color: var(--dsw-alias-status-danger, red); }
+.hint { font-size: 13px; color: var(--dsw-alias-label-tertiary); }
+.error { font-size: 13px; color: var(--dsw-alias-status-danger, red); }
