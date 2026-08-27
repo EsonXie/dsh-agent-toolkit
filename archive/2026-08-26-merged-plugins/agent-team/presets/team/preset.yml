@@ -1,3 +1,0 @@
-name: Agent 团队
-description: 主 Agent + 扁平角色名册（内置 explorer/general，可被 $DSH_HOME/agent-team/roles/*.yml 覆盖）
-order: 10

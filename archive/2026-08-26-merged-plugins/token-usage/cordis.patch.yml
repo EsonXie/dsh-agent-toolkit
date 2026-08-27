@@ -1,7 +1,0 @@
-# token-usage 组合包层：profile 的 dsh.profile.bundles 列出本包时应用。
-# 行 name 用包名（非路径），Node 模块解析以 profile 目录为锚点找到已安装代码。
-# config 不写：timezone 由 Config schema 默认（系统时区），用户可在自己 profile 的
-# cordis.patch.yml 中整行覆盖（patch 是整行替换，不深度合并）。
-- insert:
-    - id: token-usage
-      name: '@dsh-agent-toolkit/token-usage'

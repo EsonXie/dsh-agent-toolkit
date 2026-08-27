@@ -2,7 +2,7 @@
 
 ## 仓库性质
 
-本仓库是 DeepSeek Harness（dsh）插件的开发工作区。包含 `docs/refer/` 下的 dsh 官方文档本地镜像（2026-08 抓取自 <https://deepseek-harness.github.io/deepseek-harness/> 中文站，共 87 篇），以及合并后的单插件 `packages/toolkit`（npm 包名 `dsh-agent-toolkit`，Agent 注册表 + 分层提示词 + 并行委派 + 飞书 bots + token 用量，Node 半 + 浏览器半 bundle，318/318 测试通过）。合并前的四包代码快照在 `archive/2026-08-26-merged-plugins/`（只读参考）。
+本仓库是 DeepSeek Harness（dsh）插件的开发工作区。包含 `docs/refer/` 下的 dsh 官方文档本地镜像（2026-08 抓取自 <https://deepseek-harness.github.io/deepseek-harness/> 中文站，共 87 篇），以及合并后的单插件 `packages/toolkit`（npm 包名 `dsh-agent-toolkit`，Agent 注册表 + 分层提示词 + 并行委派 + 飞书 bots + token 用量，Node 半 + 浏览器半 bundle，318/318 测试通过）。合并前的四包代码快照已于 2026-08-27 删除（如需参考可从 git 历史恢复）。使用手册在 `docs/usage/`（中文多文件，含 `images/` 界面截图；委派卡截图待真实委派后补拍）。
 
 已是 git 仓库（2026-08-18 初始化）；`deepseek-harness/` 被 .gitignore 排除。**注意：该 checkout 的 `.git` 已丢失（无法 git 恢复/核对版本），且 2026-08-25 发现 `apps/cli/config/agent-presets/`（内置 code/cordis/minimal/standard preset）缺失，已从上游 master 手动恢复 10 个文件——本地源码版本（08-18）与 master 的 preset 内容可能有轻微错位。**
 
@@ -10,7 +10,7 @@
 
 - 单测：`pnpm --filter dsh-agent-toolkit test`；类型检查：`pnpm --filter dsh-agent-toolkit typecheck`；构建：`pnpm --filter dsh-agent-toolkit bundle` 同时产出 Node 半（lib/index.js，exports 入口）与浏览器半（lib/client.js）——任何 src 改动后、进开发回路前都要跑（开发期 `pnpm --filter dsh-agent-toolkit watch`）
 - 发布：`powershell -File scripts/publish-toolkit.ps1`（六道门禁后 pnpm publish 到官方 registry；不可在 CI/自动化里跑，含人工确认）
-- 待办（人工发布操作，不自动执行）：已发布 npm 的三个旧包 `npm deprecate @dsh-agent-toolkit/token-usage "已合并进 dsh-agent-toolkit"`、`@dsh-agent-toolkit/prompt-stack` 同、`@dsh-agent-toolkit/project-bot` 同；首次发布前需补 `packages/toolkit/README.md` + `LICENSE`（package.json files 已引用），并恢复 `scripts/publish-toolkit.ps1` pack 核查中的对应两项检查
+- 待办（人工发布操作，不自动执行）：已发布 npm 的三个旧包 `npm deprecate @dsh-agent-toolkit/token-usage "已合并进 dsh-agent-toolkit"`、`@dsh-agent-toolkit/prompt-stack` 同、`@dsh-agent-toolkit/project-bot` 同；首次发布前需补 `packages/toolkit/LICENSE`（README.md 已补，package.json files 已引用两者），并恢复 `scripts/publish-toolkit.ps1` pack 核查中的对应检查
 - 已知问题（2026-08-27 记录，未解决）：Agents 面板编辑区滚到底部后，hover 工具白名单 checkbox / 模型下拉框时视觉抖动（用户感知控件高度变化 + 周围内容跳动）。已排除：插件与宿主全部 CSS（无 hover 布局规则）、滚动条皮肤与 Fluent/Overlay flag、扩展（无痕复现）、DOM 层（用户浏览器内稳态采样 + 逐帧 computed-style 采样均零变化）；同一 chrome.exe 干净 profile（Playwright 有头）不复现。隐藏 editorPane 滚动条无效（已回退）。疑似真实鼠标轨迹/惯性滚动或合成器层绘制问题，待录屏证据后继续定位。
 - 开发回路：`cd deepseek-harness && pnpm dsh plugin --profile web add link:D:\work\github\dsh\dsh-agent-toolkit\packages\toolkit` 把插件装进 web profile（deepseek-harness 首次需 `pnpm install && pnpm run build`）；日常启动 `pnpm dsh web --patch D:\work\github\dsh\dsh-agent-toolkit\cordis.yml`（只按 id 覆盖 config）
 
@@ -39,14 +39,13 @@ dsh-agent-toolkit/
 ├─ deepseek-harness/     ← dsh 源码 checkout（自带 .git；只读使用，不修改其中文件）
 │                           本仓库 git 化时必须 .gitignore 掉它
 ├─ docs/refer/           ← 官方文档镜像（87 篇）
+├─ docs/usage/           ← 插件使用手册（中文多文件 + images/ 界面截图）
 ├─ docs/superpowers/     ← 设计 spec（specs/）与实施计划（plans/）；历史任务的
 │                           {specs,plans}/archive/ 只读参考
 ├─ packages/             ← 插件包
 │   └─ toolkit/          ← 单插件总入口（npm 包名 dsh-agent-toolkit；Node 半 lib/index.js +
 │                          浏览器半 lib/client.js，双半 bundle；发版：test → typecheck →
 │                          bundle → pack 核查 → pnpm publish）
-├─ archive/2026-08-26-merged-plugins/ ← 合并前的四包代码快照（token-usage/agent-team/
-│                           prompt-stack/project-bot + scripts/publish-*.ps1），只读参考
 ├─ cordis.yml            ← 开发用 patch（只按 id 覆盖 config；不再 insert 插件）
 └─ package.json + pnpm-workspace.yaml（workspace 只含 packages/*，不含 deepseek-harness）
 ```
