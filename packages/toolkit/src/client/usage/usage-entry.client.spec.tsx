@@ -49,10 +49,10 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-test('宽栏：图标 + 文字标签', () => {
+test('宽栏：仅图标，无文字（Tooltip/aria-label 提供可访问名）', () => {
   render(<UsageEntry wide {...RUNTIME} />)
   const button = screen.getByRole('button', { name: 'Token 用量' })
-  expect(button.textContent).toContain('Token 用量')
+  expect(button.textContent).not.toContain('Token 用量')
 })
 
 test('窄栏：仅图标，无文字', () => {

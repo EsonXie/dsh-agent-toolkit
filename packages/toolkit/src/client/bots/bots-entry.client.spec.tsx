@@ -33,9 +33,9 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-test('宽栏：图标 + 文字标签；窄栏：仅图标', () => {
+test('宽栏与窄栏均仅图标（Tooltip/aria-label 提供可访问名）', () => {
   const { unmount } = render(<BotsEntry wide {...RUNTIME} />)
-  expect(screen.getByRole('button', { name: '消息机器人' }).textContent).toContain('消息机器人')
+  expect(screen.getByRole('button', { name: '消息机器人' }).textContent).not.toContain('消息机器人')
   unmount()
   render(<BotsEntry wide={false} {...RUNTIME} />)
   expect(screen.getByRole('button', { name: '消息机器人' }).textContent).not.toContain('消息机器人')

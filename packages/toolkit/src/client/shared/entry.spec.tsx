@@ -24,7 +24,8 @@ const Entry = createSidebarEntry({
 test('点击入口按钮：renderModal 收到 open: true，onClose 复位', () => {
   render(<Entry wide />)
   const button = screen.getByRole('button', { name: 'Demo 用量' })
-  expect(button.textContent).toContain('Demo 用量')
+  expect(button.textContent).toContain('图标')
+  expect(button.textContent).not.toContain('Demo 用量')
   expect(screen.getByTestId('modal').textContent).toContain('closed')
   fireEvent.click(button)
   expect(screen.getByTestId('modal').textContent).toContain('open')
