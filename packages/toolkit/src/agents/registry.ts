@@ -2,9 +2,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { openDomainSafely } from '../shared/storage.ts'
-import { AgentRecordSchema, agentToolkitDomain, type AgentRecord } from './store.ts'
+import { AgentRecordSchema, agentToolkitDomain, migrateAgentRecord, type AgentRecord } from './store.ts'
 import { BUILTIN_AGENTS } from './builtin.ts'
 import { importRolesYaml } from './import-yaml.ts'
+import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 
 export interface AgentRegistry {
   /** main 置顶，其余按 id 字典序。 */
@@ -18,6 +19,9 @@ export interface AgentRegistry {
   subscribe(listener: () => void): () => void
 }
 
+/** tools.allow 一次性并入原生工具名的 meta 表标记键。 */
+export const TOOLS_NATIVE_MIGRATED_KEY = 'tools_native_migrated'
+
 /**
  * 打开 dsh_agent_toolkit 域 → 缺 main/explorer/general 时种入内置 → 首启 YAML 导入 →
  * 构建内存缓存。域句柄由 openDomainSafely 在卸载时关闭。
@@ -29,6 +33,21 @@ export async function createRegistry(ctx: Context, warn: (msg: string) => void):
 
   await seedBuiltins(agents)
   await importRolesYaml({ agents, meta, warn })
+
+  // 旧记录迁移：promptLayers → persona（逐条幂等）；tools.allow 一次性并入原生工具名
+  // （meta 标记幂等——UI 从未提供原生工具勾选项，存量白名单缺原生名非用户本意；
+  //  标记置位后用户再编辑 allow 不会被回收改）。
+  const nativeMigrated = meta.get(TOOLS_NATIVE_MIGRATED_KEY) !== undefined
+  for (const [id, record] of agents.entries()) {
+    let next = migrateAgentRecord(record)
+    if (!nativeMigrated && next.tools !== undefined) {
+      const allow = next.tools.allow
+      const missing = NATIVE_TOOL_NAMES.filter((name) => !allow.includes(name))
+      if (missing.length > 0) next = { ...next, tools: { allow: [...allow, ...missing] } }
+    }
+    if (next !== record) await agents.put(id, next)
+  }
+  if (!nativeMigrated) await meta.put(TOOLS_NATIVE_MIGRATED_KEY, { value: '1' })
 
   const cache = new Map<string, AgentRecord>()
   for (const [id, record] of agents.entries()) cache.set(id, record)
@@ -55,6 +74,7 @@ export async function createRegistry(ctx: Context, warn: (msg: string) => void):
       if (!parsed.success) {
         throw new Error(`dsh-agent-toolkit: Agent 记录校验失败：${parsed.error.message}`)
       }
+      const normalized = migrateAgentRecord(parsed.data)
       const existing = cache.get(record.id)
       if (record.id === 'main' && existing !== undefined) {
         if (existing.name !== record.name || existing.builtin !== record.builtin) {
@@ -64,8 +84,8 @@ export async function createRegistry(ctx: Context, warn: (msg: string) => void):
       if (existing?.builtin === true && record.builtin !== true) {
         throw new Error(`dsh-agent-toolkit: 内置角色 ${record.id} 的 builtin 标记不可修改`)
       }
-      await agents.put(record.id, record)
-      cache.set(record.id, record)
+      await agents.put(record.id, normalized)
+      cache.set(record.id, normalized)
       notify()
     },
     async remove(id: string): Promise<void> {

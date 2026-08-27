@@ -6,6 +6,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { DomainSpec, KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { agentToolkitDomain, type AgentRecord } from './store.ts'
 import { createRegistry, type AgentRegistry } from './registry.ts'
+import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 
 class FakeTable<V> implements KvTable<string, V> {
   private readonly records = new Map<string, V>()
@@ -172,4 +173,31 @@ test('多个订阅者各自收到通知；互不影响', async () => {
   await registry.upsert({ id: 'dev', name: 'Dev' })
   expect(a).toHaveBeenCalledTimes(1)
   expect(b).toHaveBeenCalledTimes(1)
+})
+
+test('createRegistry：旧记录 promptLayers 迁移为 persona 并写回持久层', async () => {
+  const domain = new FakeDomain(agentToolkitDomain)
+  await agentsOf(domain).put('legacy', {
+    id: 'legacy', name: 'Legacy',
+    promptLayers: [
+      { name: 'b', order: 10, text: 'B' },
+      { name: 'a', order: 0, text: 'A' },
+    ],
+  })
+  const { ctx } = makeCtx(domain)
+  const registry = await createRegistry(ctx, vi.fn())
+  expect(registry.get('legacy')).toEqual({ id: 'legacy', name: 'Legacy', persona: 'A\n\nB' })
+  expect(agentsOf(domain).get('legacy')).toEqual({ id: 'legacy', name: 'Legacy', persona: 'A\n\nB' })
+})
+
+test('createRegistry：存量 tools.allow 一次性并入原生工具名，meta 标记后不再改动', async () => {
+  const domain = new FakeDomain(agentToolkitDomain)
+  await agentsOf(domain).put('dev', { id: 'dev', name: 'Dev', tools: { allow: ['team_delegate'] } })
+  const { ctx } = makeCtx(domain)
+  const registry = await createRegistry(ctx, vi.fn())
+  expect(registry.get('dev')?.tools?.allow).toEqual(['team_delegate', ...NATIVE_TOOL_NAMES])
+  // 标记已置：用户后续编辑（如去掉部分原生工具）不会再被并入
+  await registry.upsert({ id: 'dev', name: 'Dev', tools: { allow: ['read'] } })
+  const registry2 = await createRegistry(ctx, vi.fn())
+  expect(registry2.get('dev')?.tools?.allow).toEqual(['read'])
 })

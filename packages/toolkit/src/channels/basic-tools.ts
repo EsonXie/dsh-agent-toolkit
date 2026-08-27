@@ -29,3 +29,17 @@ export const BASIC_TOOLS: BasicTool[] = [
     config: { sampleOverCapGlobResults: false },
   },
 ]
+
+/** 原生工具名（白名单 UI 与存量迁移用）：与 BASIC_TOOLS 挂载插件注册的工具名一一对应。
+ *  名字来源（摘自 deepseek-harness 源码）：dsh-tool-pwsh/dsh-tool-bash → 'pwsh'/'bash'（平台互斥）；
+ *  dsh-tool-fs → 'read'/'write'/'edit'/'read_image'；dsh-tool-fs-search → 'glob'/'grep'。
+ *  这些工具 scoped 挂载在 agentCtx，不出现在顶层 ctx.tools.schemas()，故需显式常量。 */
+export const NATIVE_TOOL_NAMES: readonly string[] = [
+  process.platform === 'win32' ? 'pwsh' : 'bash',
+  'read',
+  'write',
+  'edit',
+  'read_image',
+  'glob',
+  'grep',
+]
