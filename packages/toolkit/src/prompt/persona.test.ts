@@ -15,7 +15,7 @@ const SECTION_B = `能力使用守则：
 const configOf = (layers: LayerConfig[], rules: Rule[]): { layers: LayerConfig[]; rules: Rule[] } => ({ layers, rules })
 
 describe('buildAgentPersona', () => {
-  test('无 role.promptLayers、无规则命中时 = 契约段 + 全局 layers 按 order 拼接', () => {
+  test('无 role.persona、无规则命中时 = 契约段 + 全局 layers 按 order 拼接', () => {
     const config = configOf(
       [
         { name: 'task', order: 50, text: 'TASK' },
@@ -27,19 +27,16 @@ describe('buildAgentPersona', () => {
       .toBe(`${SECTION_A('explorer')}\n\n${SECTION_B}\n\nBASE\n\nTASK`)
   })
 
-  test('role.promptLayers 与全局层按 order 交错合并', () => {
+  test('role.persona 作为 order 0 层排进全局层序列（稳定排序，同 order 全局层在前）', () => {
     const config = configOf(
       [
-        { name: 'global', order: 10, text: 'G' },
+        { name: 'base', order: 0, text: 'B' },
         { name: 'task', order: 50, text: 'T' },
       ],
       [],
     )
-    const persona = buildAgentPersona(config, {
-      name: 'general',
-      promptLayers: [{ name: 'role', order: 30, text: 'R' }],
-    })
-    expect(persona).toBe(`${SECTION_A('general')}\n\n${SECTION_B}\n\nG\n\nR\n\nT`)
+    const persona = buildAgentPersona(config, { name: 'general', persona: 'R' })
+    expect(persona).toBe(`${SECTION_A('general')}\n\n${SECTION_B}\n\nB\n\nR\n\nT`)
   })
 
   test('命中规则的 overrides 替换对应层文本、append 成为末段', () => {

@@ -23,10 +23,7 @@ const MAIN_ROLE: AgentRecord = { id: 'main', name: '主 Agent', description: '�
 
 const REVIEWER_ROLE: AgentRecord = {
   id: 'reviewer', name: '评审',
-  promptLayers: [
-    { name: 'base', order: 10, text: '你是团队的评审成员。' },
-    { name: 'skill', order: 30, text: '只审查 diff，不修改代码。' },
-  ],
+  persona: '你是团队的评审成员。\n只审查 diff，不修改代码。',
   model: { provider: 'deepseek', model: 'deepseek-reasoner' },
   tools: { allow: ['bash', 'fs_read'] },
 }
@@ -192,15 +189,14 @@ describe('Router.ensure agentRef 绑定', () => {
     expect(created[0].input.hooks).not.toHaveProperty('sections')
   })
 
-  test('agentRef 指向角色：按 layer.order 注册 promptLayers 各 section + tools.restrict({ allow }) + agentOptions=role.model', async () => {
+  test('agentRef 指向角色：注册单 persona section + tools.restrict({ allow }) + agentOptions=role.model', async () => {
     const { router, created, defaultModel } = setup(undefined, fakeRegistry([MAIN_ROLE, REVIEWER_ROLE]).registry)
     await router.ensure(fakeBot({ agentRef: 'reviewer' }), 'oc_1', reply)
     expect(defaultModel).not.toHaveBeenCalled()
     expect(created[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-reasoner' })
     expect(created[0].input.hooks).toEqual({
       sections: [
-        { name: 'dsh-agent-toolkit:agent:base', order: 10, text: '你是团队的评审成员。' },
-        { name: 'dsh-agent-toolkit:agent:skill', order: 30, text: '只审查 diff，不修改代码。' },
+        { name: 'dsh-agent-toolkit:agent:persona', order: 0, text: '你是团队的评审成员。\n只审查 diff，不修改代码。' },
       ],
       tools: ['bash', 'fs_read'],
     })
@@ -215,8 +211,7 @@ describe('Router.ensure agentRef 绑定', () => {
     expect(resumed[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-reasoner' })
     expect(resumed[0].input.hooks).toEqual({
       sections: [
-        { name: 'dsh-agent-toolkit:agent:base', order: 10, text: '你是团队的评审成员。' },
-        { name: 'dsh-agent-toolkit:agent:skill', order: 30, text: '只审查 diff，不修改代码。' },
+        { name: 'dsh-agent-toolkit:agent:persona', order: 0, text: '你是团队的评审成员。\n只审查 diff，不修改代码。' },
       ],
       tools: ['bash', 'fs_read'],
     })

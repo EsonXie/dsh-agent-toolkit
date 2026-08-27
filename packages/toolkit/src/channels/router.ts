@@ -57,7 +57,7 @@ export class Router {
   /**
    * 按 bot.agentRef 解析会话组装（agentOptions + 创作期 hooks）：
    * - 缺省/指向 main → 主 Agent 形态：bot 自带 persona/tools + 默认模型回退；
-   * - 指向角色 → 角色形态：promptLayers 逐层 section（按 layer.order）+ tools.restrict + role.model；
+   * - 指向角色 → 角色形态：persona 单 section + tools.restrict + role.model；
    * - 指向不存在角色 → warn 并降级为主 Agent 形态。
    */
   private resolveSession(bot: BotRecord): { agentOptions: { provider?: string; model?: string }; hooks: AgentHooks } {
@@ -69,10 +69,9 @@ export class Router {
       }
       return { agentOptions: this.resolveOptions(bot), hooks: hooksOf(bot) }
     }
-    const sections = role.promptLayers === undefined
+    const sections = role.persona === undefined || role.persona.trim().length === 0
       ? []
-      : [...role.promptLayers].sort((a, b) => a.order - b.order)
-        .map((layer) => ({ name: `dsh-agent-toolkit:agent:${layer.name}`, order: layer.order, text: layer.text }))
+      : [{ name: 'dsh-agent-toolkit:agent:persona', order: 0, text: role.persona }]
     return {
       agentOptions: role.model ?? this.resolveOptions(bot),
       hooks: {

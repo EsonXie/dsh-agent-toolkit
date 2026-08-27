@@ -14,11 +14,13 @@ const SECTION_B = `能力使用守则：
 
 export function buildAgentPersona(
   config: { layers: LayerConfig[]; rules: Rule[] },
-  role: { name: string; promptLayers?: LayerConfig[] },
+  role: { name: string; persona?: string },
   model?: { provider?: string; model?: string },
 ): string {
   const rule = selectRule(config.rules, model?.provider, model?.model)
-  const merged = [...config.layers, ...(role.promptLayers ?? [])].sort((a, b) => a.order - b.order)
+  // 角色 persona 固定为 order 0 层；数组稳定排序保证同 order 的全局层（如 base）排在 persona 之前。
+  const roleLayers: LayerConfig[] = role.persona === undefined ? [] : [{ name: 'persona', order: 0, text: role.persona }]
+  const merged = [...config.layers, ...roleLayers].sort((a, b) => a.order - b.order)
   const texts = merged.map(layer => rule?.overrides?.[layer.name] ?? layer.text)
   if (rule?.append !== undefined) texts.push(rule.append)
   return [SECTION_A(role.name), SECTION_B, ...texts].join('\n\n')
