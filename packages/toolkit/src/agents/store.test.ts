@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'vitest'
-import { AgentRecordSchema, agentToolkitDomain } from './store.ts'
+import { AgentRecordSchema, agentToolkitDomain, migrateAgentRecord } from './store.ts'
 
 const VALID = {
   id: 'explorer',
   name: 'Explorer',
   description: '只读探索',
-  promptLayers: [{ name: 'persona', order: 0, text: '你是探索员。' }],
+  persona: '你是探索员。',
   model: { provider: 'anthropic', model: 'claude-sonnet-4' },
   tools: { allow: ['read'] },
   builtin: true,
@@ -47,5 +47,44 @@ describe('AgentRecordSchema', () => {
 
   test('拒绝空 allow 数组（min(1) 语义，同 BOT 表 tools）', () => {
     expect(AgentRecordSchema.safeParse({ id: 'x', name: 'X', tools: { allow: [] } }).success).toBe(false)
+  })
+
+  test('接受 persona 字段与遗留 promptLayers（迁移输入）', () => {
+    expect(AgentRecordSchema.safeParse({ id: 'x', name: 'X', persona: 'P' }).success).toBe(true)
+    expect(AgentRecordSchema.safeParse({ id: 'x', name: 'X', promptLayers: [{ name: 'persona', order: 0, text: 'P' }] }).success).toBe(true)
+  })
+})
+
+describe('migrateAgentRecord', () => {
+  test('promptLayers 按 order 拼接进 persona 并剥离', () => {
+    const migrated = migrateAgentRecord({
+      id: 'x', name: 'X',
+      promptLayers: [
+        { name: 'b', order: 10, text: 'B' },
+        { name: 'a', order: 0, text: 'A' },
+      ],
+    })
+    expect(migrated).toEqual({ id: 'x', name: 'X', persona: 'A\n\nB' })
+  })
+
+  test('无 promptLayers 返回原引用', () => {
+    const record = { id: 'x', name: 'X', persona: 'P' }
+    expect(migrateAgentRecord(record)).toBe(record)
+  })
+
+  test('已有 persona 时保留 persona、剥离 promptLayers', () => {
+    const migrated = migrateAgentRecord({
+      id: 'x', name: 'X', persona: 'P',
+      promptLayers: [{ name: 'a', order: 0, text: 'A' }],
+    })
+    expect(migrated).toEqual({ id: 'x', name: 'X', persona: 'P' })
+  })
+
+  test('promptLayers 全为空白文本则不产生 persona', () => {
+    const migrated = migrateAgentRecord({
+      id: 'x', name: 'X',
+      promptLayers: [{ name: 'a', order: 0, text: '  ' }],
+    })
+    expect(migrated).toEqual({ id: 'x', name: 'X' })
   })
 })
