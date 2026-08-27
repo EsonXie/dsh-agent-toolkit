@@ -28,7 +28,7 @@
 - 浏览器半 `packages/toolkit/src/client/index.ts` 同样必须命名导出服务名数组 `inject`（现为 `['sessions', 'slots', 'locale']`）：browser kernel 按插件模块自身导出的 inject 门控 `ctx.<service>` 访问，package.json 的 `dsh.client.inject`（包名数组）只是信息性 boot-graph 边，不参与门控。
 - Agent 注册表：UI 管理（Agents 面板，创建/编辑/删除）+ YAML 首启导入（`roles_yaml_imported` 一次性标记）；存储域 `dsh_agent_toolkit`（表 `agents` + `meta`），schema 与 domain 布局的单一来源在 `src/agents/store.ts`。
 - 内存 setup 建会话：`ctx.agents.create` + `setup` 建实时 agent，`setupAgentScope` 在 agentCtx 下 scoped 挂载基础工具行（persona/instructions/shell/fs/fs-search）再叠 persona/tools 白名单（restrict 必须在工具行挂载之后）；委派走 `team_delegate`（一次性），浏览器半渲染委派卡。
-- 共享层约定：`src/shared/` 的 `openDomainSafely`（安全打开存储域 + 卸载时关闭）/`registerOptionalRoutes`（webServer 可选服务下注册路由，headless/CLI 惰性不抛错）；`src/client/shared/` 的 `createSidebarEntry`（侧边栏底栏入口工厂）/`useLoadState`（loading/error/ok 状态机）。
+- 共享层约定：`src/shared/` 的 `openDomainSafely`（安全打开存储域 + 卸载时关闭）/`registerOptionalRoutes`（webServer 可选服务下注册路由，headless/CLI 惰性不抛错）；`src/shared/http.ts`（json/readJsonBody 响应助手，agents/prompt 两个 API 共用）；`src/client/shared/` 的 `createSidebarEntry`（侧边栏底栏入口工厂）/`useLoadState`（loading/error/ok 状态机）。
 - toolkit 的 src 运行时值导入 `@deepseek-ai/dsh-storage-domain`，但不进 dependencies/peerDependencies：它由宿主 dsh base 隐式提供（devDependencies link 到 deepseek-harness 源码），加依赖会导致 pnpm 装副本、storage domain 双实例注册分裂。
 - 从一开始就遵守的约定：可调参数进 Config schema（不硬编码）；工具 `execute` 返回规范 JSON 值、args 只读且已校验；策略/权限逻辑放 `tools/*` 事件钩子，不内建进工具。
 

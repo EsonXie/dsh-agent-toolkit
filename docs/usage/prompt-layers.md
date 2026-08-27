@@ -20,6 +20,14 @@
 - 保留层名 **`model-notes`**：不能用作自定义层名；它自动追加在最大 order 之后，用于渲染规则命中时的 `append` 文本（无命中则为空）
 - 默认配置只有一层：`base`（order 0，内置通用工程 Agent 提示文本）
 
+## UI 管理（层）
+
+层列表现在由 UI 管理：`dsh-agent-toolkit` 插件浏览器半新增「分层提示词」侧边栏入口（Agents 之后）。
+- 可增删层、上下移（改 order）、编辑层名/order/文本；保存全量替换。
+- 「重置为默认层」用 cordis.yml 的 `layers` 种子覆盖当前层（覆盖性操作，需确认）。
+- 「规则（只读）」折叠区展示当前 `rules`（仍由 cordis.yml 配置，不在本面板编辑）；引用不存在层的 overrides 会标「悬空」。
+- 存储：`dsh_agent_toolkit` 域 `prompt_layers` 表（单行 `layers`），`meta` 表 `prompt_layers_seeded` 首启种子标记。`config.layers` 仅在首次启动（或重置后）作为种子写入，此后运行一律读存储。
+
 ## 规则匹配
 
 `rules` 按模型匹配，命中后执行两种操作：
@@ -54,7 +62,7 @@ rules:
 | `deepseek*` | **仅追加** DeepSeek 补充说明 |
 | `glm-*` | **仅追加** GLM 补充说明 |
 
-自定义 `layers` / `rules` 会**整体替换**默认值（不是合并），想保留默认行为需把默认内容一并写入。
+自定义 `layers` / `rules` 会**整体替换**默认值（不是合并），想保留默认行为需把默认内容一并写入。`layers` 若已由 UI 管理，cordis.yml 的 `layers` 仅作种子/重置默认值，不再动态生效。
 
 ## 运行时行为
 
