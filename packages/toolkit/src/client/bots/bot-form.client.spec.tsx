@@ -33,7 +33,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-test('手动填写创建：名称/项目/persona + Provider/模型默认选中第一项 + 密钥；不携带 id 与 tools', async () => {
+test('手动填写创建：名称/项目 + Provider/模型默认选中第一项 + 密钥；不携带 id/tools/persona', async () => {
   const calls = stubFetch({
     '/dsh-agent-toolkit/api/bots/providers': () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek' }, { id: 'openai', name: 'OpenAI' }] }),
     '/dsh-agent-toolkit/api/bots/models?provider=deepseek': () => ({ models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }),
@@ -50,7 +50,6 @@ test('手动填写创建：名称/项目/persona + Provider/模型默认选中�
 
   fireEvent.change(screen.getByLabelText('名称'), { target: { value: '运维机器人' } })
   fireEvent.change(screen.getByLabelText('绑定项目'), { target: { value: 'D:\\work\\ops' } })
-  fireEvent.change(screen.getByLabelText('提示词'), { target: { value: '你是运维助手' } })
   fireEvent.click(screen.getByRole('button', { name: '下一步' }))
   // 第二步：默认扫码 tab，切到「手动填写」再填 feishu
   fireEvent.click(screen.getByRole('tab', { name: '手动填写' }))
@@ -62,12 +61,12 @@ test('手动填写创建：名称/项目/persona + Provider/模型默认选中�
   const create = calls.find((c) => c.url === '/dsh-agent-toolkit/api/bots/bots' && c.method === 'POST')
   expect(create?.body).toMatchObject({
     name: '运维机器人', project: 'D:\\work\\ops',
-    persona: '你是运维助手',
     agentOptions: { provider: 'deepseek', model: 'deepseek-chat' },
     feishu: { appId: 'cli_000000000000000a', appSecret: 'plain-secret' },
   })
   expect(create?.body).not.toHaveProperty('id')
   expect(create?.body).not.toHaveProperty('tools')
+  expect(create?.body).not.toHaveProperty('persona')
 })
 
 test('扫码创建：进入第二步自动发起扫码 → 轮询 → 完成后自动回填 appId 与 credentialRef', async () => {

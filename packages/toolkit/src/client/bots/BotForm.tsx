@@ -36,7 +36,6 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
   const [step, setStep] = useState<1 | 2>(1)
   const [name, setName] = useState(bot?.name ?? '')
   const [project, setProject] = useState(bot?.project ?? workspaces[0]?.path ?? '')
-  const [persona, setPersona] = useState(bot?.persona ?? '')
   const [agentRef, setAgentRef] = useState(bot?.agentRef ?? 'main')
   const [agents, setAgents] = useState<{ id: string; name: string; description?: string }[]>([])
   const [provider, setProvider] = useState(bot?.agentOptions?.provider ?? '')
@@ -181,7 +180,6 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
       const payload = {
         name: name.trim(),
         project: project.trim(),
-        ...(persona.trim() ? { persona } : {}),
         // 创建缺省 main 时不携带字段（服务端回退主 Agent）；编辑切回 main 显式清空 agentRef。
         ...(editing
           ? { agentRef: agentRef === 'main' ? null : agentRef }
@@ -224,10 +222,6 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
             <select className={css.select} value={project} onChange={(e) => { setProject(e.target.value) }} aria-label="绑定项目">
               {workspaces.map((w) => <option key={w.path} value={w.path}>{w.title}（{w.path}）</option>)}
             </select>
-          </label>
-          <label className={css.field}>
-            提示词
-            <textarea className={css.textarea} value={persona} onChange={(e) => { setPersona(e.target.value) }} aria-label="提示词" rows={4} />
           </label>
           <label className={css.field}>
             绑定 Agent
