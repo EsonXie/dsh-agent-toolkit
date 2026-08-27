@@ -21,7 +21,7 @@ beforeEach(() => {
     const url = String(input)
     const payload = url === '/dsh-agent-toolkit/api/agents'
       ? AGENTS
-      : url === '/dsh-agent-toolkit/api/tools' ? ['bash'] : url === '/dsh-agent-toolkit/api/providers' ? [] : []
+      : url === '/dsh-agent-toolkit/api/tools' ? { native: ['bash'], global: [] } : url === '/dsh-agent-toolkit/api/providers' ? [] : []
     return new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } })
   }))
 })
@@ -42,6 +42,6 @@ test('宽栏与窄栏均仅图标（Tooltip/aria-label 提供可访问名）', (
 test('点击打开 Agent 管理模态框并拉取列表', async () => {
   render(<AgentsEntry wide {...RUNTIME} />)
   screen.getByRole('button', { name: 'Agent 管理' }).click()
-  expect(await screen.findByText('主 Agent')).toBeTruthy()
+  expect(await screen.findByText('Explorer')).toBeTruthy()
   expect(vi.mocked(fetch)).toHaveBeenCalledWith('/dsh-agent-toolkit/api/agents')
 })

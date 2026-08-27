@@ -36,7 +36,7 @@ function routes() {
     '/dsh-agent-toolkit/api/agents': () => AGENTS,
     '/dsh-agent-toolkit/api/providers/deepseek/models': () => [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }],
     '/dsh-agent-toolkit/api/providers': () => PROVIDERS,
-    '/dsh-agent-toolkit/api/tools': () => ['bash', 'read', 'write'],
+    '/dsh-agent-toolkit/api/tools': () => ({ native: ['bash', 'read'], global: ['write'] }),
   }
 }
 
@@ -47,44 +47,58 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-test('列表渲染：main 置顶带锁定标识、角色行含描述摘要与内置徽标、底部新建角色按钮', async () => {
+test('列表渲染：main 不进列表、内置徽标与描述摘要、底部新建角色按钮', async () => {
   const calls = stubFetch(routes())
   render(<AgentsModal open onClose={() => undefined} />)
 
-  expect(await screen.findByText('主 Agent')).toBeTruthy()
-  // main 锁定标识
-  expect(screen.getByText('锁定')).toBeTruthy()
-  // 角色行：name + description 摘要 + builtin 徽标（main + explorer 两个内置）
-  expect(screen.getByText('Explorer')).toBeTruthy()
-  expect(screen.getByText('快速只读代码库探索')).toBeTruthy()
-  expect(screen.getAllByText('内置')).toHaveLength(2)
+  expect(await screen.findByText('Explorer')).toBeTruthy()
+  // main 被过滤不进列表；锁定标识已随 main 一并移除
+  expect(screen.queryByText('主 Agent')).toBeNull()
+  expect(screen.queryByText('锁定')).toBeNull()
+  // 角色行：name + description 摘要 + builtin 徽标（可见角色中仅 explorer 内置）
+  // 描述同时出现在列表行与编辑器「描述」输入框，故用 getAllByText 断言存在
+  expect(screen.getAllByText('快速只读代码库探索').length).toBeGreaterThan(0)
+  expect(screen.getAllByText('内置')).toHaveLength(1)
   // 底部新建按钮
   expect(screen.getByRole('button', { name: '新建角色' })).toBeTruthy()
   expect(calls[0]).toMatchObject({ url: '/dsh-agent-toolkit/api/agents', method: 'GET' })
 })
 
-test('新建角色→保存：调用 PUT /agents/:id 并携带记录', async () => {
+test('新建角色→保存：Persona 单文本 + 工具默认全勾（原生+扩展）→ PUT /agents/:id 携带记录', async () => {
   const calls = stubFetch(routes())
   render(<AgentsModal open onClose={() => undefined} />)
-  await screen.findByText('主 Agent')
+  await screen.findByText('Explorer')
 
   fireEvent.click(screen.getByRole('button', { name: '新建角色' }))
   fireEvent.change(screen.getByLabelText('ID'), { target: { value: 'ops' } })
   fireEvent.change(screen.getByLabelText('名称'), { target: { value: '运维' } })
+  fireEvent.change(screen.getByLabelText('Persona'), { target: { value: '你是运维。' } })
+  // 新建模式默认全勾 native + global（fetchTools 返回 ToolsCatalog 后异步填入）
+  await vi.waitFor(() => {
+    expect((screen.getByLabelText('工具 bash') as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText('工具 read') as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText('工具 write') as HTMLInputElement).checked).toBe(true)
+  })
   fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
   await vi.waitFor(() => {
     const put = calls.find((c) => c.url === '/dsh-agent-toolkit/api/agents/ops' && c.method === 'PUT')
     expect(put).toBeTruthy()
-    expect(put?.body).toMatchObject({ id: 'ops', name: '运维' })
+    expect(put?.body).toMatchObject({
+      id: 'ops', name: '运维', persona: '你是运维。',
+      tools: { allow: ['bash', 'read', 'write'] },
+    })
+    // 载荷为 persona 单字段，不再携带 promptLayers
+    expect(put?.body).not.toHaveProperty('promptLayers')
   })
 })
 
-test('main 锁定不可删：默认选中 main 无删除按钮；选中普通角色有删除按钮', async () => {
+test('内置角色锁定不可删：初始选中回退首个可见内置角色无删除按钮；选中普通角色有删除按钮', async () => {
   const calls = stubFetch(routes())
   render(<AgentsModal open onClose={() => undefined} />)
-  await screen.findByText('主 Agent')
+  await screen.findByText('Explorer')
 
+  // 初始选中回退到第一个可见角色（explorer，内置 → 锁定），无删除按钮
   expect(screen.queryByRole('button', { name: '删除' })).toBeNull()
 
   fireEvent.click(screen.getByText('侦察'))
@@ -94,9 +108,9 @@ test('main 锁定不可删：默认选中 main 无删除按钮；选中普通角
 test('选中既有非默认角色：编辑器回显该角色（ID 正确）→ 保存发 PUT /agents/<该id>', async () => {
   const calls = stubFetch(routes())
   render(<AgentsModal open onClose={() => undefined} />)
-  await screen.findByText('主 Agent')
+  await screen.findByText('Explorer')
 
-  // 默认选中 main（无重挂时 ID 会滞留为 main，此处断言 ID 回显为 scout）
+  // 点击后选中 scout（无重挂时 ID 会滞留，此处断言 ID 回显为 scout）
   fireEvent.click(screen.getByText('侦察'))
   expect(screen.getByText('ID：scout')).toBeTruthy()
   fireEvent.change(screen.getByLabelText('名称'), { target: { value: '侦察队长' } })
@@ -112,7 +126,7 @@ test('选中既有非默认角色：编辑器回显该角色（ID 正确）→ �
 test('模型级联：选 provider 后拉取该 provider 的模型列表', async () => {
   const calls = stubFetch(routes())
   render(<AgentsModal open onClose={() => undefined} />)
-  await screen.findByText('主 Agent')
+  await screen.findByText('Explorer')
 
   fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'deepseek' } })
   await screen.findByRole('option', { name: 'DeepSeek Chat' })
