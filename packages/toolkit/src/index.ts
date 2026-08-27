@@ -1,7 +1,10 @@
 /** dsh-agent-toolkit 插件总入口：Agent 注册表 + 分层提示词 + 并行委派 + 飞书 bots + token 用量。 */
 import type { Context } from '@deepseek-ai/cordis'
+import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import z from '@deepseek-ai/schemastery'
 import { createRegistry } from './agents/registry.ts'
+import { agentToolkitDomain, type AgentRecord } from './agents/store.ts'
+import { openDomainSafely } from './shared/storage.ts'
 import { DEFAULT_LAYERS, DEFAULT_RULES } from './prompt/defaults.ts'
 import { setupPrompt, validateConfig as validatePromptConfig, type LayerView } from './prompt/index.ts'
 import type { LayerConfig, Rule } from './prompt/types.ts'
@@ -87,7 +90,12 @@ export const Config: z<unknown, Config> = z.object({
 export async function apply(ctx: Context, config: Config): Promise<void> {
   validatePromptConfig({ layers: config.layers, rules: config.rules })
   const warn = (msg: string): void => ctx.logger.warn(msg)
-  const registry = await createRegistry(ctx, warn)
+  const domain = await openDomainSafely(ctx, agentToolkitDomain, warn)
+  const registryTables = {
+    agents: domain.table('agents') as KvTable<string, AgentRecord>,
+    meta: domain.table('meta') as KvTable<string, { value: string }>,
+  }
+  const registry = await createRegistry(warn, registryTables)
   const layersRef: LayerConfig[] = config.layers
   const staticSource: LayerView = { get: () => layersRef, subscribe: () => () => {} }
   setupPrompt(ctx, { source: staticSource, rules: config.rules })

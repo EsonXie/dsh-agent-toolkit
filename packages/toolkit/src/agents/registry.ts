@@ -1,8 +1,6 @@
 /** Agent 注册表：内存缓存 + 持久化回写 + 订阅通知；main 置顶、内置保底不可删。 */
-import type { Context } from '@deepseek-ai/cordis'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
-import { openDomainSafely } from '../shared/storage.ts'
-import { AgentRecordSchema, agentToolkitDomain, migrateAgentRecord, type AgentRecord } from './store.ts'
+import { AgentRecordSchema, migrateAgentRecord, type AgentRecord } from './store.ts'
 import { BUILTIN_AGENTS } from './builtin.ts'
 import { importRolesYaml } from './import-yaml.ts'
 import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
@@ -24,12 +22,13 @@ export const TOOLS_NATIVE_MIGRATED_KEY = 'tools_native_migrated'
 
 /**
  * 打开 dsh_agent_toolkit 域 → 缺 main/explorer/general 时种入内置 → 首启 YAML 导入 →
- * 构建内存缓存。域句柄由 openDomainSafely 在卸载时关闭。
+ * 构建内存缓存。域由 apply 统一 open（storage-domain 同名单开），此处只消费表句柄。
  */
-export async function createRegistry(ctx: Context, warn: (msg: string) => void): Promise<AgentRegistry> {
-  const domain = await openDomainSafely(ctx, agentToolkitDomain, warn)
-  const agents = domain.table('agents') as KvTable<string, AgentRecord>
-  const meta = domain.table('meta') as KvTable<string, { value: string }>
+export async function createRegistry(
+  warn: (msg: string) => void,
+  tables: { agents: KvTable<string, AgentRecord>; meta: KvTable<string, { value: string }> },
+): Promise<AgentRegistry> {
+  const { agents, meta } = tables
 
   await seedBuiltins(agents)
   await importRolesYaml({ agents, meta, warn })
