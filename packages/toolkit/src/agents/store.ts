@@ -19,7 +19,7 @@ export interface AgentRecord {
   builtin?: boolean
 }
 
-const LayerConfigSchema = z.object({
+export const LayerConfigSchema = z.object({
   name: z.string(),
   order: z.number(),
   text: z.string(),
@@ -44,6 +44,8 @@ export const agentToolkitDomain = defineDomain({
     agents: domainTable<string, AgentRecord>(AgentRecordSchema),
     // meta 表存一次性标记（如 roles_yaml_imported），schema 无法表达则独立成表。
     meta: domainTable<string, { value: string }>(z.object({ value: z.string() })),
+    // 分层提示词层列表：单行 JSON（key 常量 'layers'），整体替换语义，与 agents 表同构校验。
+    prompt_layers: domainTable<string, { layers: LayerConfig[] }>(z.object({ layers: z.array(LayerConfigSchema) })),
   },
 })
 

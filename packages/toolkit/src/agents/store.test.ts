@@ -15,7 +15,13 @@ describe('agentToolkitDomain', () => {
   test('域名、版本与表布局', () => {
     expect(agentToolkitDomain.name).toBe('dsh_agent_toolkit')
     expect(agentToolkitDomain.version).toBe(1)
-    expect(Object.keys(agentToolkitDomain.tables)).toEqual(['agents', 'meta'])
+    expect(Object.keys(agentToolkitDomain.tables)).toEqual(['agents', 'meta', 'prompt_layers'])
+  })
+
+  test('prompt_layers 表 schema 校验 { layers: LayerConfig[] } 单行', () => {
+    const table = agentToolkitDomain.tables.prompt_layers
+    expect(table.valueSchema.safeParse({ layers: [{ name: 'base', order: 0, text: 'B' }] }).success).toBe(true)
+    expect(table.valueSchema.safeParse({ layers: [{ name: 'base' }] }).success).toBe(false)
   })
 })
 
