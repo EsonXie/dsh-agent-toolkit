@@ -42,7 +42,7 @@ function PromptLayersBody(): ReactNode {
   const [layers, setLayers] = useState<LayerConfig[]>([])
   const [rules, setRules] = useState<Rule[]>([])
   const [loaded, setLoaded] = useState(false)
-  const [selectedIndex, setSelectedIndex] = useState(0)
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -57,20 +57,23 @@ function PromptLayersBody(): ReactNode {
   }, [state, loaded])
 
   const ordered = sortedLayers(layers)
-  const selected = ordered[Math.min(selectedIndex, ordered.length - 1)]
+  const selectedIndex = ordered.findIndex(l => l.name === selectedKey)
+  const activeIndex = selectedIndex >= 0 ? selectedIndex : 0
+  const selected = selectedIndex >= 0 ? ordered[selectedIndex] : ordered[0]
   const layerNames = new Set(ordered.map(l => l.name))
 
   function updateSelected(patch: Partial<LayerConfig>): void {
     if (selected === undefined) return
     const next = layers.map(l => (l.name === selected.name && l.order === selected.order ? { ...l, ...patch } : l))
     setLayers(next)
+    if (patch.name !== undefined) setSelectedKey(patch.name)
     setDirty(true)
   }
 
   function addLayer(): void {
     const layer: LayerConfig = { name: '', order: nextOrder(layers), text: '' }
     setLayers([...layers, layer])
-    setSelectedIndex(0)
+    setSelectedKey(layer.name)
     setDirty(true)
   }
 
@@ -78,7 +81,7 @@ function PromptLayersBody(): ReactNode {
     if (selected === undefined) return
     const next = layers.filter(l => !(l.name === selected.name && l.order === selected.order))
     setLayers(next)
-    setSelectedIndex(Math.max(0, selectedIndex - 1))
+    setSelectedKey(null)
     setDirty(true)
   }
 
@@ -92,7 +95,6 @@ function PromptLayersBody(): ReactNode {
     const next = ordered.map((l, i) =>
       i === index ? { ...b, order: a.order } : i === target ? { ...a, order: b.order } : l)
     setLayers(next)
-    setSelectedIndex(target)
     setDirty(true)
   }
 
@@ -117,7 +119,7 @@ function PromptLayersBody(): ReactNode {
       await resetLayers()
       setConfirmingReset(false)
       setLoaded(false)
-      setSelectedIndex(0)
+      setSelectedKey(null)
       setDirty(false)
       reload()
     } catch (e) {
@@ -134,8 +136,8 @@ function PromptLayersBody(): ReactNode {
         {state.kind === 'error' && <p className={css.hint}>加载失败，请重试</p>}
         {state.kind === 'ok' && ordered.map((layer, index) => (
           <button key={`${layer.name}-${layer.order}`} type="button"
-            className={clsx(css.layerRow, index === selectedIndex && css.layerRowActive)}
-            onClick={() => { setSelectedIndex(index) }}>
+            className={clsx(css.layerRow, index === activeIndex && css.layerRowActive)}
+            onClick={() => { setSelectedKey(layer.name) }}>
             <span className={css.layerName}>{layer.name || '(未命名)'}</span>
             <span className={css.layerOrder}>order {layer.order}</span>
           </button>

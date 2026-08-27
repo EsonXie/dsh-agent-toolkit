@@ -53,7 +53,12 @@ export function createPromptLayersApiHandler(deps: PromptLayersApiDeps): (req: I
     }
 
     if (sub === '/reset' && method === 'POST') {
-      await deps.source.reset()
+      try {
+        await deps.source.reset()
+      } catch (error) {
+        json(res, 500, { error: error instanceof Error ? error.message : String(error) })
+        return
+      }
       json(res, 200, { ok: true })
       return
     }

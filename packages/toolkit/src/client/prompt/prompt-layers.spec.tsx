@@ -83,6 +83,21 @@ test('新建层、上移、删除只改内存，保存时统一提交', async ()
   })
 })
 
+test('编辑选中层 order 使其跨过排序位置 → 编辑器仍指向原层', async () => {
+  stubFetch()
+  render(<PromptLayersModal open onClose={() => undefined} />)
+  await screen.findByText('base')
+
+  fireEvent.click(screen.getByText('task'))
+  expect(screen.getByLabelText('层名')).toHaveProperty('value', 'task')
+  expect(screen.getByLabelText('层文本')).toHaveProperty('value', 'TASK')
+
+  fireEvent.change(screen.getByLabelText('order'), { target: { value: '-10' } })
+
+  expect(screen.getByLabelText('层名')).toHaveProperty('value', 'task')
+  expect(screen.getByLabelText('层文本')).toHaveProperty('value', 'TASK')
+})
+
 test('规则只读视图：展开后展示规则，悬空引用标红', async () => {
   stubFetch()
   render(<PromptLayersModal open onClose={() => undefined} />)

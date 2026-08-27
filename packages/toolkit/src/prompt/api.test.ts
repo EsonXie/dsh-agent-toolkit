@@ -113,6 +113,16 @@ describe('POST /prompt-layers/reset', () => {
     expect(res.status).toBe(200)
     expect(source.get()).toEqual(SEED)
   })
+
+  test('reset 存储失败 → 500 兜底 JSON 而非抛异常', async () => {
+    const { source } = await harness()
+    const broken = { ...source, reset: () => Promise.reject(new Error('boom')) }
+    const deps: PromptLayersApiDeps = { source: broken, rules: RULES, seedLayers: SEED }
+    const res = mockRes()
+    await createPromptLayersApiHandler(deps)(mockReq('POST', '/dsh-agent-toolkit/api/prompt-layers/reset'), res)
+    expect(res.status).toBe(500)
+    expect(JSON.parse(res.body)).toEqual({ error: 'boom' })
+  })
 })
 
 test('未知路径 404；已知路径错误方法 405', async () => {
