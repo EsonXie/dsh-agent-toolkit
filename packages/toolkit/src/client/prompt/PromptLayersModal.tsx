@@ -199,8 +199,11 @@ function PromptLayersBody(): ReactNode {
                   <span className={css.ruleMatch}>{matchSummary(rule)}</span>
                   {Object.keys(rule.overrides ?? {}).length > 0 && (
                     <span className={css.ruleOverrides}>
-                      overrides: {Object.entries(rule.overrides ?? {}).map(([k, v]) =>
-                        <span key={k} className={dangling.includes(k) ? css.dangling : undefined}>{k}</span>).join(', ')}
+                      overrides: {Object.keys(rule.overrides ?? {}).map((k, i) => (
+                        <span key={k} className={dangling.includes(k) ? css.dangling : undefined}>
+                          {i > 0 && ', '}{k}
+                        </span>
+                      ))}
                     </span>
                   )}
                   {rule.append !== undefined && <span className={css.ruleAppend}>append: {rule.append}</span>}

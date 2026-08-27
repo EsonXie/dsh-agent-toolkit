@@ -92,3 +92,14 @@ test('规则只读视图：展开后展示规则，悬空引用标红', async ()
   expect(await screen.findByText(/provider=|model=|modelPattern=/)).toBeTruthy()
   expect(screen.getByText('modelPattern=deepseek*')).toBeTruthy()
 })
+
+test('规则只读视图：overrides 键以可读文本渲染（不显示 [object Object]）', async () => {
+  stubFetch()
+  render(<PromptLayersModal open onClose={() => undefined} />)
+  await screen.findByText('base')
+
+  fireEvent.click(screen.getByRole('button', { name: '规则（只读）' }))
+  const overrides = await screen.findByText('overrides:')
+  expect(overrides.textContent).toContain('task')
+  expect(screen.queryByText('[object Object]')).toBeNull()
+})
