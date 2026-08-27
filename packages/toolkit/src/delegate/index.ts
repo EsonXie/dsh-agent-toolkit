@@ -19,7 +19,7 @@ export interface DelegateConfig {
   /** 模型可见工具名（默认 'team_delegate'）。注意：浏览器半委派卡按 'team_delegate' key 注册，改名后卡片不生效（落 generic 兜底）。 */
   toolName: string
   /** persona 装配用的全局提示分层（Task 7 产物）。 */
-  layers: LayerConfig[]
+  getLayers: () => LayerConfig[]
   /** 按模型规则（Task 7 产物）。 */
   rules: Rule[]
 }
@@ -48,7 +48,7 @@ export function setupDelegate(ctx: Context, config: DelegateConfig, registry: Ag
         roster: () => registry.list(),
         provider,
         buildPersona: (role: AgentRecord) =>
-          buildAgentPersona({ layers: config.layers, rules: config.rules }, role, role.model),
+          buildAgentPersona({ getLayers: config.getLayers, rules: config.rules }, role, role.model),
         startRun: (pr, request) => ctx.subagents.start(pr, request),
       }))
     }

@@ -91,7 +91,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const layersRef: LayerConfig[] = config.layers
   const staticSource: LayerView = { get: () => layersRef, subscribe: () => () => {} }
   setupPrompt(ctx, { source: staticSource, rules: config.rules })
-  setupDelegate(ctx, { provider: config.provider, toolName: config.toolName, layers: config.layers, rules: config.rules }, registry)
+  setupDelegate(ctx, { provider: config.provider, toolName: config.toolName, getLayers: () => config.layers, rules: config.rules }, registry)
   // agents/providers/tools RPC 为核心恒启用（Agents 面板总是挂载，端点缺失即「加载失败」），
   // 不随 modules.feishu 门控；仅 bots 分支受 feishu 开关控制。
   setupAgentsApi(ctx, {

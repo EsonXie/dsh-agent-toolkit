@@ -12,7 +12,8 @@ const SECTION_B = `能力使用守则：
 - 动手修改代码前，先阅读项目根目录及涉及目录的 AGENTS.md，并遵循其中约定。
 - 产生或修改文件后，运行相关检查（测试、类型检查）验证你的改动。`
 
-const configOf = (layers: LayerConfig[], rules: Rule[]): { layers: LayerConfig[]; rules: Rule[] } => ({ layers, rules })
+const configOf = (layers: LayerConfig[], rules: Rule[]): { getLayers: () => LayerConfig[]; rules: Rule[] } =>
+  ({ getLayers: () => layers, rules })
 
 describe('buildAgentPersona', () => {
   test('无 role.persona、无规则命中时 = 契约段 + 全局 layers 按 order 拼接', () => {

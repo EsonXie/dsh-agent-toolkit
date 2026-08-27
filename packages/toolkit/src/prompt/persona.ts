@@ -13,7 +13,7 @@ const SECTION_B = `能力使用守则：
 - 产生或修改文件后，运行相关检查（测试、类型检查）验证你的改动。`
 
 export function buildAgentPersona(
-  config: { layers: LayerConfig[]; rules: Rule[] },
+  config: { getLayers: () => LayerConfig[]; rules: Rule[] },
   role: { name: string; persona?: string },
   model?: { provider?: string; model?: string },
 ): string {
@@ -24,7 +24,7 @@ export function buildAgentPersona(
     role.persona === undefined || role.persona.trim().length === 0
       ? []
       : [{ name: 'persona', order: 0, text: role.persona }]
-  const merged = [...config.layers, ...roleLayers].sort((a, b) => a.order - b.order)
+  const merged = [...config.getLayers(), ...roleLayers].sort((a, b) => a.order - b.order)
   const texts = merged.map(layer => rule?.overrides?.[layer.name] ?? layer.text)
   if (rule?.append !== undefined) texts.push(rule.append)
   return [SECTION_A(role.name), SECTION_B, ...texts].join('\n\n')
