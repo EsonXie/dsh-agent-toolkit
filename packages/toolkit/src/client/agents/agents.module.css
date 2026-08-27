@@ -77,21 +77,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.lock {
-  flex: none;
-  font-size: 11px;
-  line-height: 16px;
-  padding: 0 6px;
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-label-tertiary);
-}
 .builtinBadge { flex: none; align-self: flex-start; }
 .createButton { margin-top: 8px; }
 
 .editorPane {
   flex: 1;
   min-width: 0;
+  max-height: 70vh;
+  overflow-y: auto;
 }
 .editor { display: flex; flex-direction: column; gap: 16px; }
 .block { display: flex; flex-direction: column; gap: 8px; }
@@ -133,36 +126,16 @@
 .select:focus,
 .textarea:focus { outline: none; border-color: var(--dsw-alias-brand-primary); }
 
-.layer {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
-}
-.layerRow { display: flex; align-items: center; gap: 6px; }
-.layerName { flex: 1; }
-.iconButton {
-  flex: none;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  font: inherit;
-  font-size: 14px;
-  line-height: 26px;
-  cursor: pointer;
-}
-.iconButton:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
-.iconButton:disabled { opacity: 0.4; cursor: default; }
-
 .toolGrid {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+.toolGroupTitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
 }
 .toolCheck {
   display: inline-flex;
@@ -192,5 +165,9 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
+  position: sticky;
+  bottom: 0;
+  padding: 8px 0;
+  background: var(--dsw-alias-bg-layer-1);
 }
 .dangerButton { color: var(--dsw-alias-state-error-primary); }

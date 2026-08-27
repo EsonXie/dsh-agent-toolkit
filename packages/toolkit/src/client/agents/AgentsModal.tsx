@@ -1,4 +1,4 @@
-/** Agents 管理面板：左侧角色列表（main 置顶锁定 + 内置徽标）+ 右侧编辑器。 */
+/** Agents 管理面板：左侧角色列表（main 不外显 + 内置徽标）+ 右侧编辑器。 */
 import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, Modal, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -28,11 +28,13 @@ export function AgentsModal({ open, onClose, onEdit, onCreate, onDelete }: Agent
 function AgentsModalBody({ onEdit, onCreate, onDelete }: Omit<AgentsModalProps, 'open' | 'onClose'>): ReactNode {
   /** 打开即拉取（body 随 open 全新挂载，天然复位）；保存后 reload 重拉。 */
   const { state, reload } = useLoadState<AgentRecord[]>(fetchAgents, [])
-  const [selectedId, setSelectedId] = useState('main')
+  const [selectedId, setSelectedId] = useState('')
   const [creating, setCreating] = useState(false)
 
   const agents = state.kind === 'ok' ? state.data : []
-  const selected = creating ? undefined : agents.find((a) => a.id === selectedId)
+  // main 不进管理列表（仍作运行时默认 Agent 存在；机器人绑定下拉不受影响——它不经过本组件过滤）
+  const visible = agents.filter((a) => a.id !== 'main')
+  const selected = creating ? undefined : (visible.find((a) => a.id === selectedId) ?? visible[0])
 
   function handleSelect(agent: AgentRecord): void {
     if (onEdit !== undefined) { onEdit(agent); return }
@@ -54,7 +56,7 @@ function AgentsModalBody({ onEdit, onCreate, onDelete }: Omit<AgentsModalProps, 
   function handleDeleted(id: string): void {
     if (onDelete !== undefined) { onDelete(id); return }
     setCreating(false)
-    setSelectedId('main')
+    setSelectedId('')
     reload()
   }
 
@@ -63,13 +65,12 @@ function AgentsModalBody({ onEdit, onCreate, onDelete }: Omit<AgentsModalProps, 
       <div className={css.listPane}>
         {state.kind === 'loading' && <p className={css.hint}>加载中…</p>}
         {state.kind === 'error' && <p className={css.hint}>加载失败，请重试</p>}
-        {state.kind === 'ok' && agents.map((agent) => (
+        {state.kind === 'ok' && visible.map((agent) => (
           <button key={agent.id} type="button"
             className={clsx(css.agentRow, agent.id === selectedId && !creating && css.agentRowActive)}
             onClick={() => { handleSelect(agent) }}>
             <span className={css.agentName}>
               {agent.name}
-              {agent.id === 'main' && <span className={css.lock} title="主 Agent 不可删除">锁定</span>}
             </span>
             {agent.builtin === true && <Pill className={css.builtinBadge}>内置</Pill>}
             {agent.description !== undefined && <span className={css.agentDesc}>{agent.description}</span>}

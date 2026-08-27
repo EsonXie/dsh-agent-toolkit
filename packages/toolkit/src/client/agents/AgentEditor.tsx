@@ -1,9 +1,8 @@
-/** Agent 编辑器：基本信息 + 提示词分层 + 模型（级联下拉）+ 工具白名单 四区块。 */
+/** Agent 编辑器：基本信息 + Persona + 模型（级联下拉）+ 工具白名单 四区块。 */
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { LayerConfig } from '../../prompt/types.ts'
 import type { AgentRecord } from '../../agents/store.ts'
-import { deleteAgent, fetchModels, fetchProviders, fetchTools, saveAgent, type ModelOption, type ProviderOption } from './api.ts'
+import { deleteAgent, fetchModels, fetchProviders, fetchTools, saveAgent, type ModelOption, type ProviderOption, type ToolsCatalog } from './api.ts'
 import css from './agents.module.css'
 
 /** Agent id 约束（与 src/agents/store.ts 的 AGENT_ID_RE 保持一致，客户端前置校验用）。 */
@@ -17,10 +16,6 @@ export interface AgentEditorProps {
   onCancel?(): void
 }
 
-function newLayer(index: number): LayerConfig {
-  return { name: `层 ${index + 1}`, order: index, text: '' }
-}
-
 export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditorProps): ReactNode {
   const creating = agent === undefined
   const locked = agent !== undefined && (agent.id === 'main' || agent.builtin === true)
@@ -28,13 +23,13 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
   const [id, setId] = useState(agent?.id ?? '')
   const [name, setName] = useState(agent?.name ?? '')
   const [description, setDescription] = useState(agent?.description ?? '')
-  const [layers, setLayers] = useState<LayerConfig[]>(agent?.promptLayers ?? [])
+  const [persona, setPersona] = useState(agent?.persona ?? '')
   const [provider, setProvider] = useState(agent?.model?.provider ?? '')
   const [model, setModel] = useState(agent?.model?.model ?? '')
   const [providers, setProviders] = useState<ProviderOption[]>([])
   const [models, setModels] = useState<ModelOption[]>([])
   const [tools, setTools] = useState<string[]>(agent?.tools?.allow ?? [])
-  const [availableTools, setAvailableTools] = useState<string[]>([])
+  const [catalog, setCatalog] = useState<ToolsCatalog>({ native: [], global: [] })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -42,7 +37,12 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
   useEffect(() => {
     let stale = false
     fetchProviders().then((ps) => { if (!stale) setProviders(ps) }).catch(() => undefined)
-    fetchTools().then((ts) => { if (!stale) setAvailableTools(ts) }).catch(() => undefined)
+    fetchTools().then((c) => {
+      if (stale) return
+      setCatalog(c)
+      // 新建模式默认全勾（原生 + 扩展）；编辑模式以记录 allow 为准
+      if (creating) setTools([...c.native, ...c.global])
+    }).catch(() => undefined)
     return () => { stale = true }
   }, [])
 
@@ -59,30 +59,6 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
     return () => { stale = true }
   }, [provider])
 
-  function addLayer(): void {
-    setLayers([...layers, newLayer(layers.length)])
-  }
-
-  function updateLayer(index: number, patch: Partial<LayerConfig>): void {
-    setLayers(layers.map((layer, i) => (i === index ? { ...layer, ...patch } : layer)))
-  }
-
-  function removeLayer(index: number): void {
-    setLayers(layers.filter((_, i) => i !== index))
-  }
-
-  /** 上/下移 = 相邻两层交换 position 与 order。 */
-  function moveLayer(index: number, dir: -1 | 1): void {
-    const target = index + dir
-    if (target < 0 || target >= layers.length) return
-    const next = [...layers]
-    const a = next[index]!
-    const b = next[target]!
-    next[index] = { ...b, order: a.order }
-    next[target] = { ...a, order: b.order }
-    setLayers(next)
-  }
-
   function toggleTool(tool: string, checked: boolean): void {
     setTools(checked ? [...tools, tool] : tools.filter((t) => t !== tool))
   }
@@ -98,7 +74,7 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
       id: trimmedId,
       name: trimmedName,
       ...(description.trim() ? { description: description.trim() } : {}),
-      ...(layers.length > 0 ? { promptLayers: layers } : {}),
+      ...(persona.trim() ? { persona: persona.trim() } : {}),
       ...(provider.trim().length > 0 && model.trim().length > 0 ? { model: { provider: provider.trim(), model: model.trim() } } : {}),
       ...(tools.length > 0 ? { tools: { allow: tools } } : {}),
     }
@@ -151,28 +127,12 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
       </section>
 
       <section className={css.block}>
-        <h3 className={css.blockTitle}>提示词分层</h3>
-        {layers.map((layer, i) => (
-          <div key={i} className={css.layer}>
-            <div className={css.layerRow}>
-              <Input
-                value={layer.name} aria-label={`层名 ${i + 1}`} className={css.layerName}
-                onChange={(e) => { updateLayer(i, { name: e.target.value }) }}
-              />
-              <button type="button" className={css.iconButton} aria-label={`上移 ${i + 1}`} disabled={i === 0}
-                onClick={() => { moveLayer(i, -1) }}>↑</button>
-              <button type="button" className={css.iconButton} aria-label={`下移 ${i + 1}`} disabled={i === layers.length - 1}
-                onClick={() => { moveLayer(i, 1) }}>↓</button>
-              <button type="button" className={css.iconButton} aria-label={`删除层 ${i + 1}`}
-                onClick={() => { removeLayer(i) }}>×</button>
-            </div>
-            <textarea
-              className={css.textarea} value={layer.text} aria-label={`层文本 ${i + 1}`} rows={3}
-              onChange={(e) => { updateLayer(i, { text: e.target.value }) }}
-            />
-          </div>
-        ))}
-        <Button variant="outline" onClick={addLayer}>添加层</Button>
+        <h3 className={css.blockTitle}>Persona</h3>
+        <textarea
+          className={css.textarea} value={persona} aria-label="Persona" rows={6}
+          placeholder="角色人设与职责（固定分层中唯一可自定义的 persona 层）"
+          onChange={(e) => { setPersona(e.target.value) }}
+        />
       </section>
 
       <section className={css.block}>
@@ -197,18 +157,35 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
 
       <section className={css.block}>
         <h3 className={css.blockTitle}>工具白名单</h3>
-        {availableTools.length === 0 ? (
+        {catalog.native.length === 0 && catalog.global.length === 0 ? (
           <p className={css.hint}>暂无可用工具</p>
         ) : (
-          <div className={css.toolGrid}>
-            {availableTools.map((t) => (
-              <label key={t} className={css.toolCheck}>
-                <input type="checkbox" checked={tools.includes(t)} aria-label={`工具 ${t}`}
-                  onChange={(e) => { toggleTool(t, e.target.checked) }} />
-                {t}
-              </label>
-            ))}
-          </div>
+          <>
+            <p className={css.toolGroupTitle}>原生工具</p>
+            <div className={css.toolGrid}>
+              {catalog.native.map((t) => (
+                <label key={t} className={css.toolCheck}>
+                  <input type="checkbox" checked={tools.includes(t)} aria-label={`工具 ${t}`}
+                    onChange={(e) => { toggleTool(t, e.target.checked) }} />
+                  {t}
+                </label>
+              ))}
+            </div>
+            {catalog.global.length > 0 && (
+              <>
+                <p className={css.toolGroupTitle}>扩展工具</p>
+                <div className={css.toolGrid}>
+                  {catalog.global.map((t) => (
+                    <label key={t} className={css.toolCheck}>
+                      <input type="checkbox" checked={tools.includes(t)} aria-label={`工具 ${t}`}
+                        onChange={(e) => { toggleTool(t, e.target.checked) }} />
+                      {t}
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
         )}
       </section>
 
