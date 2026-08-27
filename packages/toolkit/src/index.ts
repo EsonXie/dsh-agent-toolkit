@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { createRegistry } from './agents/registry.ts'
 import { DEFAULT_LAYERS, DEFAULT_RULES } from './prompt/defaults.ts'
-import { setupPrompt, validateConfig as validatePromptConfig } from './prompt/index.ts'
+import { setupPrompt, validateConfig as validatePromptConfig, type LayerView } from './prompt/index.ts'
 import type { LayerConfig, Rule } from './prompt/types.ts'
 import { setupDelegate } from './delegate/index.ts'
 import { setupAgentsApi } from './agents/api.ts'
@@ -88,7 +88,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   validatePromptConfig({ layers: config.layers, rules: config.rules })
   const warn = (msg: string): void => ctx.logger.warn(msg)
   const registry = await createRegistry(ctx, warn)
-  setupPrompt(ctx, { layers: config.layers, rules: config.rules })
+  const layersRef: LayerConfig[] = config.layers
+  const staticSource: LayerView = { get: () => layersRef, subscribe: () => () => {} }
+  setupPrompt(ctx, { source: staticSource, rules: config.rules })
   setupDelegate(ctx, { provider: config.provider, toolName: config.toolName, layers: config.layers, rules: config.rules }, registry)
   // agents/providers/tools RPC 为核心恒启用（Agents 面板总是挂载，端点缺失即「加载失败」），
   // 不随 modules.feishu 门控；仅 bots 分支受 feishu 开关控制。

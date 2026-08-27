@@ -12,6 +12,12 @@ export type { Config, LayerConfig, Rule, RuleMatch } from './types.ts'
 /** 固定追加层的层名（保留，用户层不得使用）。 */
 export const MODEL_NOTES_LAYER = 'model-notes'
 
+/** 运行时层视图：setupPrompt 只消费 get + subscribe，不关心存储细节（测试可注入假实现）。 */
+export interface LayerView {
+  get(): LayerConfig[]
+  subscribe(listener: () => void): () => void
+}
+
 /** 层列表语义校验：空、层名重复、保留层名。层名规则校验（overrides 引用）见 validateConfig。 */
 export function validateLayers(layers: LayerConfig[]): void {
   if (layers.length === 0) {
@@ -63,29 +69,41 @@ export function validateConfig(config: ConfigT): void {
  * 解析——首条消息（首次组装）按当次选择的模型命中规则，随后按 session 钉住；
  * 无运行时选择时 variables 即创建期 agent.options（agent-loop 的变量提供器）。
  */
-export function setupPrompt(ctx: Context, config: { layers: LayerConfig[]; rules: Rule[] }): void {
-  validateConfig(config)
-  const notesOrder = Math.max(...config.layers.map(layer => layer.order)) + 1
+export function setupPrompt(ctx: Context, config: { source: LayerView; rules: Rule[] }): void {
+  const { source, rules } = config
   const hitRule = (context: AssembleContext): Rule | undefined =>
-    selectRule(config.rules, context.agent?.options?.provider, context.agent?.options?.model)
+    selectRule(rules, context.agent?.options?.provider, context.agent?.options?.model)
   // 子 Agent 隔离：人设/领域/任务等普通层不泄漏进子 Agent 组装（spec §4.5）；
   // model-notes 是模型层（模型的通用使用说明），主子共用、按子的生效模型命中规则。
   const isSubagent = (context: AssembleContext): boolean =>
     context.agent?.session?.header?.origin === 'subagent'
-  for (const layer of config.layers) {
-    ctx.systemPrompt.section({
-      name: `prompt-stack:${layer.name}`,
-      order: layer.order,
-      text: (context) =>
-        isSubagent(context) ? '' : (hitRule(context)?.overrides?.[layer.name] ?? layer.text),
-    })
+
+  // 层可能经 UI 增删/改序：registerSections 先 dispose 上一轮再按当前层重注册，
+  // source 变更时经 subscribe 触发。dispose 用 section() 返回的 disposer。
+  let disposers: Array<() => void> = []
+  const registerSections = (): void => {
+    for (const dispose of disposers) dispose()
+    disposers = []
+    const layers = source.get()
+    validateLayers(layers)
+    const notesOrder = Math.max(...layers.map(layer => layer.order)) + 1
+    for (const layer of layers) {
+      disposers.push(ctx.systemPrompt.section({
+        name: `prompt-stack:${layer.name}`,
+        order: layer.order,
+        text: (context) =>
+          isSubagent(context) ? '' : (hitRule(context)?.overrides?.[layer.name] ?? layer.text),
+      }))
+    }
+    // 无命中时返回空串，沿用 dsh「空段不渲染」被丢弃。
+    disposers.push(ctx.systemPrompt.section({
+      name: `prompt-stack:${MODEL_NOTES_LAYER}`,
+      order: notesOrder,
+      text: (context) => hitRule(context)?.append ?? '',
+    }))
   }
-  // 无命中时返回空串，沿用 dsh「空段不渲染」被丢弃。
-  ctx.systemPrompt.section({
-    name: `prompt-stack:${MODEL_NOTES_LAYER}`,
-    order: notesOrder,
-    text: (context) => hitRule(context)?.append ?? '',
-  })
+  registerSections()
+  ctx.effect(() => source.subscribe(registerSections))
 
   const notesSection = `prompt-stack:${MODEL_NOTES_LAYER}`
   // 首条消息钉住：每个会话的首次组装解析出的 provider/model 缓存起来，会话中途
@@ -108,12 +126,13 @@ export function setupPrompt(ctx: Context, config: { layers: LayerConfig[]; rules
         pinned.set(agent, { sessionId: agent.session.id, provider, model })
       }
     }
-    const rule = selectRule(config.rules, provider, model)
+    const rule = selectRule(rules, provider, model)
+    const layers = source.get()
     const sections = assembled.sections.map((section) => {
       if (section.name === notesSection) {
         return { ...section, text: rule?.append ?? '' }
       }
-      const layer = config.layers.find(l => section.name === `prompt-stack:${l.name}`)
+      const layer = layers.find(l => section.name === `prompt-stack:${l.name}`)
       if (layer === undefined) return section
       // 子 Agent 隔离在此同样生效：上面的 text 回调返回的空串会被本节覆盖，
       // 所以按 origin 直接改写（model-notes 分支已在上面单独处理，不受隔离）。

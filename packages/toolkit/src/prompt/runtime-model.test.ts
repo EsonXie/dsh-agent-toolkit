@@ -4,7 +4,7 @@ import SystemPrompt, { type AssembleContext, type PromptAssembly } from '@deepse
 import { createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { Scope, ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { setupPrompt } from './index.ts'
+import { setupPrompt, type LayerView } from './index.ts'
 
 /** 构造最小 agent 替身：options（创建期模型）+ 可变 session（钉住缓存按 session.id 失效）。 */
 function fakeAgent(options: { provider?: string; model?: string }, session: { id: string } = { id: 's1' }): Agent {
@@ -22,13 +22,17 @@ const CONFIG = {
   ],
 }
 
+function fakeSource(layers: typeof CONFIG.layers): LayerView {
+  return { get: () => layers, subscribe: () => () => {} }
+}
+
 /** 挂 SystemPrompt + 宿主变量（照 agent-loop）+ prompt-stack。 */
 async function boot(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt, { persona: '' })
   ctx.systemPrompt.variable('model', context => context.agent?.options?.model)
   ctx.systemPrompt.variable('provider', context => context.agent?.options?.provider)
-  setupPrompt(ctx, CONFIG)
+  setupPrompt(ctx, { source: fakeSource(CONFIG.layers), rules: CONFIG.rules })
   return ctx
 }
 

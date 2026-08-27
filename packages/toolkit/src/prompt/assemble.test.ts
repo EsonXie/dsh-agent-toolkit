@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt, { renderPrompt, type AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { setupPrompt } from './index.ts'
+import { setupPrompt, type LayerView } from './index.ts'
 import type { Config as ConfigT } from './types.ts'
 
 /** 构造最小 agent 替身（assemble 路径读 agent.options；钉住缓存读 agent.session.id）。 */
@@ -21,10 +21,14 @@ const CONFIG: ConfigT = {
   ],
 }
 
+function fakeSource(layers: ConfigT['layers']): LayerView {
+  return { get: () => layers, subscribe: () => () => {} }
+}
+
 async function boot(config: ConfigT = CONFIG): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt, { persona: '' })
-  setupPrompt(ctx, config)
+  setupPrompt(ctx, { source: fakeSource(config.layers), rules: config.rules })
   return ctx
 }
 
@@ -71,7 +75,7 @@ describe('prompt-stack 组装', () => {
     // 模拟宿主 agent-loop 的注册（agent-loop/src/index.ts:351-352），prompt-stack 不再自注册。
     ctx.systemPrompt.variable('provider', context => context.agent?.options.provider)
     ctx.systemPrompt.variable('model', context => context.agent?.options.model)
-    setupPrompt(ctx, { layers: [{ name: 'who', order: 0, text: 'model={{model}} provider={{provider}}' }], rules: [] })
+    setupPrompt(ctx, { source: fakeSource([{ name: 'who', order: 0, text: 'model={{model}} provider={{provider}}' }]), rules: [] })
     const assembly = await ctx.systemPrompt.assemble(agentContext({ provider: 'deepseek', model: 'deepseek-v4' }))
     expect(renderPrompt(assembly)).toContain('model=deepseek-v4 provider=deepseek')
   })
@@ -81,13 +85,13 @@ describe('prompt-stack 组装', () => {
     await ctx.plugin(SystemPrompt, { persona: '' })
     ctx.systemPrompt.variable('provider', context => context.agent?.options.provider)
     ctx.systemPrompt.variable('model', context => context.agent?.options.model)
-    expect(() => setupPrompt(ctx, { layers: [{ name: 'base', order: 0, text: 'B' }], rules: [] })).not.toThrow()
+    expect(() => setupPrompt(ctx, { source: fakeSource([{ name: 'base', order: 0, text: 'B' }]), rules: [] })).not.toThrow()
   })
 
   test('Config 校验失败在 apply 期响亮抛错', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, { persona: '' })
-    expect(() => setupPrompt(ctx, { layers: [], rules: [] })).toThrow(/at least one layer/)
+    expect(() => setupPrompt(ctx, { source: fakeSource([]), rules: [] })).toThrow(/at least one layer/)
   })
 
   test('子 Agent（origin=subagent）：人设/任务层渲染空串，model-notes 按子的模型照常命中', async () => {
