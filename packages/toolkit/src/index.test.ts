@@ -167,6 +167,7 @@ describe('apply 模块接线与开关', () => {
     expect(paths).toContain('/dsh-agent-toolkit/api/agents')
     expect(paths).toContain('/dsh-agent-toolkit/api/providers')
     expect(paths).toContain('/dsh-agent-toolkit/api/tools')
+    expect(paths).toContain('/dsh-agent-toolkit/api/prompt-layers')
     expect(paths).not.toContain('/dsh-agent-toolkit/api/bots')
   })
 
@@ -177,6 +178,7 @@ describe('apply 模块接线与开关', () => {
     expect(paths).toContain('/dsh-agent-toolkit/api/agents')
     expect(paths).toContain('/dsh-agent-toolkit/api/providers')
     expect(paths).toContain('/dsh-agent-toolkit/api/tools')
+    expect(paths).toContain('/dsh-agent-toolkit/api/prompt-layers')
     expect(paths).toContain('/dsh-agent-toolkit/api/bots')
   })
 

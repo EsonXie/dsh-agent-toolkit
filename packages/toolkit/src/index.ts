@@ -8,6 +8,7 @@ import { openDomainSafely } from './shared/storage.ts'
 import { DEFAULT_LAYERS, DEFAULT_RULES } from './prompt/defaults.ts'
 import { setupPrompt, validateConfig as validatePromptConfig } from './prompt/index.ts'
 import { openLayerSource } from './prompt/layer-source.ts'
+import { setupPromptLayersApi } from './prompt/api.ts'
 import type { LayerConfig, Rule } from './prompt/types.ts'
 import { setupDelegate } from './delegate/index.ts'
 import { setupAgentsApi } from './agents/api.ts'
@@ -114,6 +115,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     listProviders: () => ctx.llm.listProviders().map(({ id, name }) => ({ id, name })),
     listModels: (provider) => ctx.llm.listModels(provider).then((models) => models.map(({ id, name }) => ({ id, name }))),
   })
+  setupPromptLayersApi(ctx, { source: layerSource, rules: config.rules, seedLayers: config.layers })
   if (config.modules.feishu) setupBots(ctx, config.feishu, { registry })
   if (config.modules.usage) setupUsage(ctx, { timezone: config.timezone })
 }
