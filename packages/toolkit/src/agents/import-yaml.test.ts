@@ -44,7 +44,7 @@ test('parseRoleYaml：persona 转单个 promptLayers；name 省略取文件名',
     id: 'explorer',
     name: 'explorer',
     description: '只读探索',
-    promptLayers: [{ name: 'persona', order: 0, text: '你是探索员。' }],
+    persona: '你是探索员。',
   })
 })
 
@@ -104,7 +104,7 @@ test('importRolesYaml：同名 YAML 覆盖内置；只导入一次（meta 标记
   await writeFile(join(rolesDir, 'explorer.yml'), 'description: 新探索\npersona: 新文本。\n')
   const first = await importRolesYaml({ agents, meta, warn }, rolesDir)
   expect(first.imported).toBe(1)
-  expect(agents.get('explorer')?.promptLayers).toEqual([{ name: 'persona', order: 0, text: '新文本。' }])
+  expect(agents.get('explorer')?.persona).toBe('新文本。')
   expect(meta.get(ROLES_YAML_IMPORTED_KEY)).toEqual({ value: '1' })
   await writeFile(join(rolesDir, 'new.yml'), 'description: 新\npersona: 新。\n')
   const second = await importRolesYaml({ agents, meta, warn }, rolesDir)

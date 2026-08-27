@@ -79,7 +79,7 @@ export function parseRoleYaml(text: string, source: string, fileName: string, wa
     id,
     name: id,
     description: raw.description,
-    promptLayers: [{ name: 'persona', order: 0, text: raw.persona }],
+    persona: raw.persona,
     ...(model !== undefined ? { model } : {}),
     ...(tools !== undefined ? { tools } : {}),
   }
