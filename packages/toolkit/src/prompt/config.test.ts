@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { validateConfig } from './index.ts'
+import { validateConfig, validateLayers } from './index.ts'
 import { DEFAULT_LAYERS, DEFAULT_RULES } from './defaults.ts'
 import type { Config as ConfigT } from './types.ts'
 
@@ -62,5 +62,26 @@ describe('默认配置（DEFAULT_*，schema 默认值来源）', () => {
         expect(layerNames.has(key), `默认规则 overrides 引用未知层 "${key}"`).toBe(true)
       }
     }
+  })
+})
+
+describe('validateLayers', () => {
+  test('合法层数组通过', () => {
+    expect(() => validateLayers([{ name: 'base', order: 0, text: 'B' }])).not.toThrow()
+  })
+
+  test('空数组抛错', () => {
+    expect(() => validateLayers([])).toThrow(/at least one layer/)
+  })
+
+  test('层名重复抛错', () => {
+    expect(() => validateLayers([
+      { name: 'base', order: 0, text: 'B' },
+      { name: 'base', order: 1, text: 'B2' },
+    ])).toThrow(/duplicate layer name "base"/)
+  })
+
+  test('保留层名 model-notes 抛错', () => {
+    expect(() => validateLayers([{ name: 'model-notes', order: 0, text: 'X' }])).toThrow(/reserved/)
   })
 })

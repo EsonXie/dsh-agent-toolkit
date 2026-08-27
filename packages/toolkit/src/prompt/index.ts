@@ -12,17 +12,13 @@ export type { Config, LayerConfig, Rule, RuleMatch } from './types.ts'
 /** 固定追加层的层名（保留，用户层不得使用）。 */
 export const MODEL_NOTES_LAYER = 'model-notes'
 
-/**
- * 激活期校验（dsh「误配置响亮失败」惯例）：空 layers、层名重复、保留层名、
- * overrides 引用未知层、空 match、非法 glob 全部抛错。
- * @param config - 已经过 schema 解析的配置。
- */
-export function validateConfig(config: ConfigT): void {
-  if (config.layers.length === 0) {
+/** 层列表语义校验：空、层名重复、保留层名。层名规则校验（overrides 引用）见 validateConfig。 */
+export function validateLayers(layers: LayerConfig[]): void {
+  if (layers.length === 0) {
     throw new Error('prompt-stack: config.layers must define at least one layer')
   }
   const names = new Set<string>()
-  for (const layer of config.layers) {
+  for (const layer of layers) {
     if (layer.name === MODEL_NOTES_LAYER) {
       throw new Error(`prompt-stack: layer name "${MODEL_NOTES_LAYER}" is reserved for the rules' append text`)
     }
@@ -31,6 +27,16 @@ export function validateConfig(config: ConfigT): void {
     }
     names.add(layer.name)
   }
+}
+
+/**
+ * 激活期校验（dsh「误配置响亮失败」惯例）：空 layers、层名重复、保留层名、
+ * overrides 引用未知层、空 match、非法 glob 全部抛错。
+ * @param config - 已经过 schema 解析的配置。
+ */
+export function validateConfig(config: ConfigT): void {
+  validateLayers(config.layers)
+  const names = new Set(config.layers.map(layer => layer.name))
   for (const [index, rule] of config.rules.entries()) {
     const { provider, model, modelPattern } = rule.match
     if (provider === undefined && model === undefined && modelPattern === undefined) {
