@@ -106,7 +106,7 @@ test('选中模型层只读行 → 展示其兜底文本，不出现层文本编
   expect(screen.getByLabelText('只读段文本')).toHaveProperty('value', 'FALLBACK-BASE')
 })
 
-test('规则只读视图：展开后展示规则，悬空引用标红', async () => {
+test('规则只读视图：展开后展示规则与 overrides/append', async () => {
   stubFetch()
   render(<PromptLayersModal open onClose={() => undefined} />)
   await screen.findByText('persona', { selector: 'button > span' })
