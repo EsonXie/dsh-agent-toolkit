@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { PromptLayersModal } from './PromptLayersModal.tsx'
+import type { PromptLayersPayload } from './api.ts'
 
 const PAYLOAD = {
   layers: [{ name: 'persona', order: 10, text: 'PERSONA' }],
@@ -18,7 +19,18 @@ const PAYLOAD = {
   identityOverride: '',
 }
 
-function stubFetch(getPayload: typeof PAYLOAD = PAYLOAD) {
+/** 多规则 payload：含 base 覆盖（claude 通配 / moonshotai / 多字段）与 append-only（deepseek 通配）规则。 */
+const RULES_PAYLOAD = {
+  ...PAYLOAD,
+  rules: [
+    { match: { modelPattern: 'claude*' }, overrides: { base: 'CLAUDE-BASE' } },
+    { match: { provider: 'moonshotai' }, overrides: { base: 'KIMI-BASE' } },
+    { match: { provider: 'p', model: 'm', modelPattern: 'x*' }, overrides: { base: 'MULTI-BASE' } },
+    { match: { modelPattern: 'deepseek*' }, append: 'V4-NOTES' },
+  ],
+}
+
+function stubFetch(getPayload: PromptLayersPayload = PAYLOAD) {
   const calls: Array<{ url: string; method: string; body?: unknown }> = []
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
@@ -132,5 +144,47 @@ test('选中模型层只读行 → 展示其兜底文本，不出现层文本编
 
   fireEvent.click(screen.getByText('模型层', { selector: 'button > span' }))
   expect(screen.queryByLabelText('层文本')).toBeNull()
+  expect(screen.getByLabelText('只读段文本')).toHaveProperty('value', 'FALLBACK-BASE')
+})
+
+test('模型层：tab 数 = 内置默认 + 含 base 规则匹配条件，默认选中内置默认', async () => {
+  stubFetch(RULES_PAYLOAD)
+  render(<PromptLayersModal open onClose={() => undefined} />)
+  await screen.findByText('persona', { selector: 'button > span' })
+
+  fireEvent.click(screen.getByText('模型层', { selector: 'button > span' }))
+  expect(screen.getByRole('tab', { name: '内置默认' }).getAttribute('aria-selected')).toBe('true')
+  expect(screen.getByRole('tab', { name: 'claude*' })).toBeTruthy()
+  expect(screen.getByRole('tab', { name: 'provider: moonshotai' })).toBeTruthy()
+  expect(screen.getByRole('tab', { name: 'provider: p + model: m + x*' })).toBeTruthy()
+  // append-only 规则不进模型层 tab
+  expect(screen.queryByRole('tab', { name: 'deepseek*' })).toBeNull()
+  expect(screen.getByLabelText('只读段文本')).toHaveProperty('value', 'FALLBACK-BASE')
+})
+
+test('模型层：点击规则 tab → 只读框显示该规则 overrides.base', async () => {
+  stubFetch(RULES_PAYLOAD)
+  render(<PromptLayersModal open onClose={() => undefined} />)
+  await screen.findByText('persona', { selector: 'button > span' })
+
+  fireEvent.click(screen.getByText('模型层', { selector: 'button > span' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'claude*' }))
+  const textarea = screen.getByLabelText('只读段文本')
+  expect(textarea).toHaveProperty('value', 'CLAUDE-BASE')
+  expect(textarea).toHaveProperty('readOnly', true)
+  fireEvent.click(screen.getByRole('tab', { name: 'provider: moonshotai' }))
+  expect(textarea).toHaveProperty('value', 'KIMI-BASE')
+})
+
+test('模型层：切到其他层再切回 → tab 复位到内置默认', async () => {
+  stubFetch(RULES_PAYLOAD)
+  render(<PromptLayersModal open onClose={() => undefined} />)
+  await screen.findByText('persona', { selector: 'button > span' })
+
+  fireEvent.click(screen.getByText('模型层', { selector: 'button > span' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'claude*' }))
+  fireEvent.click(screen.getByText('persona', { selector: 'button > span' }))
+  fireEvent.click(screen.getByText('模型层', { selector: 'button > span' }))
+  expect(screen.getByRole('tab', { name: '内置默认' }).getAttribute('aria-selected')).toBe('true')
   expect(screen.getByLabelText('只读段文本')).toHaveProperty('value', 'FALLBACK-BASE')
 })

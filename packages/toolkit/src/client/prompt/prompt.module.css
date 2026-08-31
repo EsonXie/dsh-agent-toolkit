@@ -64,3 +64,31 @@
 
 .hint { font-size: 13px; color: var(--dsw-alias-label-tertiary); }
 .error { font-size: 13px; color: var(--dsw-alias-status-danger, red); }
+
+/* tab 栏：规则切换（分段控件观感，同 UsageModal）；规则多时可换行。 */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-skeleton);
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 18px;
+}
+.tab:hover { background: var(--dsw-alias-interactive-bg-hover); }
+/* 激活项：与 .tab 叠加使用；置后以压过 .tab:hover。 */
+.tabActive { background: var(--dsw-alias-bg-overlay); color: var(--dsw-alias-label-primary); }
+.tabActive:hover { background: var(--dsw-alias-bg-overlay); }

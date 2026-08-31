@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useLoadState } from '../shared/load-state.ts'
 import { fetchPromptLayers, resetLayers, saveLayers, type NativeProbe, type PromptLayersPayload } from './api.ts'
-import type { LayerConfig } from '../../prompt/types.ts'
+import type { LayerConfig, RuleMatch } from '../../prompt/types.ts'
 import css from './prompt.module.css'
 
 export interface PromptLayersModalProps {
@@ -34,6 +34,37 @@ function nativeText(native: NativeProbe, name: string): string {
   return native.sections.find(s => s.name === name)?.text ?? ''
 }
 
+/** 规则匹配条件 → tab 标签（provider/model 带字段前缀，modelPattern 原样；多字段 ' + ' 连接）。 */
+function formatMatch(match: RuleMatch): string {
+  const parts: string[] = []
+  if (match.provider !== undefined) parts.push(`provider: ${match.provider}`)
+  if (match.model !== undefined) parts.push(`model: ${match.model}`)
+  if (match.modelPattern !== undefined) parts.push(match.modelPattern)
+  return parts.join(' + ')
+}
+
+/** 规则查看 tab 项：标签（匹配条件或「内置默认」）+ 只读文本。 */
+interface RuleTabItem { label: string; text: string }
+
+/** 只读规则 tab 栏 + 文本框：内部自持选中态（默认第一页），随 key 重挂载复位。 */
+function RuleTabs({ tabs }: { tabs: RuleTabItem[] }): ReactNode {
+  const [index, setIndex] = useState(0)
+  const current = tabs[index] ?? tabs[0]
+  return (
+    <>
+      <div className={css.tabs} role="tablist">
+        {tabs.map((t, i) => (
+          <button key={`${i}:${t.label}`} type="button" role="tab" aria-selected={i === index}
+            className={clsx(css.tab, i === index && css.tabActive)}
+            onClick={() => { setIndex(i) }}>{t.label}</button>
+        ))}
+      </div>
+      <textarea className={css.textarea} readOnly aria-label="只读段文本" rows={8}
+        value={current?.text ?? ''} />
+    </>
+  )
+}
+
 function PromptLayersBody(): ReactNode {
   const { state, reload } = useLoadState<PromptLayersPayload>(fetchPromptLayers, [])
   const [layers, setLayers] = useState<LayerConfig[]>([])
@@ -57,6 +88,11 @@ function PromptLayersBody(): ReactNode {
   }, [state, loaded])
 
   const ordered = sortedLayers(layers)
+  const rules = state.kind === 'ok' ? state.data.rules : []
+  const modelTabs: RuleTabItem[] = [
+    { label: '内置默认', text: modelFallbackText },
+    ...rules.flatMap(r => r.overrides?.base === undefined ? [] : [{ label: formatMatch(r.match), text: r.overrides.base }]),
+  ]
   const selected = ordered.find(l => l.name === selectedKey) ?? ordered[0]
   const isReadonlyRow = selectedKey === MODEL_NOTES_SECTION || selectedKey === MODEL_SECTION
   const isIdentityRow = selectedKey === IDENTITY_SECTION
@@ -166,13 +202,18 @@ function PromptLayersBody(): ReactNode {
           </div>
         ) : state.kind === 'ok' && isReadonlyRow ? (
           <div className={css.editor}>
-            <p className={css.hint}>
-              {selectedKey === MODEL_SECTION
-                ? '模型层是内置提示词：运行时按当前模型命中规则整份覆盖，不可编辑。'
-                : 'model-notes 是保留层：规则命中时以其 append 文本渲染，不可直接编辑。'}
-            </p>
-            <textarea className={css.textarea} readOnly aria-label="只读段文本" rows={8}
-              value={selectedKey === MODEL_SECTION ? modelFallbackText : nativeText(native, selectedKey ?? '')} />
+            {selectedKey === MODEL_SECTION ? (
+              <>
+                <p className={css.hint}>模型层是内置提示词：运行时按当前模型命中规则整份覆盖，不可编辑。</p>
+                <RuleTabs key={MODEL_SECTION} tabs={modelTabs} />
+              </>
+            ) : (
+              <>
+                <p className={css.hint}>model-notes 是保留层：规则命中时以其 append 文本渲染，不可直接编辑。</p>
+                <textarea className={css.textarea} readOnly aria-label="只读段文本" rows={8}
+                  value={nativeText(native, MODEL_NOTES_SECTION)} />
+              </>
+            )}
           </div>
         ) : state.kind === 'ok' && selected !== undefined ? (
           <div className={css.editor}>
