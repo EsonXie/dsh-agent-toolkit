@@ -112,4 +112,32 @@ const clientModuleConfig = {
   plugins: clientPlugins,
 } satisfies UserConfig
 
-export default [nodeConfig, clientModuleConfig]
+/** 浏览器半：lazy-CJS factory，由 dsh client-modules 装载（bundle URL /plugins/<id>/client.js）。 */
+const clientConfig = {
+  name: `${ID}/client`,
+  entry: { client: 'src/client/index.ts' },
+  outDir: 'lib',
+  format: 'cjs',
+  platform: 'browser',
+  dts: false,
+  sourcemap: true,
+  clean: false,
+  deps: {
+    neverBundle: [...CLIENT_EXTERNALS],
+    alwaysBundle: (id: string) => ((CLIENT_EXTERNALS as readonly string[]).includes(id) ? undefined : true),
+  },
+  define: {
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
+    'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
+    'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
+  },
+  plugins: clientPlugins,
+  outputOptions: {
+    entryFileNames: 'client.js',
+    banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(ID)}, factory: (require) => {`,
+    footer: 'return module.exports; } });',
+    intro: 'var module = { exports: {} }; var exports = module.exports;',
+  },
+} satisfies UserConfig
+
+export default [nodeConfig, clientModuleConfig, clientConfig]
