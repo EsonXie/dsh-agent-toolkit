@@ -3,6 +3,7 @@ import { Readable } from 'node:stream'
 import { describe, expect, test } from 'vitest'
 import { createPromptLayersApiHandler, type PromptLayersApiDeps } from './api.ts'
 import { openLayerSource } from './layer-source.ts'
+import { BASE_TEXT } from './defaults.ts'
 import type { LayerConfig } from './types.ts'
 
 function mockReq(method: string, url: string, body?: unknown): IncomingMessage {
@@ -44,7 +45,7 @@ class FakeTable<V> {
   }
 }
 
-const SEED: LayerConfig[] = [{ name: 'base', order: 0, text: 'B' }]
+const SEED: LayerConfig[] = [{ name: 'persona', order: 10, text: 'P' }]
 const RULES = [{ match: { modelPattern: 'deepseek*' }, append: 'DS' }]
 const NATIVE = {
   sections: [{ name: 'harness:identity', text: 'ID' }],
@@ -68,7 +69,7 @@ describe('GET /prompt-layers', () => {
     const res = mockRes()
     await handler(mockReq('GET', '/dsh-agent-toolkit/api/prompt-layers'), res)
     expect(res.status).toBe(200)
-    expect(JSON.parse(res.body)).toEqual({ layers: SEED, rules: RULES, seedLayers: SEED, native: NATIVE })
+    expect(JSON.parse(res.body)).toEqual({ layers: SEED, rules: RULES, seedLayers: SEED, native: NATIVE, modelFallbackText: BASE_TEXT })
   })
 
   test('probe 失败降级为空 native，主数据照常返回', async () => {
@@ -78,7 +79,7 @@ describe('GET /prompt-layers', () => {
     await handler(mockReq('GET', '/dsh-agent-toolkit/api/prompt-layers'), res)
     expect(res.status).toBe(200)
     expect(JSON.parse(res.body)).toEqual({
-      layers: SEED, rules: RULES, seedLayers: SEED, native: { sections: [], contexts: [] },
+      layers: SEED, rules: RULES, seedLayers: SEED, native: { sections: [], contexts: [] }, modelFallbackText: BASE_TEXT,
     })
   })
 })
@@ -87,7 +88,7 @@ describe('PUT /prompt-layers', () => {
   test('同结构改文本写穿并生效', async () => {
     const { handler, source } = await harness()
     const res = mockRes()
-    const next: LayerConfig[] = [{ name: 'base', order: 0, text: 'B2' }]
+    const next: LayerConfig[] = [{ name: 'persona', order: 10, text: 'P2' }]
     await handler(mockReq('PUT', '/dsh-agent-toolkit/api/prompt-layers', { layers: next }), res)
     expect(res.status).toBe(200)
     expect(source.get()).toEqual(next)
@@ -96,7 +97,7 @@ describe('PUT /prompt-layers', () => {
   test('结构变更（增/删层）→ 400', async () => {
     const { handler } = await harness()
     for (const layers of [
-      [{ name: 'base', order: 0, text: 'B' }, { name: 'task', order: 50, text: 'T' }],
+      [{ name: 'persona', order: 10, text: 'P' }, { name: 'task', order: 50, text: 'T' }],
       [],
     ]) {
       const res = mockRes()
@@ -111,6 +112,7 @@ describe('PUT /prompt-layers', () => {
     for (const layers of [
       [{ name: 'a', order: 0, text: 'A' }, { name: 'a', order: 1, text: 'A2' }],
       [{ name: 'model-notes', order: 0, text: 'X' }],
+      [{ name: 'base', order: 0, text: 'X' }],
       [{ name: 'base' }],
     ]) {
       const res = mockRes()
@@ -134,7 +136,7 @@ describe('PUT /prompt-layers', () => {
 describe('POST /prompt-layers/reset', () => {
   test('重置回种子', async () => {
     const { handler, source } = await harness()
-    await source.set([{ name: 'base', order: 0, text: 'B-EDITED' }])
+    await source.set([{ name: 'persona', order: 10, text: 'P-EDITED' }])
     const res = mockRes()
     await handler(mockReq('POST', '/dsh-agent-toolkit/api/prompt-layers/reset'), res)
     expect(res.status).toBe(200)

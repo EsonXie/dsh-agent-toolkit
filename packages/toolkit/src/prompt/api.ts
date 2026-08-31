@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { registerOptionalRoutes } from '../shared/webserver.ts'
 import { json, readJsonBody } from '../shared/http.ts'
 import { LayerConfigSchema } from '../agents/store.ts'
+import { BASE_TEXT } from './defaults.ts'
 import { validateLayers } from './index.ts'
 import { validateFixedLayers, type LayerSource } from './layer-source.ts'
 import type { LayerConfig, Rule } from './types.ts'
@@ -36,7 +37,7 @@ export function createPromptLayersApiHandler(deps: PromptLayersApiDeps): (req: I
       try {
         native = await deps.probe()
       } catch { /* 探测失败降级为空，layers/rules/seedLayers 主数据照常返回 */ }
-      json(res, 200, { layers: deps.source.get(), rules: deps.rules, seedLayers: deps.seedLayers, native })
+      json(res, 200, { layers: deps.source.get(), rules: deps.rules, seedLayers: deps.seedLayers, native, modelFallbackText: BASE_TEXT })
       return
     }
 
