@@ -34,7 +34,7 @@ function makeCtx() {
 
 test('两个 exact 路由统一挂在 /dsh-agent-toolkit/api/usage 前缀', () => {
   const { ctx, registered } = makeCtx()
-  setupUsage(ctx, { timezone: 'Asia/Shanghai' })
+  setupUsage(ctx, { timezone: 'Asia/Shanghai' }, 'pkg-a')
   expect(registered.map((r) => r.kind)).toEqual(['exact', 'exact'])
   expect(registered.map((r) => r.path).sort()).toEqual([
     '/dsh-agent-toolkit/api/usage/daily',
@@ -44,6 +44,6 @@ test('两个 exact 路由统一挂在 /dsh-agent-toolkit/api/usage 前缀', () =
 
 test('setupUsage 不再注册旧 /token-usage/api 路径', () => {
   const { ctx, registered } = makeCtx()
-  setupUsage(ctx, { timezone: 'Asia/Shanghai' })
+  setupUsage(ctx, { timezone: 'Asia/Shanghai' }, 'pkg-a')
   expect(registered.every((r) => !r.path.startsWith('/token-usage/'))).toBe(true)
 })

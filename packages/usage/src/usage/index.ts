@@ -14,8 +14,11 @@ import { tokenUsageDomain, type DailyRecord } from './store.ts'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-export function setupUsage(ctx: Context, config: { timezone: string }): void {
+const METER_OWNER_KEY = 'meter_owner'
+
+export function setupUsage(ctx: Context, config: { timezone: string }, owner: string): void {
   let daily: KvTable<string, DailyRecord> | undefined
+  let meta: KvTable<string, { value: string }> | undefined
   // 写串行化：session/event 监听可并发触发，所有聚合写排进同一条 tail 链，
   // 之后 get+put 才不会互相覆盖（KvTable 不串行化并发读改写）。
   let tail: Promise<unknown> = Promise.resolve()
@@ -29,22 +32,44 @@ export function setupUsage(ctx: Context, config: { timezone: string }): void {
     (msg) => ctx.logger.warn(msg),
     // 卸载前排空本模块写链：close 一旦开始（disposing=true）就拒绝新入队的写，
     // 未落队的采集会被静默丢弃——drain 先于 close 是归档的保证。
-    () => tail.then(() => undefined, () => undefined),
+    () => tail.then(async () => {
+      // 释放计量所有权（仅占位方）；失败不阻断 close。
+      if (ownsMeter) await meta?.delete(METER_OWNER_KEY).catch(() => undefined)
+    }, () => undefined),
   ).then((domain) => {
     // openDomainSafely 的句柄是类型擦除的 DomainHandle，table 值类型回落 unknown，此处窄化回 DailyRecord。
     daily = domain.table('daily') as KvTable<string, DailyRecord>
+    meta = domain.table('meta') as KvTable<string, { value: string }>
     return domain
   })
 
-  ctx.on('session/event', (session, event) => {
-    const sample = sampleFromEvent(session, event, config.timezone, (m) => ctx.tokenMeter.estimateMessage(m))
-    if (sample === undefined) return
-    // 链到前一条写上，使读改写按序执行；单次失败被吞掉，不中断后续写（采集尽力而为）。
-    const write = tail.then(() => domainReady).then(() => {
-      const table = daily!
-      return table.put(sample.date, addSample(table.get(sample.date) ?? emptyDaily(sample.date), sample))
+  // 双装守卫：token_usage 域 meta 表 meter_owner 先到先得。已被他包占用时本实例
+  // 跳过采集（不挂 session/event 监听），命令/路由/面板照常（读同一份数据）。
+  let ownsMeter = false
+  const meteringReady = domainReady.then(async () => {
+    const existing = meta!.get(METER_OWNER_KEY)
+    if (existing !== undefined) {
+      ctx.logger.warn(`token 计量已由 ${existing.value} 挂载，本实例（${owner}）跳过采集；面板与命令为只读共用`)
+      return false
+    }
+    await meta!.put(METER_OWNER_KEY, { value: owner })
+    ownsMeter = true
+    return true
+  })
+
+  // 守卫失败（已有他包采集）时不挂监听，tail 恒为空链。
+  void meteringReady.then((metering) => {
+    if (!metering) return
+    ctx.on('session/event', (session, event) => {
+      const sample = sampleFromEvent(session, event, config.timezone, (m) => ctx.tokenMeter.estimateMessage(m))
+      if (sample === undefined) return
+      // 链到前一条写上，使读改写按序执行；单次失败被吞掉，不中断后续写（采集尽力而为）。
+      const write = tail.then(() => domainReady).then(() => {
+        const table = daily!
+        return table.put(sample.date, addSample(table.get(sample.date) ?? emptyDaily(sample.date), sample))
+      })
+      tail = write.then(() => undefined, () => undefined)
     })
-    tail = write.then(() => undefined, () => undefined)
   })
 
   ctx.commands.register({

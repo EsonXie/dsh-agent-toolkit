@@ -21,7 +21,7 @@ export const Config: z<unknown, Config> = z.object({
 }) as z<unknown, Config>
 
 export function apply(ctx: Context, config: Config): void {
-  setupUsage(ctx, { timezone: config.timezone })
+  setupUsage(ctx, { timezone: config.timezone }, name)
 }
 
 // 供 dsh-agent-toolkit 函数级转发复用（见设计 spec「toolkit 集成方式」）。

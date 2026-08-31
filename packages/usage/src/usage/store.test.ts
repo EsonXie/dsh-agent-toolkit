@@ -6,7 +6,7 @@ describe('tokenUsageDomain', () => {
   test('域名与版本', () => {
     expect(tokenUsageDomain.name).toBe('token_usage')
     expect(tokenUsageDomain.version).toBe(1)
-    expect(Object.keys(tokenUsageDomain.tables)).toEqual(['daily'])
+    expect(Object.keys(tokenUsageDomain.tables)).toEqual(['daily', 'meta'])
   })
 })
 

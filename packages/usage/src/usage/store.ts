@@ -29,9 +29,16 @@ export const DailyRecordSchema = z.object({
 })
 export type DailyRecord = z.infer<typeof DailyRecordSchema>
 
+/** meta 表单例标记的值形状（meter_owner 等）。 */
+export const MetaRowSchema = z.object({ value: z.string() })
+
 /** domain 名受 UNIT_NAME_RE 约束（^[a-z][a-z0-9_]*$），不允许连字符。 */
 export const tokenUsageDomain = defineDomain({
   name: 'token_usage',
+  // version 保持 1：加载侧缺表即空表（snapshot.tables[table] ?? {}），加 meta 表无需 bump。
   version: 1,
-  tables: { daily: domainTable<string, DailyRecord>(DailyRecordSchema) },
+  tables: {
+    daily: domainTable<string, DailyRecord>(DailyRecordSchema),
+    meta: domainTable<string, { value: string }>(MetaRowSchema),
+  },
 })
