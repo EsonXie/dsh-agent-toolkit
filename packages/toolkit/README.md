@@ -6,7 +6,7 @@
 - **分层提示词** —— 语义化提示词分层 + 按模型匹配的覆盖/追加规则，内置模型层随模型家族（Claude、GPT、Gemini、Kimi……）自动切换。
 - **并行委派** —— `team_delegate` 工具从名册启动一次性子 Agent，web UI 渲染实时委派卡。
 - **飞书 bots** —— 项目绑定飞书自建应用，扫码一键创建应用，在飞书里以流式卡片与 Agent 对话。
-- **Token 用量** —— 按日/按小时计量，13 周活动热力图 + 单日堆叠图 + `/token-usage` 命令。
+- **Token 用量** —— 按日/按小时计量，13 周活动热力图 + 单日堆叠图 + `/token-usage` 命令。由依赖包 [`@dsh-agent-toolkit/token-usage`](https://www.npmjs.com/package/@dsh-agent-toolkit/token-usage) 提供，可独立安装。
 
 详细使用手册（中文，多文件）见仓库 `docs/usage/` 目录。
 
@@ -72,6 +72,7 @@ dsh plugin add dsh-agent-toolkit
 
 - 宿主 dsh 需提供注入服务：`storageDomain`、`tools`、`subagents`、`systemPrompt`、`commands`、`llm`、`agentDefaultModel`、`agents`、`tokenMeter`、`credentials`（`webServer` 可选，headless/CLI 下 HTTP API 自动不注册）。
 - 委派需要具备 `persona` + `depthLimit` 能力的 subagent provider（如 `spawn`）。
+- 安装时 npm 会自动带入依赖 `@dsh-agent-toolkit/token-usage`；两者**不要**再单独并列安装（计量先到先得，见该包 README）。
 - peer dependency：`@deepseek-ai/cordis` ^4。
 
 ## License

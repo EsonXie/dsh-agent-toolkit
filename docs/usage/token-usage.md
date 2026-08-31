@@ -2,6 +2,16 @@
 
 按日/按小时采集所有会话的 token 消耗，提供 web 面板（活动热力图 + 单日图表）和 `/token-usage` 命令两种查看方式。
 
+## 独立安装
+
+本模块由依赖包 [`@dsh-agent-toolkit/token-usage`](https://www.npmjs.com/package/@dsh-agent-toolkit/token-usage) 提供。若只需要用量统计，可单独安装，功能/数据/路由与集成进 `dsh-agent-toolkit` 时完全一致：
+
+```bash
+dsh plugin add @dsh-agent-toolkit/token-usage
+```
+
+> 与 `dsh-agent-toolkit` 二选一：两者同时安装时计量先到先得（后到者只读共用数据），建议只装其一。
+
 ## 统计口径
 
 监听全部会话事件，采集两类数据：

@@ -68,6 +68,6 @@ pnpm dsh web --patch <仓库根>/cordis.yml
 |---|---|---|
 | `dsh_agent_toolkit` | `agents` + `meta` | Agent 注册表记录与一次性迁移/导入标记 |
 | `project_bot` | `bots` + `bindings` | 飞书 bot 配置、（bot, 群聊）→ 会话绑定 |
-| `token_usage` | `daily` | 按日（含 24 小时桶）的 token 用量记录 |
+| `token_usage` | `daily` | 按日（含 24 小时桶）的 token 用量记录（由依赖包 @dsh-agent-toolkit/token-usage 打开） |
 
 飞书 App Secret 不落表，统一存放在宿主 credentials 服务中。
