@@ -23,6 +23,8 @@ export function PromptLayersModal({ open, onClose }: PromptLayersModalProps): Re
 /** 原生段名：只读行的 section 名（与 dsh system-prompt / prompt 模块一致）。 */
 const IDENTITY_SECTION = 'harness:identity'
 const MODEL_NOTES_SECTION = 'prompt-stack:model-notes'
+/** 内置模型层段名（prompt-stack 内置 base，只读展示）。 */
+const MODEL_SECTION = 'prompt-stack:base'
 
 function sortedLayers(layers: LayerConfig[]): LayerConfig[] {
   return [...layers].sort((a, b) => a.order - b.order)
@@ -46,6 +48,7 @@ function PromptLayersBody(): ReactNode {
   const [layers, setLayers] = useState<LayerConfig[]>([])
   const [rules, setRules] = useState<Rule[]>([])
   const [native, setNative] = useState<NativeProbe>({ sections: [], contexts: [] })
+  const [modelFallbackText, setModelFallbackText] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
@@ -60,13 +63,14 @@ function PromptLayersBody(): ReactNode {
     setLayers(sortedLayers(state.data.layers))
     setRules(state.data.rules)
     setNative(state.data.native ?? { sections: [], contexts: [] })
+    setModelFallbackText(state.data.modelFallbackText)
     setLoaded(true)
   }, [state, loaded])
 
   const ordered = sortedLayers(layers)
   const selected = ordered.find(l => l.name === selectedKey) ?? ordered[0]
-  const isReadonlyRow = selectedKey === IDENTITY_SECTION || selectedKey === MODEL_NOTES_SECTION
-  const layerNames = new Set(ordered.map(l => l.name))
+  const isReadonlyRow = selectedKey === IDENTITY_SECTION || selectedKey === MODEL_NOTES_SECTION || selectedKey === MODEL_SECTION
+  const layerNames = new Set(['base', ...ordered.map(l => l.name)])
 
   function updateSelectedText(text: string): void {
     if (selected === undefined) return
@@ -125,6 +129,7 @@ function PromptLayersBody(): ReactNode {
         {state.kind === 'ok' && (
           <>
             {readonlyRow(IDENTITY_SECTION, 'harness:identity', '原生身份段')}
+            {readonlyRow(MODEL_SECTION, '模型层', '内置 · 按模型命中规则覆盖')}
             {ordered.map((layer) => (
               <button key={layer.name} type="button"
                 className={clsx(css.layerRow, selected === layer && !isReadonlyRow && css.layerRowActive)}
@@ -143,10 +148,12 @@ function PromptLayersBody(): ReactNode {
             <p className={css.hint}>
               {selectedKey === IDENTITY_SECTION
                 ? 'harness:identity 是 dsh 原生身份段，不可编辑。'
-                : 'model-notes 是保留层：规则命中时以其 append 文本渲染，不可直接编辑。'}
+                : selectedKey === MODEL_SECTION
+                  ? '模型层是内置提示词：运行时按当前模型命中规则整份覆盖（见下方规则区），不可编辑。'
+                  : 'model-notes 是保留层：规则命中时以其 append 文本渲染，不可直接编辑。'}
             </p>
             <textarea className={css.textarea} readOnly aria-label="只读段文本" rows={8}
-              value={nativeText(native, selectedKey ?? '')} />
+              value={selectedKey === MODEL_SECTION ? modelFallbackText : nativeText(native, selectedKey ?? '')} />
           </div>
         ) : state.kind === 'ok' && selected !== undefined ? (
           <div className={css.editor}>

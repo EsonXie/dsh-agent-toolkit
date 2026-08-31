@@ -12,6 +12,7 @@ export interface PromptLayersPayload {
   rules: Rule[]
   seedLayers: LayerConfig[]
   native: NativeProbe
+  modelFallbackText: string
 }
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
