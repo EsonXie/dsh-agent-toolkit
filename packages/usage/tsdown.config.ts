@@ -1,5 +1,6 @@
 /** @dsh-agent-toolkit/token-usage 构建配置：Node 半（lib/index.js，ESM）+ client-module（lib/client-module.js，纯 ESM，供 toolkit bundle 复用）。 */
 import { readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { builtinModules } from 'node:module'
 import { basename, dirname, resolve as resolvePath } from 'node:path'
 import { transform } from 'lightningcss'
@@ -75,9 +76,13 @@ const clientPlugins = [{
     })
     const classMap: Record<string, string> = {}
     for (const [local, exp] of Object.entries(cssExports ?? {})) classMap[local] = exp.name
+    // tagId 注入去重键必须区分同名文件：被外部 bundle 内联时（如 toolkit 经 tsconfig
+    // paths 内联本包源码），同名 entry.module.css 会产出相同 tagId，后到者被注入守卫
+    // 跳过、样式静默丢失（按钮落回 UA 默认样式）。附路径短哈希消歧。
+    const tagId = `${ID}/${basename(fileId)}-${createHash('sha1').update(fileId).digest('hex').slice(0, 8)}`
     return [
       `const css = ${JSON.stringify(code.toString())};`,
-      `const tagId = ${JSON.stringify(`${ID}/${basename(fileId)}`)};`,
+      `const tagId = ${JSON.stringify(tagId)};`,
       'if (typeof document !== \'undefined\' && document.querySelector(\'style[data-plugin-css=\' + JSON.stringify(tagId) + \']\') === null) {',
       '  const tag = document.createElement(\'style\');',
       `  tag.dataset.plugin = ${JSON.stringify(ID)};`,
