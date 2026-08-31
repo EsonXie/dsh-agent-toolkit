@@ -1,11 +1,19 @@
 # @dsh-agent-toolkit/token-usage
 
+DeepSeek Harness plugin: per-day token usage statistics — 13-week heatmap, stacked daily chart, `/token-usage` command.
+
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件：按日/按小时计量 token 用量。
 
 - 13 周活动热力图 + 单日堆叠图（按模型/按项目/压缩单列），侧边栏底栏「Token 用量」打开
 - `/token-usage [YYYY-MM-DD]` 命令：今日 + 近 7 日，或指定日期
 - JSON API：`/dsh-agent-toolkit/api/usage/daily?date=`、`/dsh-agent-toolkit/api/usage/range?days=`（web 模式）
 - 用量缺失的样本经 tokenMeter 启发式估算，估算量单列
+
+## 截图
+
+![Token 用量面板：13 周活动热力图](https://raw.githubusercontent.com/EsonXie/dsh-agent-toolkit/master/docs/usage/images/usage-modal.png)
+
+![单日堆叠图](https://raw.githubusercontent.com/EsonXie/dsh-agent-toolkit/master/docs/usage/images/usage-daily.png)
 
 ## 安装
 

@@ -1,5 +1,7 @@
 # dsh-agent-toolkit
 
+DeepSeek Harness plugin: agent registry with layered prompts, parallel delegation, Feishu bots and token usage.
+
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件，把五个 Agent 生产力功能合进一个包：
 
 - **Agent 注册表** —— UI 管理的可复用 Agent 名册（persona、模型、工具白名单），支持 YAML 首启导入，内置 `main` / `explorer` / `general` 三个角色。
@@ -8,7 +10,7 @@
 - **飞书 bots** —— 项目绑定飞书自建应用，扫码一键创建应用，在飞书里以流式卡片与 Agent 对话。
 - **Token 用量** —— 按日/按小时计量，13 周活动热力图 + 单日堆叠图 + `/token-usage` 命令。由依赖包 [`@dsh-agent-toolkit/token-usage`](https://www.npmjs.com/package/@dsh-agent-toolkit/token-usage) 提供，可独立安装。
 
-详细使用手册（中文，多文件）见仓库 `docs/usage/` 目录。
+详细使用手册（中文，多文件）见仓库 [`docs/usage/`](https://github.com/EsonXie/dsh-agent-toolkit/tree/master/docs/usage) 目录。
 
 ## 安装
 
@@ -42,15 +44,17 @@ dsh plugin add dsh-agent-toolkit
 | `timezone` | string | `Asia/Shanghai` | 用量按日/按小时聚合的时区 |
 | `provider` | string | `spawn` | 委派用的 subagent provider 名 |
 | `toolName` | string | `team_delegate` | 委派工具对模型的可见名 |
-| `feishu.*` | — | 见手册 | 卡片节流/字节上限、扫码超时、表情、错误摘要长度 |
+| `feishu.*` | — | [见手册](https://github.com/EsonXie/dsh-agent-toolkit/tree/master/docs/usage) | 卡片节流/字节上限、扫码超时、表情、错误摘要长度 |
 
-`layers` / `rules` 为整体替换语义（不是合并）；字段完整说明见 `docs/usage/config-reference.md`。
+`layers` / `rules` 为整体替换语义（不是合并）；字段完整说明见 [config-reference.md](https://github.com/EsonXie/dsh-agent-toolkit/blob/master/docs/usage/config-reference.md)。
 
 ## 功能速览
 
 ### Agent 注册表
 
 侧边栏底栏「Agent 管理」打开面板，创建/编辑/删除角色。每个角色有 id、名称、描述、persona 提示词、可选模型覆盖、可选工具白名单（原生工具 + 全局工具，仅白名单语义）。首次激活时把 `$DSH_HOME/agent-team/roles/*.yml` 一次性导入。
+
+![Agent 注册表面板](https://raw.githubusercontent.com/EsonXie/dsh-agent-toolkit/master/docs/usage/images/agents-modal.png)
 
 ### 分层提示词
 
@@ -64,9 +68,13 @@ dsh plugin add dsh-agent-toolkit
 
 侧边栏底栏「消息机器人」打开面板。两步创建：绑定项目 + Agent + 模型，再绑定飞书应用——扫码一键创建（OAuth 2.0 Device Authorization Grant，密钥只入 credentials 不落表）或手动填 App ID / App Secret。群聊需 @机器人；运维指令 `/new`、`/stop`、`/status`。
 
+![飞书 bots 面板](https://raw.githubusercontent.com/EsonXie/dsh-agent-toolkit/master/docs/usage/images/bots-modal.png)
+
 ### Token 用量
 
 侧边栏底栏「Token 用量」：13 周活动热力图 + 单日堆叠图（按模型/按项目/压缩单列）；或在任意会话运行 `/token-usage [YYYY-MM-DD]`。
+
+![Token 用量面板](https://raw.githubusercontent.com/EsonXie/dsh-agent-toolkit/master/docs/usage/images/usage-modal.png)
 
 ## 运行前提
 
