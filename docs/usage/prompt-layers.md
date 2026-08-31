@@ -24,10 +24,10 @@
 ## UI 管理（层）
 
 层文本由 UI 管理：`dsh-agent-toolkit` 插件浏览器半新增「分层提示词」侧边栏入口（Agents 之后）。
-- 左栏固定层栈：`harness:identity`（可覆盖，无只读徽标）→ **模型层**（只读，展示内置兜底文本 + 说明「按模型命中规则覆盖」）→ **persona**（可编辑层文本）→ `model-notes`（只读徽标）。
+- 左栏固定层栈：`harness:identity`（可覆盖，无只读徽标）→ **模型层**（只读，tab 栏切换「内置默认」与各 `overrides.base` 规则查看文本）→ **persona**（可编辑层文本）→ `model-notes`（只读徽标，tab 栏切换各 `append` 规则查看文本；无 append 规则时显示空态提示）。
 - 可编辑：选中 identity 显示「身份段覆盖文本」textarea（placeholder 为原生句，填写整份替换、留空还原原生）；选中 persona 可编辑「层文本」。保存全量替换。服务端同样拒绝结构变更（增/删/改名/改序返回 400）。
 - 「重置为默认层」用 cordis.yml 的 `layers` 种子覆盖当前层，**连带清空 identity 覆盖**（覆盖性操作，需确认）。
-- 规则（rules）与动态层（contexts）不在面板展示：rules 由 cordis.yml 配置（见下文「规则匹配」），动态层由 dsh 原生按运行时追加。
+- 规则（rules）内容由 cordis.yml 配置（见下文「规则匹配」），面板只读查看：模型层 / model-notes 行的 tab 标签为规则匹配条件（`provider: X` / `model: X` / modelPattern 原样，多条件 ` + ` 连接）；动态层（contexts）由 dsh 原生按运行时追加，不在面板展示。
 - 存储：`dsh_agent_toolkit` 域 `prompt_layers` 表（单行 `layers`，只含 persona 层 + 可选 `identity` 覆盖字段；identity 仅非空时落字段，空 = 还原原生），`meta` 表 `prompt_layers_seeded` 首启种子标记。`config.layers` 仅在首次启动（或重置后）作为种子写入，此后运行一律读存储。
 
 ## 规则匹配
