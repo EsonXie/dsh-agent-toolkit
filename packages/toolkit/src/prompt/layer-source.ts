@@ -52,8 +52,10 @@ export async function openLayerSource(tables: PromptLayerTables, seedLayers: Lay
   let cache: LayerConfig[]
   const existing = promptLayers.get(PROMPT_LAYERS_KEY)
   if (existing !== undefined) {
-    validateLayers(existing.layers)
+    // 不再 validateLayers(existing.layers)：旧存储可能含已退役的层名（如 base），
+    // reconcile 负责对齐种子结构，校验只针对 reconcile 后的结果（恒合法，防御性保留）。
     cache = reconcileLayers(existing.layers, seedLayers)
+    validateLayers(cache)
     await promptLayers.put(PROMPT_LAYERS_KEY, { layers: cache })
   } else {
     cache = seedLayers
