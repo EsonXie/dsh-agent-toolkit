@@ -8,13 +8,13 @@
 
 | 层 | section | order | 可编辑 | 说明 |
 |---|---|---|---|---|
-| identity | `harness:identity` | -100 | 只读 | dsh 原生身份段 |
+| identity | `harness:identity` | -100 | **可编辑（覆盖式）** | dsh 原生身份段；填写整份替换原生句，留空还原原生；仅主 Agent 生效 |
 | 模型层 | `prompt-stack:base` | 0 | 只读 | 内置固定注册；文本 = 命中规则 `overrides.base` ?? 内置默认文本 |
-| persona | `prompt-stack:persona` | 10 | **可编辑** | 唯一可编辑层；文本存 `prompt_layers` 表，默认空串（空段不渲染） |
+| persona | `prompt-stack:persona` | 10 | **可编辑** | 层文本可编辑；文本存 `prompt_layers` 表，默认空串（空段不渲染） |
 | model-notes | `prompt-stack:model-notes` | 11 | 只读 | 自动层，规则命中 `append` 时渲染 |
 | 动态层 | `tool:*` / contexts | 100+ | 只读展示 | 原生动态追加内容 |
 
-- 唯一可编辑的层是 persona（文本），其余层全部只读
+- 可编辑：identity（覆盖文本）与 persona（层文本）；其余层只读
 - 空文本层不渲染（dsh「空段不渲染」），persona 未填写时对提示词无影响
 - **模型层按模型命中规则整体覆盖**：`base` 是内置保留层名（不进存储、不占 UI 可编辑层），但仍是规则 `overrides` 的合法目标
 - **domain/task 层已取消**：旧存储升级时 reconcile 按新种子结构对齐，多余层连同已编辑文本直接丢弃，persona 文本保留
@@ -24,12 +24,11 @@
 ## UI 管理（层）
 
 层文本由 UI 管理：`dsh-agent-toolkit` 插件浏览器半新增「分层提示词」侧边栏入口（Agents 之后）。
-- 左栏固定层栈：`harness:identity`（只读徽标）→ **模型层**（只读，展示内置兜底文本 + 说明「按模型命中规则覆盖，见下方规则区」）→ **persona**（唯一可编辑 textarea）→ `model-notes`（只读徽标）→ 动态层折叠区（contexts 快照，只读）。
-- 可编辑层：仅 persona 的「层文本」可改；保存全量替换。服务端同样拒绝结构变更（增/删/改名/改序返回 400）。
-- 「重置为默认层」用 cordis.yml 的 `layers` 种子覆盖当前层（覆盖性操作，需确认）。
-- 「规则（只读）」折叠区展示当前 `rules`（仍由 cordis.yml 配置，不在本面板编辑）；引用不存在层的 overrides 会标「悬空」。
-- 「动态层（只读）」折叠区展示当前运行时上下文快照（contexts，渲染为 user 角色的 "Current runtime context" 消息）。
-- 存储：`dsh_agent_toolkit` 域 `prompt_layers` 表（单行 `layers`，只含 persona 层），`meta` 表 `prompt_layers_seeded` 首启种子标记。`config.layers` 仅在首次启动（或重置后）作为种子写入，此后运行一律读存储。
+- 左栏固定层栈：`harness:identity`（可覆盖，无只读徽标）→ **模型层**（只读，展示内置兜底文本 + 说明「按模型命中规则覆盖」）→ **persona**（可编辑层文本）→ `model-notes`（只读徽标）。
+- 可编辑：选中 identity 显示「身份段覆盖文本」textarea（placeholder 为原生句，填写整份替换、留空还原原生）；选中 persona 可编辑「层文本」。保存全量替换。服务端同样拒绝结构变更（增/删/改名/改序返回 400）。
+- 「重置为默认层」用 cordis.yml 的 `layers` 种子覆盖当前层，**连带清空 identity 覆盖**（覆盖性操作，需确认）。
+- 规则（rules）与动态层（contexts）不在面板展示：rules 由 cordis.yml 配置（见下文「规则匹配」），动态层由 dsh 原生按运行时追加。
+- 存储：`dsh_agent_toolkit` 域 `prompt_layers` 表（单行 `layers`，只含 persona 层 + 可选 `identity` 覆盖字段；identity 仅非空时落字段，空 = 还原原生），`meta` 表 `prompt_layers_seeded` 首启种子标记。`config.layers` 仅在首次启动（或重置后）作为种子写入，此后运行一律读存储。
 
 ## 规则匹配
 

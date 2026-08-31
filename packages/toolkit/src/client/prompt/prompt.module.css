@@ -1,4 +1,4 @@
-.dialog { width: 960px; }
+.dialog { width: 720px; }
 
 .split {
   display: flex;
@@ -60,12 +60,5 @@
 }
 .actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 
-.rulesPane { flex: none; width: 260px; }
-.ruleList { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.ruleItem { display: flex; flex-direction: column; gap: 2px; font-size: 12px; line-height: 18px; }
-.ruleMatch { color: var(--dsw-alias-label-secondary); }
-.ruleOverrides { color: var(--dsw-alias-label-tertiary); }
-.ruleAppend { color: var(--dsw-alias-label-tertiary); }
-.dangling { color: var(--dsw-alias-status-danger, red); }
 .hint { font-size: 13px; color: var(--dsw-alias-label-tertiary); }
 .error { font-size: 13px; color: var(--dsw-alias-status-danger, red); }

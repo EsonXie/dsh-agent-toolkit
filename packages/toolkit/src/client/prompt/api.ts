@@ -13,6 +13,8 @@ export interface PromptLayersPayload {
   seedLayers: LayerConfig[]
   native: NativeProbe
   modelFallbackText: string
+  /** identity 段覆盖文本（空串 = 原生句）。 */
+  identityOverride: string
 }
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
@@ -28,8 +30,8 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
 
 export const fetchPromptLayers = () => request<PromptLayersPayload>('/dsh-agent-toolkit/api/prompt-layers')
 
-export const saveLayers = (layers: LayerConfig[]) =>
-  request('/dsh-agent-toolkit/api/prompt-layers', { method: 'PUT', body: JSON.stringify({ layers }) })
+export const saveLayers = (layers: LayerConfig[], identityOverride: string) =>
+  request('/dsh-agent-toolkit/api/prompt-layers', { method: 'PUT', body: JSON.stringify({ layers, identityOverride }) })
 
 export const resetLayers = () =>
   request('/dsh-agent-toolkit/api/prompt-layers/reset', { method: 'POST' })

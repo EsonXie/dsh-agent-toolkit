@@ -7,7 +7,7 @@ import { agentToolkitDomain, type AgentRecord } from './agents/store.ts'
 import { openDomainSafely } from './shared/storage.ts'
 import { DEFAULT_LAYERS, DEFAULT_RULES } from './prompt/defaults.ts'
 import { setupPrompt, validateConfig as validatePromptConfig } from './prompt/index.ts'
-import { openLayerSource } from './prompt/layer-source.ts'
+import { openLayerSource, type PromptLayersRow } from './prompt/layer-source.ts'
 import { setupPromptLayersApi } from './prompt/api.ts'
 import type { LayerConfig, Rule } from './prompt/types.ts'
 import { setupDelegate } from './delegate/index.ts'
@@ -96,7 +96,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const tables = {
     agents: domain.table('agents') as KvTable<string, AgentRecord>,
     meta: domain.table('meta') as KvTable<string, { value: string }>,
-    promptLayers: domain.table('prompt_layers') as KvTable<string, { layers: LayerConfig[] }>,
+    promptLayers: domain.table('prompt_layers') as KvTable<string, PromptLayersRow>,
   }
   const registry = await createRegistry(warn, { agents: tables.agents, meta: tables.meta })
   const layerSource = await openLayerSource({ promptLayers: tables.promptLayers, meta: tables.meta }, config.layers)

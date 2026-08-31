@@ -28,8 +28,8 @@ const CONFIG: ConfigT = {
   ],
 }
 
-function fakeSource(layers: ConfigT['layers']): LayerView {
-  return { get: () => layers, subscribe: () => () => {} }
+function fakeSource(layers: ConfigT['layers'], identity = ''): LayerView {
+  return { get: () => layers, getIdentity: () => identity, subscribe: () => () => {} }
 }
 
 async function boot(config: ConfigT = CONFIG): Promise<Context> {
@@ -140,5 +140,47 @@ describe('deployment:persona 槽位还原生', () => {
     scope.ctx.systemPrompt.section({ name: 'prompt-stack:persona', order: 10, text: 'ROLE-PERSONA' })
     const assembly = await ctx.systemPrompt.assemble({ ...agentContext({}), scope: scopeOf(scope.ctx)! })
     expect(sectionTexts(assembly.sections)['prompt-stack:persona']).toBe('ROLE-PERSONA')
+  })
+})
+
+describe('identity 段覆盖（可编辑，空 = 还原原生）', () => {
+  const NATIVE = 'You are an AI agent powered by DeepSeek Harness.'
+
+  test('空覆盖：原生句原样渲染', async () => {
+    const ctx = await boot()
+    const texts = sectionTexts((await ctx.systemPrompt.assemble(agentContext({}))).sections)
+    expect(texts['harness:identity']).toBe(NATIVE)
+  })
+
+  test('非空覆盖：整份替换原生句（主 Agent）', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { persona: '' })
+    setupPrompt(ctx, { source: fakeSource(CONFIG.layers, 'MY-IDENTITY'), rules: CONFIG.rules })
+    const texts = sectionTexts((await ctx.systemPrompt.assemble(agentContext({}))).sections)
+    expect(texts['harness:identity']).toBe('MY-IDENTITY')
+  })
+
+  test('子 Agent（origin=subagent）：跳过覆盖，原生句原样渲染', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { persona: '' })
+    setupPrompt(ctx, { source: fakeSource(CONFIG.layers, 'MY-IDENTITY'), rules: CONFIG.rules })
+    const childContext = {
+      agent: {
+        options: {},
+        session: { id: 'child', header: { origin: 'subagent' } },
+      } as unknown as Agent,
+    }
+    const texts = sectionTexts((await ctx.systemPrompt.assemble(childContext)).sections)
+    expect(texts['harness:identity']).toBe(NATIVE)
+  })
+
+  test('scoped shadow（段文本 ≠ 原生常量）不被覆盖改写', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { persona: '' })
+    setupPrompt(ctx, { source: fakeSource(CONFIG.layers, 'MY-IDENTITY'), rules: CONFIG.rules })
+    const scope = await mintScope(ctx, 'agent')
+    scope.ctx.systemPrompt.section({ name: 'harness:identity', order: -100, text: 'SCOPED-IDENTITY' })
+    const assembly = await ctx.systemPrompt.assemble({ ...agentContext({}), scope: scopeOf(scope.ctx)! })
+    expect(sectionTexts(assembly.sections)['harness:identity']).toBe('SCOPED-IDENTITY')
   })
 })

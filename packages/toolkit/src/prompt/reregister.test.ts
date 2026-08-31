@@ -11,6 +11,7 @@ function mutableSource(initial: LayerConfig[]) {
   const listeners = new Set<() => void>()
   return {
     get: () => layers,
+    getIdentity: () => '',
     setLayers: (next: LayerConfig[]) => { layers = next; for (const l of [...listeners]) l() },
     subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } },
   }

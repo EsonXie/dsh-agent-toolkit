@@ -6,6 +6,7 @@ import {
   validateFixedLayers,
   PROMPT_LAYERS_KEY,
   PROMPT_LAYERS_SEEDED_KEY,
+  type PromptLayersRow,
   type PromptLayerTables,
 } from './layer-source.ts'
 import type { LayerConfig } from './types.ts'
@@ -30,7 +31,7 @@ class FakeTable<V> implements KvTable<string, V> {
 const SEED: LayerConfig[] = [{ name: 'persona', order: 10, text: '' }]
 
 function tables() {
-  const promptLayers = new FakeTable<{ layers: LayerConfig[] }>()
+  const promptLayers = new FakeTable<PromptLayersRow>()
   const meta = new FakeTable<{ value: string }>()
   return { promptLayers, meta, api: { promptLayers, meta } as PromptLayerTables }
 }
@@ -123,6 +124,43 @@ describe('openLayerSource', () => {
     off()
     await source.set(SEED.map(l => ({ ...l, text: 'Y' })))
     expect(listener.called).toBe(1)
+  })
+
+  test('identity 覆盖：默认空串；setIdentity 写穿并通知；二次打开保留；空串回落不留残字段', async () => {
+    const t = tables()
+    const source = await openLayerSource(t.api, SEED)
+    expect(source.getIdentity()).toBe('')
+
+    const listener = { called: 0 }
+    source.subscribe(() => { listener.called++ })
+    await source.setIdentity('MY-IDENTITY')
+    expect(source.getIdentity()).toBe('MY-IDENTITY')
+    expect(t.promptLayers.get(PROMPT_LAYERS_KEY)).toEqual({ layers: SEED, identity: 'MY-IDENTITY' })
+    expect(listener.called).toBe(1)
+
+    // 二次打开保留覆盖文本（reconcile 不动 identity 字段）
+    const source2 = await openLayerSource(t.api, SEED)
+    expect(source2.getIdentity()).toBe('MY-IDENTITY')
+
+    // 清空 = 还原原生：回落后行内不留 identity 残字段
+    await source2.setIdentity('')
+    expect(source2.getIdentity()).toBe('')
+    expect(t.promptLayers.get(PROMPT_LAYERS_KEY)).toEqual({ layers: SEED })
+  })
+
+  test('set（层）保留既有 identity 覆盖；reset 连带清空', async () => {
+    const t = tables()
+    const source = await openLayerSource(t.api, SEED)
+    await source.setIdentity('MY-IDENTITY')
+
+    const next: LayerConfig[] = SEED.map(l => ({ ...l, text: 'T' }))
+    await source.set(next)
+    expect(t.promptLayers.get(PROMPT_LAYERS_KEY)).toEqual({ layers: next, identity: 'MY-IDENTITY' })
+    expect(source.getIdentity()).toBe('MY-IDENTITY')
+
+    await source.reset()
+    expect(source.getIdentity()).toBe('')
+    expect(t.promptLayers.get(PROMPT_LAYERS_KEY)).toEqual({ layers: SEED })
   })
 })
 

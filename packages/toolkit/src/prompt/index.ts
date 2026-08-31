@@ -17,9 +17,15 @@ export const BASE_LAYER = 'base'
 
 const BASE_SECTION = `prompt-stack:${BASE_LAYER}`
 
-/** 运行时层视图：setupPrompt 只消费 get + subscribe，不关心存储细节（测试可注入假实现）。 */
+/** 原生身份段名与原生文本（与 dsh system-prompt 宿主一致；覆盖判定的基准值）。 */
+const IDENTITY_SECTION = 'harness:identity'
+const NATIVE_IDENTITY_TEXT = 'You are an AI agent powered by DeepSeek Harness.'
+
+/** 运行时层视图：setupPrompt 只消费 get/getIdentity + subscribe，不关心存储细节（测试可注入假实现）。 */
 export interface LayerView {
   get(): LayerConfig[]
+  /** identity 段覆盖文本（空串 = 原生）。 */
+  getIdentity(): string
   subscribe(listener: () => void): () => void
 }
 
@@ -143,6 +149,13 @@ export function setupPrompt(ctx: Context, config: { source: LayerView; rules: Ru
       return isSubagent(context) ? '' : (hitRule(context)?.overrides?.[layer.name] ?? layer.text)
     }
     const sections = assembled.sections.map((section) => {
+      // identity 覆盖：非空覆盖文本整份替换原生身份句（空 = 还原原生；子 Agent 隔离；
+      // 段文本 ≠ 原生常量即 scoped shadow，不介入——同下方 ownSection 守卫语义）。
+      if (section.name === IDENTITY_SECTION) {
+        const override = source.getIdentity()
+        if (override === '' || isSubagent(context) || section.text !== NATIVE_IDENTITY_TEXT) return section
+        return { ...section, text: override }
+      }
       if (section.name === notesSection) {
         return { ...section, text: rule?.append ?? '' }
       }

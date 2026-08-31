@@ -21,7 +21,7 @@ const CONFIG = {
 }
 
 function fakeSource(layers: typeof CONFIG.layers): LayerView {
-  return { get: () => layers, subscribe: () => () => {} }
+  return { get: () => layers, getIdentity: () => '', subscribe: () => () => {} }
 }
 
 /** 挂 SystemPrompt + 宿主变量（照 agent-loop）+ prompt-stack。 */

@@ -69,7 +69,7 @@ describe('GET /prompt-layers', () => {
     const res = mockRes()
     await handler(mockReq('GET', '/dsh-agent-toolkit/api/prompt-layers'), res)
     expect(res.status).toBe(200)
-    expect(JSON.parse(res.body)).toEqual({ layers: SEED, rules: RULES, seedLayers: SEED, native: NATIVE, modelFallbackText: BASE_TEXT })
+    expect(JSON.parse(res.body)).toEqual({ layers: SEED, rules: RULES, seedLayers: SEED, native: NATIVE, modelFallbackText: BASE_TEXT, identityOverride: '' })
   })
 
   test('probe 失败降级为空 native，主数据照常返回', async () => {
@@ -79,7 +79,7 @@ describe('GET /prompt-layers', () => {
     await handler(mockReq('GET', '/dsh-agent-toolkit/api/prompt-layers'), res)
     expect(res.status).toBe(200)
     expect(JSON.parse(res.body)).toEqual({
-      layers: SEED, rules: RULES, seedLayers: SEED, native: { sections: [], contexts: [] }, modelFallbackText: BASE_TEXT,
+      layers: SEED, rules: RULES, seedLayers: SEED, native: { sections: [], contexts: [] }, modelFallbackText: BASE_TEXT, identityOverride: '',
     })
   })
 })
@@ -92,6 +92,28 @@ describe('PUT /prompt-layers', () => {
     await handler(mockReq('PUT', '/dsh-agent-toolkit/api/prompt-layers', { layers: next }), res)
     expect(res.status).toBe(200)
     expect(source.get()).toEqual(next)
+  })
+
+  test('携带 identityOverride 时一并写入；省略时不动既有覆盖', async () => {
+    const { handler, source } = await harness()
+    const res = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/prompt-layers',
+      { layers: SEED, identityOverride: 'MY-IDENTITY' }), res)
+    expect(res.status).toBe(200)
+    expect(source.getIdentity()).toBe('MY-IDENTITY')
+
+    // 省略 identityOverride 的 PUT 不清空既有覆盖
+    const res2 = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/prompt-layers',
+      { layers: [{ name: 'persona', order: 10, text: 'P2' }] }), res2)
+    expect(res2.status).toBe(200)
+    expect(source.getIdentity()).toBe('MY-IDENTITY')
+
+    // identityOverride 非 string → 400
+    const bad = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/prompt-layers',
+      { layers: SEED, identityOverride: 42 }), bad)
+    expect(bad.status).toBe(400)
   })
 
   test('结构变更（增/删层）→ 400', async () => {
@@ -134,13 +156,15 @@ describe('PUT /prompt-layers', () => {
 })
 
 describe('POST /prompt-layers/reset', () => {
-  test('重置回种子', async () => {
+  test('重置回种子（连带清空 identity 覆盖）', async () => {
     const { handler, source } = await harness()
     await source.set([{ name: 'persona', order: 10, text: 'P-EDITED' }])
+    await source.setIdentity('MY-IDENTITY')
     const res = mockRes()
     await handler(mockReq('POST', '/dsh-agent-toolkit/api/prompt-layers/reset'), res)
     expect(res.status).toBe(200)
     expect(source.get()).toEqual(SEED)
+    expect(source.getIdentity()).toBe('')
   })
 
   test('reset 存储失败 → 500 兜底 JSON 而非抛异常', async () => {

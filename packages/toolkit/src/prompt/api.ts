@@ -24,7 +24,7 @@ export interface PromptLayersApiDeps {
   probe: () => Promise<NativeProbe>
 }
 
-const LayersBodySchema = z.object({ layers: z.array(LayerConfigSchema) })
+const LayersBodySchema = z.object({ layers: z.array(LayerConfigSchema), identityOverride: z.string().optional() })
 
 export function createPromptLayersApiHandler(deps: PromptLayersApiDeps): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   return async (req, res) => {
@@ -37,7 +37,7 @@ export function createPromptLayersApiHandler(deps: PromptLayersApiDeps): (req: I
       try {
         native = await deps.probe()
       } catch { /* 探测失败降级为空，layers/rules/seedLayers 主数据照常返回 */ }
-      json(res, 200, { layers: deps.source.get(), rules: deps.rules, seedLayers: deps.seedLayers, native, modelFallbackText: BASE_TEXT })
+      json(res, 200, { layers: deps.source.get(), rules: deps.rules, seedLayers: deps.seedLayers, native, modelFallbackText: BASE_TEXT, identityOverride: deps.source.getIdentity() })
       return
     }
 
@@ -58,6 +58,9 @@ export function createPromptLayersApiHandler(deps: PromptLayersApiDeps): (req: I
       }
       try {
         await deps.source.set(parsed.data.layers)
+        if (parsed.data.identityOverride !== undefined) {
+          await deps.source.setIdentity(parsed.data.identityOverride)
+        }
       } catch (error) {
         json(res, 500, { error: error instanceof Error ? error.message : String(error) })
         return

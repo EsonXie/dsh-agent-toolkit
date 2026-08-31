@@ -8,19 +8,30 @@ export const PROMPT_LAYERS_KEY = 'layers'
 /** meta 表首启种子一次性标记键。 */
 export const PROMPT_LAYERS_SEEDED_KEY = 'prompt_layers_seeded'
 
-export interface PromptLayersRow { layers: LayerConfig[] }
+export interface PromptLayersRow {
+  layers: LayerConfig[]
+  /** identity 段覆盖文本（可选，仅非空时写入；空/缺省 = 原生句）。 */
+  identity?: string
+}
 
-/** 层源的完整能力：setupPrompt 只消费 get/subscribe（LayerView），存储层消费 set/reset。 */
+/** 层源的完整能力：setupPrompt 只消费 get/getIdentity/subscribe（LayerView），存储层消费 set/setIdentity/reset。 */
 export interface LayerSource extends LayerView {
   /** 校验 → 写表 → 更新内存 → 通知订阅者。 */
   set(layers: LayerConfig[]): Promise<void>
-  /** 清表 + 清种子标记 → 重写种子 → 通知订阅者。 */
+  /** 写入 identity 覆盖文本（空串 = 还原原生）→ 更新内存 → 通知订阅者。 */
+  setIdentity(text: string): Promise<void>
+  /** 清表 + 清种子标记 → 重写种子 → 通知订阅者。连带清空 identity 覆盖。 */
   reset(): Promise<void>
 }
 
 export interface PromptLayerTables {
   promptLayers: KvTable<string, PromptLayersRow>
   meta: KvTable<string, { value: string }>
+}
+
+/** 组装存储行：identity 仅非空时落字段（空串 = 还原原生，不留残字段）。 */
+function row(layers: LayerConfig[], identity: string): PromptLayersRow {
+  return identity === '' ? { layers } : { layers, identity }
 }
 
 /** 固定结构校验：name+order 多重集合必须等于种子（仅 text 可变）。 */
@@ -50,15 +61,18 @@ export async function openLayerSource(tables: PromptLayerTables, seedLayers: Lay
   const { promptLayers, meta } = tables
   validateLayers(seedLayers)
   let cache: LayerConfig[]
+  let identity: string
   const existing = promptLayers.get(PROMPT_LAYERS_KEY)
   if (existing !== undefined) {
     // 不再 validateLayers(existing.layers)：旧存储可能含已退役的层名（如 base），
     // reconcile 负责对齐种子结构，校验只针对 reconcile 后的结果（恒合法，防御性保留）。
     cache = reconcileLayers(existing.layers, seedLayers)
     validateLayers(cache)
-    await promptLayers.put(PROMPT_LAYERS_KEY, { layers: cache })
+    identity = existing.identity ?? ''
+    await promptLayers.put(PROMPT_LAYERS_KEY, row(cache, identity))
   } else {
     cache = seedLayers
+    identity = ''
     await promptLayers.put(PROMPT_LAYERS_KEY, { layers: cache })
   }
   if (meta.get(PROMPT_LAYERS_SEEDED_KEY) === undefined) {
@@ -70,11 +84,17 @@ export async function openLayerSource(tables: PromptLayerTables, seedLayers: Lay
 
   return {
     get: () => cache,
+    getIdentity: () => identity,
     async set(layers: LayerConfig[]): Promise<void> {
       validateLayers(layers)
       validateFixedLayers(layers, seedLayers)
-      await promptLayers.put(PROMPT_LAYERS_KEY, { layers })
+      await promptLayers.put(PROMPT_LAYERS_KEY, row(layers, identity))
       cache = layers
+      notify()
+    },
+    async setIdentity(text: string): Promise<void> {
+      await promptLayers.put(PROMPT_LAYERS_KEY, row(cache, text))
+      identity = text
       notify()
     },
     async reset(): Promise<void> {
@@ -83,6 +103,7 @@ export async function openLayerSource(tables: PromptLayerTables, seedLayers: Lay
       await promptLayers.put(PROMPT_LAYERS_KEY, { layers: seedLayers })
       await meta.put(PROMPT_LAYERS_SEEDED_KEY, { value: '1' })
       cache = seedLayers
+      identity = ''
       notify()
     },
     subscribe(listener: () => void): () => void {
