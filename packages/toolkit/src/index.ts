@@ -104,7 +104,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   setupDelegate(ctx, {
     provider: config.provider,
     toolName: config.toolName,
-    getLayers: () => layerSource.get(),
     rules: config.rules,
   }, registry)
   // agents/providers/tools RPC 为核心恒启用（Agents 面板总是挂载，端点缺失即「加载失败」），

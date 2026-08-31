@@ -4,7 +4,7 @@ import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import type { AgentRecord } from '../agents/store.ts'
 import type { AgentRegistry } from '../agents/registry.ts'
 import { buildAgentPersona } from '../prompt/persona.ts'
-import type { LayerConfig, Rule } from '../prompt/types.ts'
+import type { Rule } from '../prompt/types.ts'
 import { createDelegateTool } from './tool.ts'
 
 export type { DelegateToolDeps } from './tool.ts'
@@ -18,8 +18,6 @@ export interface DelegateConfig {
   provider: string
   /** 模型可见工具名（默认 'team_delegate'）。注意：浏览器半委派卡按 'team_delegate' key 注册，改名后卡片不生效（落 generic 兜底）。 */
   toolName: string
-  /** persona 装配用的全局提示分层（Task 7 产物）。 */
-  getLayers: () => LayerConfig[]
   /** 按模型规则（Task 7 产物）。 */
   rules: Rule[]
 }
@@ -48,7 +46,7 @@ export function setupDelegate(ctx: Context, config: DelegateConfig, registry: Ag
         roster: () => registry.list(),
         provider,
         buildPersona: (role: AgentRecord) =>
-          buildAgentPersona({ getLayers: config.getLayers, rules: config.rules }, role, role.model),
+          buildAgentPersona({ rules: config.rules }, role, role.model),
         startRun: (pr, request) => ctx.subagents.start(pr, request),
       }))
     }
