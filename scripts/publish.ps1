@@ -1,29 +1,32 @@
 ﻿#requires -Version 5.1
 <#
 .SYNOPSIS
-  手动发布 dsh-agent-toolkit 到 npm 官方 registry。
+  手动发布 workspace 内插件包到 npm 官方 registry。
 .DESCRIPTION
   门禁链：npm 登录检查 → 版本冲突检查 → test → typecheck → pack 内容核查 → 人工确认 → publish → npm view 验证。
-  prepack 钩子会在 pack/publish 前自动重跑 bundle（Node 半 + 浏览器半）。
+  prepack 钩子会在 pack/publish 前自动重跑 bundle。
 .EXAMPLE
-  在仓库根目录执行：powershell -File scripts/publish-toolkit.ps1
-  已在本地跑过测试可跳过：powershell -File scripts/publish-toolkit.ps1 -SkipTests
+  powershell -File scripts/publish.ps1 -Package '@dsh-agent-toolkit/token-usage'
+  powershell -File scripts/publish.ps1 -Package dsh-agent-toolkit -SkipTests
 #>
 [CmdletBinding()]
 param(
+  [Parameter(Mandatory)]
+  [ValidateSet('dsh-agent-toolkit', '@dsh-agent-toolkit/token-usage')]
+  [string]$Package,
   [switch]$SkipTests
 )
 
 $ErrorActionPreference = 'Stop'
 $Registry = 'https://registry.npmjs.org'   # 必须钉官方源（本机默认 registry 是 npmmirror 镜像）
-$PkgName  = 'dsh-agent-toolkit'
-$PkgDir   = Join-Path $PSScriptRoot '..\packages\toolkit' | Resolve-Path
+$SubDir = @{ 'dsh-agent-toolkit' = 'toolkit'; '@dsh-agent-toolkit/token-usage' = 'usage' }[$Package]
+$PkgDir = Join-Path (Join-Path $PSScriptRoot '..\packages') $SubDir | Resolve-Path
 
 function Step($msg) { Write-Host "`n=== $msg ===" -ForegroundColor Cyan }
 
 $pkg = Get-Content (Join-Path $PkgDir 'package.json') -Raw | ConvertFrom-Json
 $version = $pkg.version
-Step "准备发布 $PkgName@$version"
+Step "准备发布 $Package@$version"
 
 # 1. npm 登录检查（granular token 或交互登录均可）
 $user = npm whoami --registry $Registry 2>$null
@@ -34,17 +37,17 @@ Write-Host "npm 用户: $user"
 
 # 2. 版本冲突检查（npm 版本不可撤回）
 $ErrorActionPreference = 'Continue'  # PS 5.1: EAP=Stop 下原生命令的 stderr（如 E404）会误抛终止错误，故这里先降级跑 2 步检查 404
-npm view "$PkgName@$version" version --registry $Registry 2>$null | Out-Null
+npm view "$Package@$version" version --registry $Registry 2>$null | Out-Null
 $ErrorActionPreference = 'Stop'
-if ($LASTEXITCODE -eq 0) { throw "$PkgName@$version 已存在于 npm。请先 bump package.json 版本号再发布。" }
+if ($LASTEXITCODE -eq 0) { throw "$Package@$version 已存在于 npm。请先 bump package.json 版本号再发布。" }
 Write-Host "版本 $version 尚未发布，可发布"
 
 # 3. 测试与类型检查
 if (-not $SkipTests) {
   Step '测试与类型检查'
-  pnpm --filter $PkgName test
+  pnpm --filter $Package test
   if ($LASTEXITCODE -ne 0) { throw '测试失败，中止发布' }
-  pnpm --filter $PkgName typecheck
+  pnpm --filter $Package typecheck
   if ($LASTEXITCODE -ne 0) { throw '类型检查失败，中止发布' }
 }
 
@@ -54,12 +57,15 @@ Push-Location $PkgDir
 try {
   pnpm pack
   if ($LASTEXITCODE -ne 0) { throw 'pnpm pack 失败' }
-  $tgz = "dsh-agent-toolkit-$version.tgz"
+  $tgz = ($Package -replace '^@', '' -replace '/', '-') + "-$version.tgz"
   $entries = tar -tf $tgz
   $required = @(
-    'package/package.json', 'package/cordis.patch.yml',
+    'package/package.json', 'package/cordis.patch.yml', 'package/README.md', 'package/LICENSE',
     'package/lib/index.js', 'package/lib/index.d.ts', 'package/lib/client.js'
   )
+  if ($Package -eq '@dsh-agent-toolkit/token-usage') {
+    $required += 'package/lib/client-module.js', 'package/lib/client-module.d.ts'
+  }
   foreach ($r in $required) {
     if ($entries -notcontains $r) { throw "tarball 缺少必需文件: $r" }
   }
@@ -74,7 +80,7 @@ finally { Pop-Location }
 
 # 5. 人工确认 + 发布
 Step '发布'
-$confirm = Read-Host "即将把 $PkgName@$version 发布到 npm（不可撤回）。输入 yes 继续"
+$confirm = Read-Host "即将把 $Package@$version 发布到 npm（不可撤回）。输入 yes 继续"
 if ($confirm -ne 'yes') { throw '已取消发布' }
 Push-Location $PkgDir
 try {
@@ -86,13 +92,13 @@ finally { Pop-Location }
 
 # 6. 发布验证
 Step '发布验证'
-$ErrorActionPreference = 'Continue'  # 刚发布时 registry 同步可能有延迟，E404 的 stderr 在 EAP=Stop 下会误抛终止错误
-$got = npm view "$PkgName@$version" version --registry $Registry 2>$null
+$ErrorActionPreference = 'Continue'  # registry 同步可能有延迟，E404 的 stderr 在 EAP=Stop 下会误抛终止错误
+$got = npm view "$Package@$version" version --registry $Registry 2>$null
 $ErrorActionPreference = 'Stop'
 if ($got -ne $version) {
   Write-Host "npm view 暂未取到 $version——registry 同步可能有延迟，请稍后手动复查：" -ForegroundColor Yellow
-  Write-Host "  npm view $PkgName --registry $Registry"
+  Write-Host "  npm view $Package --registry $Registry"
   exit 0
 }
-Write-Host "`n发布成功: $PkgName@$version" -ForegroundColor Green
-Write-Host "安装验证: dsh plugin --profile web add $PkgName"
+Write-Host "`n发布成功: $Package@$version" -ForegroundColor Green
+Write-Host "安装验证: dsh plugin --profile web add $Package"
