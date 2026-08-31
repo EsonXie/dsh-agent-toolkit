@@ -116,6 +116,9 @@ afterEach(async () => {
   await rm(tempHome, { recursive: true, force: true })
 })
 
+/** 等 setupUsage 的 openSucceeded 微任务链落地：/token-usage 命令注册已移入 open 成功后。 */
+const flush = () => new Promise((r) => setTimeout(r, 0))
+
 describe('Config 默认值', () => {
   test('Config({}) 产出全量默认值（模块开关/分层/规则/时区/委派/飞书）', () => {
     const config = Config({})
@@ -140,6 +143,7 @@ describe('apply 模块接线与开关', () => {
   test('默认配置：注册 /token-usage 命令、三个存储域、委派工具挂载路径', async () => {
     const h = makeCtx()
     await apply(h.ctx, Config({}))
+    await flush()
     expect(h.commands).toContain('token-usage')
     expect(h.openedDomains.sort()).toEqual(['dsh_agent_toolkit', 'project_bot', 'token_usage'])
     expect(h.sections).toEqual(expect.arrayContaining(['plugin:dsh-agent-toolkit:team', 'prompt-stack:base', 'prompt-stack:model-notes']))

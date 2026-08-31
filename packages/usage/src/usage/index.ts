@@ -16,6 +16,13 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 const METER_OWNER_KEY = 'meter_owner'
 
+/** storage-domain 对已在进程内打开的域抛 DomainError(code='already-open')：双装时后到实例据此停用。 */
+function isAlreadyOpen(error: unknown): boolean {
+  return typeof error === 'object' && error !== null
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'already-open'
+}
+
 export function setupUsage(ctx: Context, config: { timezone: string }, owner: string): void {
   let daily: KvTable<string, DailyRecord> | undefined
   let meta: KvTable<string, { value: string }> | undefined
@@ -24,8 +31,8 @@ export function setupUsage(ctx: Context, config: { timezone: string }, owner: st
   let tail: Promise<unknown> = Promise.resolve()
   // open 失败（version-mismatch/malformed-medium/invalid-record）时创建即挂
   // rejection handler：避免 unhandled rejection 崩掉宿主进程（Node 默认 throw）。
-  // domainReady 仍保持 reject，写链（tail 吞掉）/命令（宿主转 kind:'error'）/
-  // 端点（宿主 500）/卸载（cordis 记录）均感知失败而不次生崩溃。
+  // domainReady 仍保持 reject，命令/路由注册收窄到 open 成功后（见 openSucceeded），
+  // 写链（tail 吞掉）/卸载（cordis 记录）感知失败而不次生崩溃。
   const domainReady = openDomainSafely(
     ctx,
     tokenUsageDomain,
@@ -43,21 +50,39 @@ export function setupUsage(ctx: Context, config: { timezone: string }, owner: st
     return domain
   })
 
-  // 双装守卫：token_usage 域 meta 表 meter_owner 先到先得。已被他包占用时本实例
-  // 跳过采集（不挂 session/event 监听），命令/路由/面板照常（读同一份数据）。
+  // 双装守卫与降级：token 用量功能先到先得。真实宿主里 storage-domain 的 open 对已在
+  // 进程内打开的域名抛 code='already-open'（域名互斥），后到实例在拿到域句柄前就被挡下
+  // ——此时读不到 meter_owner，只能按 already-open 直接停用；meter_owner meta 守卫保留作
+  // 跨场景防御（共享介质/历史版本等），占位方卸载时释放。
   let ownsMeter = false
-  const meteringReady = domainReady.then(async () => {
-    const existing = meta!.get(METER_OWNER_KEY)
-    if (existing !== undefined) {
-      ctx.logger.warn(`token 计量已由 ${existing.value} 挂载，本实例（${owner}）跳过采集；面板与命令为只读共用`)
+  const meteringReady = domainReady.then(
+    async () => {
+      const existing = meta!.get(METER_OWNER_KEY)
+      if (existing !== undefined) {
+        // 已被他包占用：本实例跳过计量（命令/路由仍在，读同一份数据）。
+        ctx.logger.warn(`token 计量已由 ${existing.value} 挂载，本实例（${owner}）跳过计量采集`)
+        return false
+      }
+      // 占位意图先置位再落盘：即便 put 在途时就卸载，beforeClose 也会释放。真实 KvTable 的
+      // put/delete 走同一串行链（host.enqueue），delete 排在 put 之后会观测到落盘再删除。
+      ownsMeter = true
+      await meta!.put(METER_OWNER_KEY, { value: owner })
+      return true
+    },
+    // open 失败分支：already-open 即双装，后到实例自动停用——不采集、不注册命令/路由；
+    // 其余 open 失败维持现状（openDomainSafely 已 warn，这里静默收尾，不次生未处理拒绝）。
+    (error) => {
+      if (isAlreadyOpen(error)) {
+        ctx.logger.warn('token 用量域已被先到实例挂载（storage domain 的 token_usage 域名已打开，无法读取其 meter_owner），本实例停用用量功能：不采集、不注册 /token-usage 命令与路由')
+      }
       return false
-    }
-    // 占位意图先置位再落盘：即便 put 在途时就卸载，beforeClose 也会释放。真实 KvTable 的
-    // put/delete 走同一串行链（host.enqueue），delete 排在 put 之后会观测到落盘再删除。
-    ownsMeter = true
-    await meta!.put(METER_OWNER_KEY, { value: owner })
-    return true
-  })
+    },
+  )
+
+  // 命令/路由注册收窄到 open 成功后：已停用的后到实例绝不注册重复命令 / 重复 exact 路径
+  //（webServer 重复 exact 路径会抛错）。registerOptionalRoutes 的 ctx.inject 惰性语义不变：
+  // webServer 挂载后才注册、随父 fiber 清理。
+  const openSucceeded = domainReady.then(() => true, () => false)
 
   // 守卫失败（已有他包采集）时不挂监听，tail 恒为空链；open 失败（domainReady reject）
   // 时这里拒绝吞掉，不次生 unhandled rejection 崩掉宿主（本模块开头的既定不变式）。
@@ -75,79 +100,85 @@ export function setupUsage(ctx: Context, config: { timezone: string }, owner: st
     })
   }, () => undefined)
 
-  ctx.commands.register({
-    name: 'token-usage',
-    description: '查看 token 用量（今日+近7日，或指定日期）',
-    input: { hint: 'YYYY-MM-DD，可空' },
-    handler: async ({ rawInput }) => {
-      const table = await domainReady.then(() => daily!)
-      const arg = rawInput.trim()
-      const today = dayParts(Date.now(), config.timezone).date
-      if (arg !== '' && !DATE_RE.test(arg)) {
-        return { kind: 'error' as const, text: '用法：/token-usage [YYYY-MM-DD]' }
-      }
-      if (arg !== '') {
-        return { kind: 'success' as const, text: renderDay(table.get(arg) ?? emptyDaily(arg)) }
-      }
-      const days = Array.from({ length: 7 }, (_, i) => {
-        const date = dayParts(Date.now() - i * 86_400_000, config.timezone).date
-        return table.get(date) ?? emptyDaily(date)
-      })
-      void today
-      return { kind: 'success' as const, text: renderWeek(days[0].date, days) }
-    },
+  void openSucceeded.then((ok) => {
+    if (!ok) return
+    ctx.commands.register({
+      name: 'token-usage',
+      description: '查看 token 用量（今日+近7日，或指定日期）',
+      input: { hint: 'YYYY-MM-DD，可空' },
+      handler: async ({ rawInput }) => {
+        const table = await domainReady.then(() => daily!)
+        const arg = rawInput.trim()
+        const today = dayParts(Date.now(), config.timezone).date
+        if (arg !== '' && !DATE_RE.test(arg)) {
+          return { kind: 'error' as const, text: '用法：/token-usage [YYYY-MM-DD]' }
+        }
+        if (arg !== '') {
+          return { kind: 'success' as const, text: renderDay(table.get(arg) ?? emptyDaily(arg)) }
+        }
+        const days = Array.from({ length: 7 }, (_, i) => {
+          const date = dayParts(Date.now() - i * 86_400_000, config.timezone).date
+          return table.get(date) ?? emptyDaily(date)
+        })
+        void today
+        return { kind: 'success' as const, text: renderWeek(days[0].date, days) }
+      },
+    })
   })
 
   // webServer 是可选能力（headless/CLI 无此服务），不进入顶层 inject。经
   // registerOptionalRoutes 子 fiber 等待其挂载后再注册：子 fiber 未激活时惰性、
   // 随父 fiber 卸载而清理；headless 下 webServer 永不出现，任何分支都不注册。
   // 注册走 ctx.effect 接线 disposer（"Registrations are effects"），HMR 重挂不会
-  // 因重复 exact 路径抛错。
-  registerOptionalRoutes(ctx, (webCtx) => {
-    const disposeDaily = webCtx.webServer.register({
-      kind: 'exact',
-      path: '/dsh-agent-toolkit/api/usage/daily',
-      handler: async (req, res) => {
-        if (req.method !== 'GET') {
-          res.writeHead(405).end()
-          return
-        }
-        const date = new URL(req.url ?? '', 'http://127.0.0.1').searchParams.get('date')
-        if (date !== null && !DATE_RE.test(date)) {
-          res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'bad date, want YYYY-MM-DD' }))
-          return
-        }
-        const table = await domainReady.then(() => daily!)
-        const today = dayParts(Date.now(), config.timezone).date
-        const key = date ?? today
-        res.writeHead(200, { 'content-type': 'application/json' })
-          .end(JSON.stringify({ today, record: table.get(key) ?? emptyDaily(key) }))
-      },
-    })
+  // 因重复 exact 路径抛错。整段只在 open 成功后执行（已停用的后到实例不注册路由）。
+  void openSucceeded.then((ok) => {
+    if (!ok) return
+    registerOptionalRoutes(ctx, (webCtx) => {
+      const disposeDaily = webCtx.webServer.register({
+        kind: 'exact',
+        path: '/dsh-agent-toolkit/api/usage/daily',
+        handler: async (req, res) => {
+          if (req.method !== 'GET') {
+            res.writeHead(405).end()
+            return
+          }
+          const date = new URL(req.url ?? '', 'http://127.0.0.1').searchParams.get('date')
+          if (date !== null && !DATE_RE.test(date)) {
+            res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'bad date, want YYYY-MM-DD' }))
+            return
+          }
+          const table = await domainReady.then(() => daily!)
+          const today = dayParts(Date.now(), config.timezone).date
+          const key = date ?? today
+          res.writeHead(200, { 'content-type': 'application/json' })
+            .end(JSON.stringify({ today, record: table.get(key) ?? emptyDaily(key) }))
+        },
+      })
 
-    const disposeRange = webCtx.webServer.register({
-      kind: 'exact',
-      path: '/dsh-agent-toolkit/api/usage/range',
-      handler: async (req, res) => {
-        if (req.method !== 'GET') {
-          res.writeHead(405).end()
-          return
-        }
-        const days = parseDaysParam(new URL(req.url ?? '', 'http://127.0.0.1').searchParams.get('days'))
-        if (days === null) {
-          res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'bad days, want integer 1..366' }))
-          return
-        }
-        const table = await domainReady.then(() => daily!)
-        const today = dayParts(Date.now(), config.timezone).date
-        res.writeHead(200, { 'content-type': 'application/json' })
-          .end(JSON.stringify({ today, days: rangeSummaries((d) => table.get(d), today, days) }))
-      },
-    })
+      const disposeRange = webCtx.webServer.register({
+        kind: 'exact',
+        path: '/dsh-agent-toolkit/api/usage/range',
+        handler: async (req, res) => {
+          if (req.method !== 'GET') {
+            res.writeHead(405).end()
+            return
+          }
+          const days = parseDaysParam(new URL(req.url ?? '', 'http://127.0.0.1').searchParams.get('days'))
+          if (days === null) {
+            res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'bad days, want integer 1..366' }))
+            return
+          }
+          const table = await domainReady.then(() => daily!)
+          const today = dayParts(Date.now(), config.timezone).date
+          res.writeHead(200, { 'content-type': 'application/json' })
+            .end(JSON.stringify({ today, days: rangeSummaries((d) => table.get(d), today, days) }))
+        },
+      })
 
-    return () => {
-      disposeDaily()
-      disposeRange()
-    }
+      return () => {
+        disposeDaily()
+        disposeRange()
+      }
+    })
   })
 }

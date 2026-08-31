@@ -27,7 +27,7 @@ function makeCtx() {
     effect: (fn: () => unknown) => { disposers.push(fn() as () => unknown) },
     on: (_event: string, fn: unknown) => { listeners.push(fn) },
     commands: { register: vi.fn() },
-    inject: () => {},
+    inject: vi.fn(),
   }
   return { ctx: ctx as unknown as Context, tables, listeners, disposers, warn }
 }
@@ -87,6 +87,30 @@ test('open 失败：不挂采集监听、无 unhandled rejection 崩掉宿主', 
     await new Promise((r) => setTimeout(r, 10))
     expect(onUnhandled).not.toHaveBeenCalled()
     expect(h.listeners).toHaveLength(0)
+  } finally {
+    process.off('unhandledRejection', listener)
+  }
+})
+
+test('already-open：后到实例自动停用——warn、不挂监听、不注册命令与路由', async () => {
+  const h = makeCtx()
+  const err = Object.assign(new Error('domain token_usage is already open'), { code: 'already-open' })
+  ;(h.ctx as unknown as { storageDomain: unknown }).storageDomain = { open: () => Promise.reject(err) }
+  const onUnhandled = vi.fn()
+  const listener = () => { onUnhandled() }
+  process.on('unhandledRejection', listener)
+  try {
+    setupUsage(h.ctx, { timezone: 'Asia/Shanghai' }, 'pkg-b')
+    await flush()
+    await new Promise((r) => setTimeout(r, 10))
+    // 不抛错、无 unhandled rejection 崩掉宿主。
+    expect(onUnhandled).not.toHaveBeenCalled()
+    // 已停用：warn 说明由先到实例挂载、不挂采集监听。
+    expect(h.warn).toHaveBeenCalledWith(expect.stringContaining('停用'))
+    expect(h.listeners).toHaveLength(0)
+    // 不注册 /token-usage 命令、不触发路由注册（registerOptionalRoutes 未进入 ctx.inject）。
+    expect((h.ctx as unknown as { commands: { register: ReturnType<typeof vi.fn> } }).commands.register).not.toHaveBeenCalled()
+    expect((h.ctx as unknown as { inject: ReturnType<typeof vi.fn> }).inject).not.toHaveBeenCalled()
   } finally {
     process.off('unhandledRejection', listener)
   }

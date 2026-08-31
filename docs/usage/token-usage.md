@@ -10,7 +10,7 @@
 dsh plugin add @dsh-agent-toolkit/token-usage
 ```
 
-> 与 `dsh-agent-toolkit` 二选一：两者同时安装时计量先到先得（后到者只读共用数据），建议只装其一。
+> 与 `dsh-agent-toolkit` 二选一：两者同时安装时，后到实例会自动停用用量功能（不重复计量、不注册 `/token-usage` 命令与面板），先到者完整工作；仍建议只装其一。
 
 ## 统计口径
 
