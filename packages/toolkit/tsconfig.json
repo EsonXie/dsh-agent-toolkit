@@ -9,7 +9,11 @@
     "noImplicitAny": true,
     "jsx": "react-jsx",
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@dsh-agent-toolkit/token-usage": ["../usage/src/index.ts"],
+      "@dsh-agent-toolkit/token-usage/client-module": ["../usage/src/client/index.ts"]
+    }
   },
   "include": ["src", "tests", "tsdown.config.ts"]
 }

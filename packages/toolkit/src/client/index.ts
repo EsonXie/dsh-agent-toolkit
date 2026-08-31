@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { setupDelegateClient } from './delegate/index.ts'
 import { setupAgentsClient } from './agents/index.ts'
 import { setupPromptClient } from './prompt/index.ts'
-import { setupUsageClient } from './usage/index.ts'
+import { setupUsageClient } from '@dsh-agent-toolkit/token-usage/client-module'
 import { setupBotsClient } from './bots/index.ts'
 
 export const inject = ['sessions', 'slots', 'locale']

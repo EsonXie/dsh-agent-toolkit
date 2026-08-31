@@ -34,12 +34,12 @@
     "prepack": "pnpm run bundle"
   },
   "dependencies": {
+    "@dsh-agent-toolkit/token-usage": "workspace:^",
     "@deepseek-ai/schemastery": "^3.18.1",
     "@larksuiteoapi/node-sdk": "^1.73.0",
     "clsx": "^2.0.0",
     "js-yaml": "^4.1.0",
     "qrcode": "^1.5.4",
-    "recharts": "^3.10.1",
     "zod": "^4.4.3"
   },
   "peerDependencies": {

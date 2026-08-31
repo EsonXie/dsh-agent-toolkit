@@ -13,7 +13,7 @@ import type { LayerConfig, Rule } from './prompt/types.ts'
 import { setupDelegate } from './delegate/index.ts'
 import { setupAgentsApi } from './agents/api.ts'
 import { setupBots, type BotsModuleConfig } from './bots/index.ts'
-import { setupUsage } from './usage/index.ts'
+import { setupUsage } from '@dsh-agent-toolkit/token-usage'
 
 export const name = 'dsh-agent-toolkit'
 
@@ -128,5 +128,5 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     },
   })
   if (config.modules.feishu) setupBots(ctx, config.feishu, { registry })
-  if (config.modules.usage) setupUsage(ctx, { timezone: config.timezone })
+  if (config.modules.usage) setupUsage(ctx, { timezone: config.timezone }, name)
 }
