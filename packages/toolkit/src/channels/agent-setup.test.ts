@@ -37,7 +37,7 @@ describe('setupAgentScope', () => {
     const { ctx, calls } = fakeAgentCtx()
     await setupAgentScope(ctx, { persona: '你是评审助手', tools: ['bash'] }, loadTool)
     expect(loaded).toEqual(BASIC_TOOLS.map((t) => t.id))
-    expect(calls).toEqual([...mountCalls, 'section:dsh-agent-toolkit:persona:0:你是评审助手', 'restrict:bash'])
+    expect(calls).toEqual([...mountCalls, 'section:prompt-stack:persona:10:你是评审助手', 'restrict:bash'])
   })
 
   test('无 hooks：只挂载基础工具行，不注册 section/restrict', async () => {
@@ -51,7 +51,7 @@ describe('setupAgentScope', () => {
     const { loadTool } = fakeLoader()
     const { ctx, calls } = fakeAgentCtx()
     await setupAgentScope(ctx, { persona: 'p' }, loadTool)
-    expect(calls.at(-1)).toBe('section:dsh-agent-toolkit:persona:0:p')
+    expect(calls.at(-1)).toBe('section:prompt-stack:persona:10:p')
     expect(calls).not.toContain('restrict:')
   })
 

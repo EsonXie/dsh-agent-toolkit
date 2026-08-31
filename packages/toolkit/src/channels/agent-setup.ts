@@ -9,8 +9,8 @@ import type { AgentHooks } from './ports.ts'
 /** 工具行模块加载器（测试注入 fake；生产经动态 import 解析宿主 node_modules 中的插件包）。 */
 export type ToolModuleLoader = (specifier: string) => Promise<Plugin>
 
-/** bot 会话角色 persona 的 scoped 段名：在场即表示角色覆盖主 Agent persona（prompt waterfall 据此跳过填充）。 */
-export const TOOLKIT_PERSONA_SECTION = 'dsh-agent-toolkit:persona'
+/** bot 会话角色 persona 的 scoped 段名：与全局 persona 层同名，scoped 注册即 shadow 覆盖主 Agent persona。 */
+export const TOOLKIT_PERSONA_SECTION = 'prompt-stack:persona'
 
 /** 默认加载器：复刻 preset mount 的模块解析——loader 的 unwrapExports 取 `default ?? 命名导出模块`。 */
 async function loadToolModule(specifier: string): Promise<Plugin> {
@@ -32,7 +32,7 @@ export async function setupAgentScope(
     await agentCtx.plugin(await loadTool(tool.id), tool.config)
   }
   if (hooks.persona !== undefined) {
-    agentCtx.systemPrompt.section({ name: TOOLKIT_PERSONA_SECTION, order: 0, text: hooks.persona })
+    agentCtx.systemPrompt.section({ name: TOOLKIT_PERSONA_SECTION, order: 10, text: hooks.persona })
   }
   if (hooks.sections !== undefined) {
     for (const section of hooks.sections) {
