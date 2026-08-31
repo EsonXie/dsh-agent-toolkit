@@ -2,6 +2,8 @@
 
 把系统提示词组织成有序的语义层（layers），再按当前模型用规则（rules）整体替换或追加文本——同一份配置下，Claude、GPT、Gemini、Kimi 等不同模型家族自动获得各自适配的提示词。该机制对主 Agent 与委派子 Agent 都生效，无需手工干预。
 
+![分层提示词面板：左栏固定层栈，右栏层文本编辑区](images/prompt-modal.png)
+
 ## 分层结构
 
 面板自上而下即渲染顺序，层栈是**固定**的四层模型（层不能增删、改名、改序）：
@@ -23,9 +25,16 @@
 
 ## UI 管理（层）
 
-层文本由 UI 管理：`dsh-agent-toolkit` 插件浏览器半新增「分层提示词」侧边栏入口（Agents 之后）。
+层文本由 UI 管理：`dsh-agent-toolkit` 插件浏览器半新增「分层提示词」侧边栏入口。点击侧边栏底栏的「分层提示词」图标（位于「Agent 管理」之后），打开面板：左栏固定层栈，右栏层文本编辑区。
 - 左栏固定层栈：`harness:identity`（可覆盖，无只读徽标）→ **模型层**（只读，tab 栏切换「内置默认」与各 `overrides.base` 规则查看文本）→ **persona**（可编辑层文本）→ `model-notes`（只读徽标，tab 栏切换各 `append` 规则查看文本；无 append 规则时显示空态提示）。
+
+![模型层：内置默认与各覆盖规则 tab 切换](images/prompt-model-rules.png)
+
+![model-notes：规则 append 文本只读查看](images/prompt-model-notes.png)
+
 - 可编辑：选中 identity 显示「身份段覆盖文本」textarea（placeholder 为原生句，填写整份替换、留空还原原生）；选中 persona 可编辑「层文本」。保存全量替换。服务端同样拒绝结构变更（增/删/改名/改序返回 400）。
+
+![identity 覆盖：填写整份替换原生身份段](images/prompt-identity.png)
 - 「重置为默认层」用 cordis.yml 的 `layers` 种子覆盖当前层，**连带清空 identity 覆盖**（覆盖性操作，需确认）。
 - 规则（rules）内容由 cordis.yml 配置（见下文「规则匹配」），面板只读查看：模型层 / model-notes 行的 tab 标签为规则匹配条件（`provider: X` / `model: X` / modelPattern 原样，多条件 ` + ` 连接）；动态层（contexts）由 dsh 原生按运行时追加，不在面板展示。
 - 存储：`dsh_agent_toolkit` 域 `prompt_layers` 表（单行 `layers`，只含 persona 层 + 可选 `identity` 覆盖字段；identity 仅非空时落字段，空 = 还原原生），`meta` 表 `prompt_layers_seeded` 首启种子标记。`config.layers` 仅在首次启动（或重置后）作为种子写入，此后运行一律读存储。
@@ -64,7 +73,7 @@ rules:
 | `deepseek*` | **仅追加** DeepSeek 补充说明 |
 | `glm-*` | **仅追加** GLM 补充说明 |
 
-自定义 `layers` / `rules` 会**整体替换**默认值（不是合并），想保留默认行为需把默认内容一并写入。`layers` 若已由 UI 管理，cordis.yml 的 `layers` 仅作种子/重置默认值，不再动态生效。
+自定义 `layers` / `rules` 会**整体替换**默认值（不是合并），想保留默认行为需把默认内容一并写入。`layers` 若已由 UI 管理，cordis.yml 的 `layers` 仅作种子/重置默认值，不再动态生效。`layers` / `rules` 字段完整说明见 [config-reference.md](config-reference.md)。
 
 ## 运行时行为
 
@@ -72,6 +81,16 @@ rules:
 - **运行时模型优先**：web 会话的运行时模型选择优先于创建期配置
 - **子 Agent 隔离**：委派子 Agent 组装时全局 persona 层不泄漏给子 Agent（子的 persona 由委派装配的角色 persona 提供）；模型层文本按子 Agent 的生效模型各自命中（契约段 + 模型层 + 角色 persona + 规则 append），`model-notes` 主子共用
 - **角色 persona**：Agent 注册表角色的 persona 是角色自己的人设层（见 [agents.md](agents.md)）；bot 会话中用 scoped 同名段 `prompt-stack:persona` 覆盖（shadow）全局 persona 层，委派会话中角色 persona 拼进子 Agent persona
+
+## 相关 HTTP API
+
+面向面板前端，也可直接调用（仅在 web 模式下注册；headless/CLI 自动不注册）：
+
+| 路由 | 方法 | 用途 |
+|---|---|---|
+| `/dsh-agent-toolkit/api/prompt-layers` | GET | `{layers, rules, seedLayers, native, modelFallbackText, identityOverride}`；`native` 为原生 sections/contexts 只读探测，失败降级为空列表 |
+| `/dsh-agent-toolkit/api/prompt-layers` | PUT | 全量替换 `{layers, identityOverride?}`；结构变更（增/删/改名/改序）或校验失败返回 400 |
+| `/dsh-agent-toolkit/api/prompt-layers/reset` | POST | 用 cordis.yml `layers` 种子重置，连带清空 identity 覆盖 |
 
 ## 激活期校验
 
