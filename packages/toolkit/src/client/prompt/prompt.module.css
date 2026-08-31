@@ -3,6 +3,7 @@
 .split {
   display: flex;
   gap: 16px;
+  height: 70vh;
   min-height: 420px;
 }
 .listPane {
@@ -43,20 +44,21 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.editorPane { flex: 1; min-width: 0; max-height: 70vh; overflow-y: auto; }
-.editor { display: flex; flex-direction: column; gap: 16px; }
-.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
-.staticValue { font-size: 14px; line-height: 22px; }
+.editorPane { flex: 1; min-width: 0; height: 100%; overflow-y: auto; }
+.editor { display: flex; flex-direction: column; gap: 16px; height: 100%; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; flex: 1; min-height: 0; }
 .textarea {
+  box-sizing: border-box;
   width: 100%;
-  min-height: 160px;
+  flex: 1;
+  min-height: 0;
   padding: 8px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
   background: var(--dsw-alias-bg-elevated, transparent);
   font: inherit;
   color: inherit;
-  resize: vertical;
+  resize: none;
 }
 .actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 

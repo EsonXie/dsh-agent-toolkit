@@ -60,15 +60,16 @@ test('加载后展示层栈：identity 可覆盖行 + 模型层只读行 + perso
   expect(screen.getByLabelText('层文本')).toHaveProperty('value', 'PERSONA')
 })
 
-test('结构固定：无新建/删除/上移/下移入口，层名与 order 只读', async () => {
+test('结构固定：无新建/删除/上移/下移入口，编辑区不展示层名/order（仅层文本可编辑）', async () => {
   stubFetch()
   render(<PromptLayersModal open onClose={() => undefined} />)
   await screen.findByText('persona', { selector: 'button > span' })
   for (const name of ['新建层', '删除层', '上移', '下移']) {
     expect(screen.queryByRole('button', { name })).toBeNull()
   }
-  expect(screen.queryByLabelText('层名')).toBeNull()
-  expect(screen.queryByLabelText('order')).toBeNull()
+  expect(screen.queryByText('层名')).toBeNull()
+  // 列表行里是 "order 10"，编辑区的独立 "order" 字段已删除
+  expect(screen.queryByText('order')).toBeNull()
 })
 
 test('编辑 persona 文本并保存 → PUT 全量携带（单层结构不变）', async () => {

@@ -176,14 +176,6 @@ function PromptLayersBody(): ReactNode {
           </div>
         ) : state.kind === 'ok' && selected !== undefined ? (
           <div className={css.editor}>
-            <div className={css.field}>
-              层名
-              <span className={css.staticValue}>{selected.name}</span>
-            </div>
-            <div className={css.field}>
-              order
-              <span className={css.staticValue}>{selected.order}</span>
-            </div>
             <label className={css.field}>
               层文本
               <textarea className={css.textarea} value={selected.text} aria-label="层文本" rows={8}
