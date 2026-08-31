@@ -127,14 +127,17 @@ test('加载回显：identity 覆盖文本非空时回显到「身份段覆盖�
   expect(screen.getByLabelText('身份段覆盖文本')).toHaveProperty('value', 'SAVED-IDENTITY')
 })
 
-test('选中 model-notes 只读行 → 展示只读文本，不出现层文本编辑器', async () => {
+test('选中 model-notes 只读行 → tab 栏显示 append 规则，只读框显示其文本', async () => {
   stubFetch()
   render(<PromptLayersModal open onClose={() => undefined} />)
   await screen.findByText('persona', { selector: 'button > span' })
 
   fireEvent.click(screen.getByText('model-notes'))
   expect(screen.queryByLabelText('层文本')).toBeNull()
-  expect(screen.getByLabelText('只读段文本')).toHaveProperty('value', '')
+  expect(screen.getByRole('tab', { name: 'deepseek*' }).getAttribute('aria-selected')).toBe('true')
+  const textarea = screen.getByLabelText('只读段文本')
+  expect(textarea).toHaveProperty('value', 'V4-NOTES')
+  expect(textarea).toHaveProperty('readOnly', true)
 })
 
 test('选中模型层只读行 → 展示其兜底文本，不出现层文本编辑器', async () => {
@@ -187,4 +190,15 @@ test('模型层：切到其他层再切回 → tab 复位到内置默认', async
   fireEvent.click(screen.getByText('模型层', { selector: 'button > span' }))
   expect(screen.getByRole('tab', { name: '内置默认' }).getAttribute('aria-selected')).toBe('true')
   expect(screen.getByLabelText('只读段文本')).toHaveProperty('value', 'FALLBACK-BASE')
+})
+
+test('model-notes：无 append 规则时无 tab 栏，显示空态提示', async () => {
+  stubFetch({ ...PAYLOAD, rules: [{ match: { modelPattern: 'claude*' }, overrides: { base: 'CLAUDE-BASE' } }] })
+  render(<PromptLayersModal open onClose={() => undefined} />)
+  await screen.findByText('persona', { selector: 'button > span' })
+
+  fireEvent.click(screen.getByText('model-notes'))
+  expect(screen.queryByRole('tablist')).toBeNull()
+  expect(screen.getByText('当前配置没有 append 规则。')).toBeTruthy()
+  expect(screen.getByLabelText('只读段文本')).toHaveProperty('value', '')
 })

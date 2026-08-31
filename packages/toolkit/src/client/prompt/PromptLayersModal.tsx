@@ -93,6 +93,8 @@ function PromptLayersBody(): ReactNode {
     { label: '内置默认', text: modelFallbackText },
     ...rules.flatMap(r => r.overrides?.base === undefined ? [] : [{ label: formatMatch(r.match), text: r.overrides.base }]),
   ]
+  const notesTabs: RuleTabItem[] = rules.flatMap(r =>
+    r.append === undefined ? [] : [{ label: formatMatch(r.match), text: r.append }])
   const selected = ordered.find(l => l.name === selectedKey) ?? ordered[0]
   const isReadonlyRow = selectedKey === MODEL_NOTES_SECTION || selectedKey === MODEL_SECTION
   const isIdentityRow = selectedKey === IDENTITY_SECTION
@@ -207,11 +209,15 @@ function PromptLayersBody(): ReactNode {
                 <p className={css.hint}>模型层是内置提示词：运行时按当前模型命中规则整份覆盖，不可编辑。</p>
                 <RuleTabs key={MODEL_SECTION} tabs={modelTabs} />
               </>
-            ) : (
+            ) : notesTabs.length > 0 ? (
               <>
                 <p className={css.hint}>model-notes 是保留层：规则命中时以其 append 文本渲染，不可直接编辑。</p>
-                <textarea className={css.textarea} readOnly aria-label="只读段文本" rows={8}
-                  value={nativeText(native, MODEL_NOTES_SECTION)} />
+                <RuleTabs key={MODEL_NOTES_SECTION} tabs={notesTabs} />
+              </>
+            ) : (
+              <>
+                <p className={css.hint}>当前配置没有 append 规则。</p>
+                <textarea className={css.textarea} readOnly aria-label="只读段文本" rows={8} value="" />
               </>
             )}
           </div>
