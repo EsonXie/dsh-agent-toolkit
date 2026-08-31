@@ -52,12 +52,15 @@ export function setupUsage(ctx: Context, config: { timezone: string }, owner: st
       ctx.logger.warn(`token 计量已由 ${existing.value} 挂载，本实例（${owner}）跳过采集；面板与命令为只读共用`)
       return false
     }
-    await meta!.put(METER_OWNER_KEY, { value: owner })
+    // 占位意图先置位再落盘：即便 put 在途时就卸载，beforeClose 也会释放。真实 KvTable 的
+    // put/delete 走同一串行链（host.enqueue），delete 排在 put 之后会观测到落盘再删除。
     ownsMeter = true
+    await meta!.put(METER_OWNER_KEY, { value: owner })
     return true
   })
 
-  // 守卫失败（已有他包采集）时不挂监听，tail 恒为空链。
+  // 守卫失败（已有他包采集）时不挂监听，tail 恒为空链；open 失败（domainReady reject）
+  // 时这里拒绝吞掉，不次生 unhandled rejection 崩掉宿主（本模块开头的既定不变式）。
   void meteringReady.then((metering) => {
     if (!metering) return
     ctx.on('session/event', (session, event) => {
@@ -70,7 +73,7 @@ export function setupUsage(ctx: Context, config: { timezone: string }, owner: st
       })
       tail = write.then(() => undefined, () => undefined)
     })
-  })
+  }, () => undefined)
 
   ctx.commands.register({
     name: 'token-usage',
