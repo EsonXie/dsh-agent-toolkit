@@ -33,12 +33,20 @@
 }
 .layerName { font-size: 14px; line-height: 22px; }
 .layerOrder { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary); }
-.createButton { margin-top: 8px; }
+.readonlyTag {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
 
 .editorPane { flex: 1; min-width: 0; max-height: 70vh; overflow-y: auto; }
 .editor { display: flex; flex-direction: column; gap: 16px; }
 .field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
-.input { width: 100%; }
+.staticValue { font-size: 14px; line-height: 22px; }
 .textarea {
   width: 100%;
   min-height: 160px;
@@ -50,9 +58,7 @@
   color: inherit;
   resize: vertical;
 }
-.rowActions { display: flex; gap: 8px; }
 .actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.dangerButton { color: var(--dsw-alias-status-danger, inherit); }
 
 .rulesPane { flex: none; width: 260px; }
 .ruleList { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }

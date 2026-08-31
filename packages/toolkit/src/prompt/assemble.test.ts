@@ -118,3 +118,71 @@ describe('prompt-stack 组装', () => {
     expect(texts['prompt-stack:task']).toBe('V4-TASK')
   })
 })
+
+describe('persona 层 → deployment:persona 槽位', () => {
+  const PERSONA_CONFIG: ConfigT = {
+    layers: [
+      { name: 'persona', order: 0, text: 'PERSONA' },
+      { name: 'base', order: 0, text: 'BASE' },
+    ],
+    rules: [
+      { match: { modelPattern: 'claude*' }, overrides: { persona: 'CLAUDE-PERSONA' } },
+    ],
+  }
+
+  test('persona 不注册 prompt-stack:* 段，而是填入原生 deployment:persona 槽位', async () => {
+    const ctx = await boot(PERSONA_CONFIG)
+    const assembly = await ctx.systemPrompt.assemble(agentContext({}))
+    const texts = sectionTexts(assembly.sections)
+    expect(texts['deployment:persona']).toBe('PERSONA')
+    expect(assembly.sections.map(s => s.name)).not.toContain('prompt-stack:persona')
+  })
+
+  test('persona 层为空串时槽位保持空（段被丢弃）', async () => {
+    const ctx = await boot({
+      ...PERSONA_CONFIG,
+      layers: [{ name: 'persona', order: 0, text: '' }, { name: 'base', order: 0, text: 'BASE' }],
+    })
+    const assembly = await ctx.systemPrompt.assemble(agentContext({}))
+    expect(sectionTexts(assembly.sections)['deployment:persona']).toBe('')
+    expect(renderPrompt(assembly)).not.toContain('persona')
+  })
+
+  test('规则 overrides 可命中 persona 层', async () => {
+    const ctx = await boot(PERSONA_CONFIG)
+    const assembly = await ctx.systemPrompt.assemble(agentContext({ model: 'claude-sonnet-4' }))
+    expect(sectionTexts(assembly.sections)['deployment:persona']).toBe('CLAUDE-PERSONA')
+  })
+
+  test('子 Agent：不改写（子的 deployment:persona 由委派装配提供）', async () => {
+    const ctx = await boot(PERSONA_CONFIG)
+    const childContext = {
+      agent: {
+        options: {},
+        session: { header: { origin: 'subagent' } },
+      } as unknown as Agent,
+    }
+    const assembly = await ctx.systemPrompt.assemble(childContext)
+    expect(sectionTexts(assembly.sections)['deployment:persona']).toBe('')
+  })
+
+  test('角色 scoped persona 段在场（bot 会话）：不填充主 Agent persona', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { persona: '' })
+    // 模拟 bot 会话的 scoped 角色 persona 段（channels/agent-setup.ts 注册名）。
+    ctx.systemPrompt.section({ name: 'dsh-agent-toolkit:persona', order: 0, text: 'ROLE-PERSONA' })
+    setupPrompt(ctx, { source: fakeSource(PERSONA_CONFIG.layers), rules: PERSONA_CONFIG.rules })
+    const assembly = await ctx.systemPrompt.assemble(agentContext({}))
+    const texts = sectionTexts(assembly.sections)
+    expect(texts['deployment:persona']).toBe('')
+    expect(texts['dsh-agent-toolkit:persona']).toBe('ROLE-PERSONA')
+  })
+
+  test('无 persona 层时槽位保持原值（尊重 cordis.yml 的 systemPrompt.persona）', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { persona: 'NATIVE-PERSONA' })
+    setupPrompt(ctx, { source: fakeSource(CONFIG.layers), rules: CONFIG.rules })
+    const assembly = await ctx.systemPrompt.assemble(agentContext({}))
+    expect(sectionTexts(assembly.sections)['deployment:persona']).toBe('NATIVE-PERSONA')
+  })
+})

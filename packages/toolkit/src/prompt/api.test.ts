@@ -46,6 +46,10 @@ class FakeTable<V> {
 
 const SEED: LayerConfig[] = [{ name: 'base', order: 0, text: 'B' }]
 const RULES = [{ match: { modelPattern: 'deepseek*' }, append: 'DS' }]
+const NATIVE = {
+  sections: [{ name: 'harness:identity', text: 'ID' }],
+  contexts: [{ name: 'some-context', text: 'CTX' }],
+}
 
 async function harness() {
   const promptLayers = new FakeTable<{ layers: LayerConfig[] }>()
@@ -54,34 +58,57 @@ async function harness() {
     { promptLayers, meta } as unknown as Parameters<typeof openLayerSource>[0],
     SEED,
   )
-  const deps: PromptLayersApiDeps = { source, rules: RULES, seedLayers: SEED }
+  const deps: PromptLayersApiDeps = { source, rules: RULES, seedLayers: SEED, probe: () => Promise.resolve(NATIVE) }
   return { deps, handler: createPromptLayersApiHandler(deps), source }
 }
 
 describe('GET /prompt-layers', () => {
-  test('返回 { layers, rules, seedLayers }', async () => {
+  test('返回 { layers, rules, seedLayers, native }', async () => {
     const { handler } = await harness()
     const res = mockRes()
     await handler(mockReq('GET', '/dsh-agent-toolkit/api/prompt-layers'), res)
     expect(res.status).toBe(200)
-    expect(JSON.parse(res.body)).toEqual({ layers: SEED, rules: RULES, seedLayers: SEED })
+    expect(JSON.parse(res.body)).toEqual({ layers: SEED, rules: RULES, seedLayers: SEED, native: NATIVE })
+  })
+
+  test('probe 失败降级为空 native，主数据照常返回', async () => {
+    const { deps, handler } = await harness()
+    deps.probe = () => Promise.reject(new Error('boom'))
+    const res = mockRes()
+    await handler(mockReq('GET', '/dsh-agent-toolkit/api/prompt-layers'), res)
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({
+      layers: SEED, rules: RULES, seedLayers: SEED, native: { sections: [], contexts: [] },
+    })
   })
 })
 
 describe('PUT /prompt-layers', () => {
-  test('合法层写穿并生效', async () => {
+  test('同结构改文本写穿并生效', async () => {
     const { handler, source } = await harness()
     const res = mockRes()
-    const next: LayerConfig[] = [{ name: 'base', order: 0, text: 'B' }, { name: 'task', order: 50, text: 'T' }]
+    const next: LayerConfig[] = [{ name: 'base', order: 0, text: 'B2' }]
     await handler(mockReq('PUT', '/dsh-agent-toolkit/api/prompt-layers', { layers: next }), res)
     expect(res.status).toBe(200)
     expect(source.get()).toEqual(next)
   })
 
-  test('非法层（重名/空/保留名/缺字段）→ 400', async () => {
+  test('结构变更（增/删层）→ 400', async () => {
     const { handler } = await harness()
     for (const layers of [
+      [{ name: 'base', order: 0, text: 'B' }, { name: 'task', order: 50, text: 'T' }],
       [],
+    ]) {
+      const res = mockRes()
+      await handler(mockReq('PUT', '/dsh-agent-toolkit/api/prompt-layers', { layers }), res)
+      expect(res.status).toBe(400)
+      expect(JSON.parse(res.body).error).toMatch(/at least one layer|structure is fixed/)
+    }
+  })
+
+  test('非法层（重名/保留名/缺字段）→ 400', async () => {
+    const { handler } = await harness()
+    for (const layers of [
       [{ name: 'a', order: 0, text: 'A' }, { name: 'a', order: 1, text: 'A2' }],
       [{ name: 'model-notes', order: 0, text: 'X' }],
       [{ name: 'base' }],
@@ -107,7 +134,7 @@ describe('PUT /prompt-layers', () => {
 describe('POST /prompt-layers/reset', () => {
   test('重置回种子', async () => {
     const { handler, source } = await harness()
-    await source.set([{ name: 'base', order: 0, text: 'B' }, { name: 'task', order: 50, text: 'T' }])
+    await source.set([{ name: 'base', order: 0, text: 'B-EDITED' }])
     const res = mockRes()
     await handler(mockReq('POST', '/dsh-agent-toolkit/api/prompt-layers/reset'), res)
     expect(res.status).toBe(200)
@@ -117,7 +144,7 @@ describe('POST /prompt-layers/reset', () => {
   test('reset 存储失败 → 500 兜底 JSON 而非抛异常', async () => {
     const { source } = await harness()
     const broken = { ...source, reset: () => Promise.reject(new Error('boom')) }
-    const deps: PromptLayersApiDeps = { source: broken, rules: RULES, seedLayers: SEED }
+    const deps: PromptLayersApiDeps = { source: broken, rules: RULES, seedLayers: SEED, probe: () => Promise.resolve(NATIVE) }
     const res = mockRes()
     await createPromptLayersApiHandler(deps)(mockReq('POST', '/dsh-agent-toolkit/api/prompt-layers/reset'), res)
     expect(res.status).toBe(500)

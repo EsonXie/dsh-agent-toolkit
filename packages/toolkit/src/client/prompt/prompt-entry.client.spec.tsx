@@ -14,6 +14,7 @@ const PAYLOAD = {
   layers: [{ name: 'base', order: 0, text: 'B' }],
   rules: [],
   seedLayers: [{ name: 'base', order: 0, text: 'B' }],
+  native: { sections: [], contexts: [] },
 }
 
 beforeEach(() => {
@@ -34,5 +35,6 @@ test('宽栏与窄栏均仅图标（Tooltip/aria-label 提供可访问名）', (
 test('点击打开模态框并拉取列表', async () => {
   render(<PromptLayersEntry wide {...RUNTIME} />)
   screen.getByRole('button', { name: '分层提示词' }).click()
-  expect(await screen.findByText('base')).toBeTruthy()
+  // 层名同时出现在行按钮与编辑器静态值里：限定在按钮内
+  expect(await screen.findByText('base', { selector: 'button > span' })).toBeTruthy()
 })

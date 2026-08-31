@@ -2,7 +2,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 // type-only 导入激活声明合并：Context.systemPrompt 与 AssembleContext.agent。
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
+import { PERSONA_SECTION, type AssembleContext } from '@deepseek-ai/dsh-system-prompt'
+import { TOOLKIT_PERSONA_SECTION } from '../channels/agent-setup.ts'
 import { DEFAULT_LAYERS, DEFAULT_RULES } from './defaults.ts'
 import { globToRegExp, selectRule } from './match.ts'
 import type { Config as ConfigT, LayerConfig, Rule } from './types.ts'
@@ -11,6 +12,9 @@ export type { Config, LayerConfig, Rule, RuleMatch } from './types.ts'
 
 /** 固定追加层的层名（保留，用户层不得使用）。 */
 export const MODEL_NOTES_LAYER = 'model-notes'
+
+/** persona 层名（固定层栈成员）：不注册 prompt-stack:* 段，运行时填入原生 deployment:persona 槽位。 */
+export const PERSONA_LAYER = 'persona'
 
 /** 运行时层视图：setupPrompt 只消费 get + subscribe，不关心存储细节（测试可注入假实现）。 */
 export interface LayerView {
@@ -78,16 +82,19 @@ export function setupPrompt(ctx: Context, config: { source: LayerView; rules: Ru
   const isSubagent = (context: AssembleContext): boolean =>
     context.agent?.session?.header?.origin === 'subagent'
 
-  // 层可能经 UI 增删/改序：registerSections 先 dispose 上一轮再按当前层重注册，
+  // 层文本可经 UI 修改：registerSections 先 dispose 上一轮再按当前层重注册，
   // source 变更时经 subscribe 触发。dispose 用 section() 返回的 disposer。
+  // persona 层不注册 prompt-stack:* 段——它经下方 waterfall 填入原生
+  // deployment:persona 槽位（每次组装实时读 source.get()，无需重注册）。
   let disposers: Array<() => void> = []
   const registerSections = (): void => {
     for (const dispose of disposers) dispose()
     disposers = []
     const layers = source.get()
     validateLayers(layers)
-    const notesOrder = Math.max(...layers.map(layer => layer.order)) + 1
-    for (const layer of layers) {
+    const sectionLayers = layers.filter(layer => layer.name !== PERSONA_LAYER)
+    const notesOrder = sectionLayers.length > 0 ? Math.max(...sectionLayers.map(layer => layer.order)) + 1 : 1
+    for (const layer of sectionLayers) {
       disposers.push(ctx.systemPrompt.section({
         name: `prompt-stack:${layer.name}`,
         order: layer.order,
@@ -131,6 +138,16 @@ export function setupPrompt(ctx: Context, config: { source: LayerView; rules: Ru
     const sections = assembled.sections.map((section) => {
       if (section.name === notesSection) {
         return { ...section, text: rule?.append ?? '' }
+      }
+      // persona 层填入原生 deployment:persona 槽位（UI 总是优先于 cordis.yml 的
+      // systemPrompt.persona）。两处豁免：子 Agent 的槽位由委派装配提供；
+      // bot 会话的 scoped 角色 persona 段在场 = 角色覆盖主 Agent persona。
+      if (section.name === PERSONA_SECTION) {
+        if (isSubagent(context)) return section
+        if (assembled.sections.some(s => s.name === TOOLKIT_PERSONA_SECTION)) return section
+        const personaLayer = layers.find(l => l.name === PERSONA_LAYER)
+        if (personaLayer === undefined) return section
+        return { ...section, text: rule?.overrides?.[PERSONA_LAYER] ?? personaLayer.text }
       }
       const layer = layers.find(l => section.name === `prompt-stack:${l.name}`)
       if (layer === undefined) return section

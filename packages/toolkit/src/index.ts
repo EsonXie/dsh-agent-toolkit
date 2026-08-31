@@ -115,7 +115,19 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     listProviders: () => ctx.llm.listProviders().map(({ id, name }) => ({ id, name })),
     listModels: (provider) => ctx.llm.listModels(provider).then((models) => models.map(({ id, name }) => ({ id, name }))),
   })
-  setupPromptLayersApi(ctx, { source: layerSource, rules: config.rules, seedLayers: config.layers })
+  setupPromptLayersApi(ctx, {
+    source: layerSource,
+    rules: config.rules,
+    seedLayers: config.layers,
+    // 裸组装探测：面板只读区展示原生 sections 与动态层 contexts 的当前快照。
+    probe: async () => {
+      const assembly = await ctx.systemPrompt.assemble({})
+      return {
+        sections: assembly.sections.map(({ name: n, text }) => ({ name: n, text })),
+        contexts: assembly.contexts.map(({ name: n, text }) => ({ name: n, text })),
+      }
+    },
+  })
   if (config.modules.feishu) setupBots(ctx, config.feishu, { registry })
   if (config.modules.usage) setupUsage(ctx, { timezone: config.timezone })
 }

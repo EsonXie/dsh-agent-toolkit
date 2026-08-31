@@ -23,19 +23,39 @@ export interface PromptLayerTables {
   meta: KvTable<string, { value: string }>
 }
 
+/** 固定结构校验：name+order 多重集合必须等于种子（仅 text 可变）。 */
+export function validateFixedLayers(layers: LayerConfig[], seedLayers: LayerConfig[]): void {
+  const key = (layer: LayerConfig): string => `${layer.name}@${String(layer.order)}`
+  const seed = seedLayers.map(key).sort()
+  const actual = layers.map(key).sort()
+  if (actual.length !== seed.length || actual.some((k, i) => k !== seed[i])) {
+    throw new Error(`prompt-stack: layer structure is fixed (${seedLayers.map(l => l.name).join(', ')}); only layer text is editable`)
+  }
+}
+
+/** 按种子结构 reconcile 已存储层：同名层保留已存文本（order 以种子为准）、补缺失、丢多余。 */
+export function reconcileLayers(stored: LayerConfig[], seedLayers: LayerConfig[]): LayerConfig[] {
+  return seedLayers.map(seed => ({
+    ...seed,
+    text: stored.find(layer => layer.name === seed.name)?.text ?? seed.text,
+  }))
+}
+
 /**
  * 打开层源。域由 apply 统一 open（storage-domain 同名单开），本函数只消费表句柄。
- * 首启（meta 无标记 / 表无数据）种入 Config 种子并置标记；此后一律读存储。
+ * 首启（表无数据）种入 Config 种子并置标记；此后读存储并按种子结构 reconcile
+ * （层栈固定化迁移：保留已编辑文本、补新层、丢多余层）。
  */
 export async function openLayerSource(tables: PromptLayerTables, seedLayers: LayerConfig[]): Promise<LayerSource> {
   const { promptLayers, meta } = tables
+  validateLayers(seedLayers)
   let cache: LayerConfig[]
   const existing = promptLayers.get(PROMPT_LAYERS_KEY)
   if (existing !== undefined) {
-    cache = existing.layers
-    validateLayers(cache)
+    validateLayers(existing.layers)
+    cache = reconcileLayers(existing.layers, seedLayers)
+    await promptLayers.put(PROMPT_LAYERS_KEY, { layers: cache })
   } else {
-    validateLayers(seedLayers)
     cache = seedLayers
     await promptLayers.put(PROMPT_LAYERS_KEY, { layers: cache })
   }
@@ -50,6 +70,7 @@ export async function openLayerSource(tables: PromptLayerTables, seedLayers: Lay
     get: () => cache,
     async set(layers: LayerConfig[]): Promise<void> {
       validateLayers(layers)
+      validateFixedLayers(layers, seedLayers)
       await promptLayers.put(PROMPT_LAYERS_KEY, { layers })
       cache = layers
       notify()

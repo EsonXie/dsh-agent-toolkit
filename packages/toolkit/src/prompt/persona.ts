@@ -24,8 +24,13 @@ export function buildAgentPersona(
     role.persona === undefined || role.persona.trim().length === 0
       ? []
       : [{ name: 'persona', order: 0, text: role.persona }]
-  const merged = [...config.getLayers(), ...roleLayers].sort((a, b) => a.order - b.order)
-  const texts = merged.map(layer => rule?.overrides?.[layer.name] ?? layer.text)
+  // 全局 persona 层是主 Agent 的人设，不泄漏给子 Agent——子的 persona 由角色层顶替。
+  const globalLayers = config.getLayers().filter(layer => layer.name !== 'persona')
+  const merged = [...globalLayers, ...roleLayers].sort((a, b) => a.order - b.order)
+  // 空文本层（persona/domain/task 默认空串）不产出空段落。
+  const texts = merged
+    .map(layer => rule?.overrides?.[layer.name] ?? layer.text)
+    .filter(text => text.length > 0)
   if (rule?.append !== undefined) texts.push(rule.append)
   return [SECTION_A(role.name), SECTION_B, ...texts].join('\n\n')
 }

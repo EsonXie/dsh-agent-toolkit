@@ -37,7 +37,7 @@ dsh plugin add dsh-agent-toolkit
 |---|---|---|---|
 | `modules.feishu` | boolean | `true` | 启用飞书 bots 模块 |
 | `modules.usage` | boolean | `true` | 启用 token 用量模块 |
-| `layers` | array | 内置 `base` 单层 | 语义化提示词分层 `{name, order, text}` |
+| `layers` | array | 内置固定四层（persona/base/domain/task） | 语义化提示词分层 `{name, order, text}`（首启种子/重置默认值；层结构固定，UI 仅可编辑文本） |
 | `rules` | array | 内置 15 条规则 | 按模型匹配的覆盖/追加规则 |
 | `timezone` | string | `Asia/Shanghai` | 用量按日/按小时聚合的时区 |
 | `provider` | string | `spawn` | 委派用的 subagent provider 名 |
@@ -54,7 +54,7 @@ dsh plugin add dsh-agent-toolkit
 
 ### 分层提示词
 
-每层注册为一个系统提示词 section。规则按 `provider` / `model` / `modelPattern`（glob）匹配当前模型，打分最高者生效：`overrides` 整体替换指定层，`append` 渲染进保留层 `model-notes`。模型身份在会话首条消息组装时钉住，中途切模型不改写系统提示词。
+固定层栈：`harness:identity`（原生只读）→ `persona`（主 Agent 人设，填入原生 `deployment:persona` 槽位，角色 persona 可覆盖）→ `base` → `domain` → `task` → `model-notes`（保留层，只读）。层不可增删/改名/改序，面板中仅文本可编辑。规则按 `provider` / `model` / `modelPattern`（glob）匹配当前模型，打分最高者生效：`overrides` 整体替换指定层，`append` 渲染进保留层 `model-notes`。模型身份在会话首条消息组装时钉住，中途切模型不改写系统提示词。
 
 ### 委派
 

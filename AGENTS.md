@@ -2,7 +2,7 @@
 
 ## 仓库性质
 
-本仓库是 DeepSeek Harness（dsh）插件的开发工作区。包含 `docs/refer/` 下的 dsh 官方文档本地镜像（2026-08 抓取自 <https://deepseek-harness.github.io/deepseek-harness/> 中文站，共 87 篇），以及合并后的单插件 `packages/toolkit`（npm 包名 `dsh-agent-toolkit`，Agent 注册表 + 分层提示词 + 并行委派 + 飞书 bots + token 用量，Node 半 + 浏览器半 bundle，342/342 测试通过）。合并前的四包代码快照已于 2026-08-27 删除（如需参考可从 git 历史恢复）。使用手册在 `docs/usage/`（中文多文件，含 `images/` 界面截图；委派卡截图待真实委派后补拍）。
+本仓库是 DeepSeek Harness（dsh）插件的开发工作区。包含 `docs/refer/` 下的 dsh 官方文档本地镜像（2026-08 抓取自 <https://deepseek-harness.github.io/deepseek-harness/> 中文站，共 87 篇），以及合并后的单插件 `packages/toolkit`（npm 包名 `dsh-agent-toolkit`，Agent 注册表 + 分层提示词 + 并行委派 + 飞书 bots + token 用量，Node 半 + 浏览器半 bundle，358/358 测试通过）。合并前的四包代码快照已于 2026-08-27 删除（如需参考可从 git 历史恢复）。使用手册在 `docs/usage/`（中文多文件，含 `images/` 界面截图；委派卡截图待真实委派后补拍）。
 
 已是 git 仓库（2026-08-18 初始化）；`deepseek-harness/` 被 .gitignore 排除。**注意：该 checkout 的 `.git` 已丢失（无法 git 恢复/核对版本），且 2026-08-25 发现 `apps/cli/config/agent-presets/`（内置 code/cordis/minimal/standard preset）缺失，已从上游 master 手动恢复 10 个文件——本地源码版本（08-18）与 master 的 preset 内容可能有轻微错位。**
 
@@ -27,6 +27,7 @@
 - 单插件入口：`packages/toolkit/src/index.ts` 命名导出 `name`/`inject`/`Config`/`apply`；`inject` 是 merged 模块直接消费的硬依赖服务全集（含 storageDomain/tokenMeter/credentials/agents 等 10 项）。
 - 浏览器半 `packages/toolkit/src/client/index.ts` 同样必须命名导出服务名数组 `inject`（现为 `['sessions', 'slots', 'locale']`）：browser kernel 按插件模块自身导出的 inject 门控 `ctx.<service>` 访问，package.json 的 `dsh.client.inject`（包名数组）只是信息性 boot-graph 边，不参与门控。
 - Agent 注册表：UI 管理（Agents 面板，创建/编辑/删除）+ YAML 首启导入（`roles_yaml_imported` 一次性标记）；存储域 `dsh_agent_toolkit`（表 `agents` + `meta`），schema 与 domain 布局的单一来源在 `src/agents/store.ts`。
+- 分层提示词（2026-08-28 起为固定层栈）：层集固定 persona/base/domain/task，UI 与 API 均不可增删/改名/改序、仅文本可编辑（`layer-source.ts` 的 `validateFixedLayers` 强制）；persona 层经 assemble waterfall 填入原生 `deployment:persona` 槽位（UI 优先于 cordis.yml 的 systemPrompt.persona；bot 会话有 scoped 角色 persona 段 `dsh-agent-toolkit:persona` 在场时跳过）；存储 `prompt_layers` 表单行，打开时按种子结构 reconcile（保留同名文本/补缺失/丢多余）。设计依据：`docs/superpowers/specs/2026-08-28-prompt-fixed-layer-stack-design.md`。
 - 内存 setup 建会话：`ctx.agents.create` + `setup` 建实时 agent，`setupAgentScope` 在 agentCtx 下 scoped 挂载基础工具行（persona/instructions/shell/fs/fs-search）再叠 persona/tools 白名单（restrict 必须在工具行挂载之后）；委派走 `team_delegate`（一次性），浏览器半渲染委派卡。
 - 共享层约定：`src/shared/` 的 `openDomainSafely`（安全打开存储域 + 卸载时关闭）/`registerOptionalRoutes`（webServer 可选服务下注册路由，headless/CLI 惰性不抛错）；`src/shared/http.ts`（json/readJsonBody 响应助手，agents/prompt 两个 API 共用）；`src/client/shared/` 的 `createSidebarEntry`（侧边栏底栏入口工厂）/`useLoadState`（loading/error/ok 状态机）。
 - toolkit 的 src 运行时值导入 `@deepseek-ai/dsh-storage-domain`，但不进 dependencies/peerDependencies：它由宿主 dsh base 隐式提供（devDependencies link 到 deepseek-harness 源码），加依赖会导致 pnpm 装副本、storage domain 双实例注册分裂。

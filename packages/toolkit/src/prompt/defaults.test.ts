@@ -26,11 +26,14 @@ function allTexts(): string[] {
 }
 
 describe('DEFAULT_LAYERS / DEFAULT_RULES 结构', () => {
-  test('默认只有 base 层，order 0', () => {
-    expect(DEFAULT_LAYERS).toHaveLength(1)
-    expect(DEFAULT_LAYERS[0].name).toBe('base')
-    expect(DEFAULT_LAYERS[0].order).toBe(0)
-    expect(DEFAULT_LAYERS[0].text.length).toBeGreaterThan(500)
+  test('默认固定四层：persona/base/domain/task，仅 base 有默认文本', () => {
+    expect(DEFAULT_LAYERS.map(layer => layer.name)).toEqual(['persona', 'base', 'domain', 'task'])
+    expect(DEFAULT_LAYERS.map(layer => layer.order)).toEqual([0, 0, 20, 50])
+    const base = DEFAULT_LAYERS.find(layer => layer.name === 'base')
+    expect(base?.text.length).toBeGreaterThan(500)
+    for (const name of ['persona', 'domain', 'task']) {
+      expect(DEFAULT_LAYERS.find(layer => layer.name === name)?.text).toBe('')
+    }
   })
 
   test('15 条默认规则；deepseek/glm 仅 append 无 overrides', () => {

@@ -70,4 +70,33 @@ describe('buildAgentPersona', () => {
     expect(persona.startsWith('你是团队中的一名成员（角色：code-reviewer），由主 Agent 委派任务。')).toBe(true)
     expect(persona).not.toContain('undefined')
   })
+
+  test('全局 persona 层（主 Agent 人设）不泄漏给子 Agent；角色 persona 顶替', () => {
+    const config = configOf(
+      [
+        { name: 'persona', order: 0, text: 'MAIN-PERSONA' },
+        { name: 'base', order: 0, text: 'BASE' },
+      ],
+      [],
+    )
+    const withRole = buildAgentPersona(config, { name: 'general', persona: 'R' })
+    expect(withRole).toBe(`${SECTION_A('general')}\n\n${SECTION_B}\n\nBASE\n\nR`)
+    const noRole = buildAgentPersona(config, { name: 'explorer' })
+    expect(noRole).toBe(`${SECTION_A('explorer')}\n\n${SECTION_B}\n\nBASE`)
+    expect(noRole).not.toContain('MAIN-PERSONA')
+  })
+
+  test('空文本层（persona/domain/task 默认空串）不产出空段落', () => {
+    const config = configOf(
+      [
+        { name: 'persona', order: 0, text: '' },
+        { name: 'base', order: 0, text: 'BASE' },
+        { name: 'domain', order: 20, text: '' },
+        { name: 'task', order: 50, text: '' },
+      ],
+      [],
+    )
+    expect(buildAgentPersona(config, { name: 'explorer' }))
+      .toBe(`${SECTION_A('explorer')}\n\n${SECTION_B}\n\nBASE`)
+  })
 })

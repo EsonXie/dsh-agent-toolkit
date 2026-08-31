@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'vitest'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
-import { openLayerSource, PROMPT_LAYERS_KEY, PROMPT_LAYERS_SEEDED_KEY, type PromptLayerTables } from './layer-source.ts'
+import {
+  openLayerSource,
+  reconcileLayers,
+  validateFixedLayers,
+  PROMPT_LAYERS_KEY,
+  PROMPT_LAYERS_SEEDED_KEY,
+  type PromptLayerTables,
+} from './layer-source.ts'
 import type { LayerConfig } from './types.ts'
 
 class FakeTable<V> implements KvTable<string, V> {
@@ -20,7 +27,12 @@ class FakeTable<V> implements KvTable<string, V> {
   }
 }
 
-const SEED: LayerConfig[] = [{ name: 'base', order: 0, text: 'B' }]
+const SEED: LayerConfig[] = [
+  { name: 'persona', order: 0, text: '' },
+  { name: 'base', order: 0, text: 'B' },
+  { name: 'domain', order: 20, text: '' },
+  { name: 'task', order: 50, text: '' },
+]
 
 function tables() {
   const promptLayers = new FakeTable<{ layers: LayerConfig[] }>()
@@ -29,32 +41,53 @@ function tables() {
 }
 
 describe('openLayerSource', () => {
-  test('首启：无表数据时种入种子层并置标记；二次打开不再覆盖', async () => {
+  test('首启：无表数据时种入种子层并置标记；二次打开保留已编辑文本', async () => {
     const t = tables()
     const source = await openLayerSource(t.api, SEED)
     expect(source.get()).toEqual(SEED)
     expect(t.promptLayers.get(PROMPT_LAYERS_KEY)).toEqual({ layers: SEED })
     expect(t.meta.get(PROMPT_LAYERS_SEEDED_KEY)).toEqual({ value: '1' })
 
-    // 模拟已有编辑后的存储：二次打开应读存储而非种子
-    const edited: LayerConfig[] = [{ name: 'base', order: 0, text: 'B' }, { name: 'task', order: 50, text: 'T' }]
+    // 模拟已有编辑后的存储：二次打开保留已编辑文本（按种子结构对齐）
+    const edited: LayerConfig[] = SEED.map(l => (l.name === 'base' ? { ...l, text: 'B-EDITED' } : l))
     await t.promptLayers.put(PROMPT_LAYERS_KEY, { layers: edited })
     const source2 = await openLayerSource(t.api, SEED)
     expect(source2.get()).toEqual(edited)
   })
 
-  test('set：校验通过写表并通知；非法层拒绝且不落表', async () => {
+  test('reconcile：旧存储只有 base（含已改文本）→ 补缺失层、丢多余层并写回', async () => {
+    const t = tables()
+    await t.promptLayers.put(PROMPT_LAYERS_KEY, {
+      layers: [
+        { name: 'base', order: 0, text: 'B-EDITED' },
+        { name: 'legacy', order: 99, text: 'GONE' },
+      ],
+    })
+    const source = await openLayerSource(t.api, SEED)
+    expect(source.get()).toEqual([
+      { name: 'persona', order: 0, text: '' },
+      { name: 'base', order: 0, text: 'B-EDITED' },
+      { name: 'domain', order: 20, text: '' },
+      { name: 'task', order: 50, text: '' },
+    ])
+    expect(t.promptLayers.get(PROMPT_LAYERS_KEY)).toEqual({ layers: source.get() })
+  })
+
+  test('set：同结构改文本写穿并通知；增/删/改名层拒绝且不落表', async () => {
     const t = tables()
     const source = await openLayerSource(t.api, SEED)
     const listener = { called: 0 }
     source.subscribe(() => { listener.called++ })
 
-    const next: LayerConfig[] = [{ name: 'base', order: 0, text: 'B' }, { name: 'task', order: 50, text: 'T' }]
+    const next: LayerConfig[] = SEED.map(l => (l.name === 'task' ? { ...l, text: 'T' } : l))
     await source.set(next)
     expect(source.get()).toEqual(next)
     expect(t.promptLayers.get(PROMPT_LAYERS_KEY)).toEqual({ layers: next })
     expect(listener.called).toBe(1)
 
+    await expect(source.set([...next, { name: 'extra', order: 60, text: 'X' }])).rejects.toThrow(/structure is fixed/)
+    await expect(source.set(next.filter(l => l.name !== 'task'))).rejects.toThrow(/structure is fixed/)
+    await expect(source.set(next.map(l => (l.name === 'task' ? { ...l, name: 'renamed' } : l)))).rejects.toThrow(/structure is fixed/)
     await expect(source.set([])).rejects.toThrow(/at least one layer/)
     await expect(source.set([
       { name: 'a', order: 0, text: 'A' },
@@ -66,7 +99,7 @@ describe('openLayerSource', () => {
   test('reset：清表清标记后重写种子并通知', async () => {
     const t = tables()
     const source = await openLayerSource(t.api, SEED)
-    await source.set([{ name: 'base', order: 0, text: 'B' }, { name: 'task', order: 50, text: 'T' }])
+    await source.set(SEED.map(l => (l.name === 'task' ? { ...l, text: 'T' } : l)))
     const listener = { called: 0 }
     source.subscribe(() => { listener.called++ })
 
@@ -82,10 +115,29 @@ describe('openLayerSource', () => {
     const source = await openLayerSource(t.api, SEED)
     const listener = { called: 0 }
     const off = source.subscribe(() => { listener.called++ })
-    await source.set([{ name: 'base', order: 0, text: 'X' }])
+    await source.set(SEED.map(l => (l.name === 'base' ? { ...l, text: 'X' } : l)))
     expect(listener.called).toBe(1)
     off()
-    await source.set([{ name: 'base', order: 0, text: 'Y' }])
+    await source.set(SEED.map(l => (l.name === 'base' ? { ...l, text: 'Y' } : l)))
     expect(listener.called).toBe(1)
+  })
+})
+
+describe('validateFixedLayers / reconcileLayers', () => {
+  test('结构一致（仅文本不同）通过；order 不一致也拒绝', () => {
+    expect(() => validateFixedLayers(SEED.map(l => ({ ...l, text: 'X' })), SEED)).not.toThrow()
+    expect(() => validateFixedLayers(
+      SEED.map(l => (l.name === 'task' ? { ...l, order: 51 } : l)), SEED,
+    )).toThrow(/structure is fixed/)
+  })
+
+  test('reconcileLayers 输出种子结构：同名保留文本、缺失补种子、多余丢弃', () => {
+    const stored: LayerConfig[] = [{ name: 'base', order: 7, text: 'KEPT' }, { name: 'ghost', order: 1, text: 'G' }]
+    expect(reconcileLayers(stored, SEED)).toEqual([
+      { name: 'persona', order: 0, text: '' },
+      { name: 'base', order: 0, text: 'KEPT' },
+      { name: 'domain', order: 20, text: '' },
+      { name: 'task', order: 50, text: '' },
+    ])
   })
 })

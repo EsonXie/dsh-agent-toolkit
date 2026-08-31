@@ -1,4 +1,4 @@
-/** 分层提示词 RPC 端点组：读（layers+rules+seed）、写（PUT 全量替换）、reset。 */
+/** 分层提示词 RPC 端点组：读（layers+rules+seed+native 探测）、写（PUT 全量替换）、reset。 */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
@@ -6,13 +6,21 @@ import { registerOptionalRoutes } from '../shared/webserver.ts'
 import { json, readJsonBody } from '../shared/http.ts'
 import { LayerConfigSchema } from '../agents/store.ts'
 import { validateLayers } from './index.ts'
-import type { LayerSource } from './layer-source.ts'
+import { validateFixedLayers, type LayerSource } from './layer-source.ts'
 import type { LayerConfig, Rule } from './types.ts'
+
+/** 裸组装探测结果：原生 sections / 动态 contexts 的名称与当前文本（只读展示用）。 */
+export interface NativeProbe {
+  sections: Array<{ name: string; text: string }>
+  contexts: Array<{ name: string; text: string }>
+}
 
 export interface PromptLayersApiDeps {
   source: LayerSource
   rules: Rule[]
   seedLayers: LayerConfig[]
+  /** 裸 assemble 探测（apply 闭包注入）；失败降级为空列表，不阻塞主数据。 */
+  probe: () => Promise<NativeProbe>
 }
 
 const LayersBodySchema = z.object({ layers: z.array(LayerConfigSchema) })
@@ -24,7 +32,11 @@ export function createPromptLayersApiHandler(deps: PromptLayersApiDeps): (req: I
     const method = req.method ?? 'GET'
 
     if (sub === '/' && method === 'GET') {
-      json(res, 200, { layers: deps.source.get(), rules: deps.rules, seedLayers: deps.seedLayers })
+      let native: NativeProbe = { sections: [], contexts: [] }
+      try {
+        native = await deps.probe()
+      } catch { /* 探测失败降级为空，layers/rules/seedLayers 主数据照常返回 */ }
+      json(res, 200, { layers: deps.source.get(), rules: deps.rules, seedLayers: deps.seedLayers, native })
       return
     }
 
@@ -38,6 +50,7 @@ export function createPromptLayersApiHandler(deps: PromptLayersApiDeps): (req: I
       }
       try {
         validateLayers(parsed.data.layers)
+        validateFixedLayers(parsed.data.layers, deps.seedLayers)
       } catch (error) {
         json(res, 400, { error: error instanceof Error ? error.message : String(error) })
         return

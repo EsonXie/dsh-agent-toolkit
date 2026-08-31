@@ -1,9 +1,9 @@
-/** 分层提示词管理面板：左侧层列表（order 升序、增删/上移下移）+ 右侧编辑器 + 规则只读折叠视图。 */
+/** 分层提示词管理面板：固定层栈（只读原生行 + 可编辑层，仅文本可改）+ 规则/动态层只读折叠视图。 */
 import { useEffect, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useLoadState } from '../shared/load-state.ts'
-import { fetchPromptLayers, resetLayers, saveLayers } from './api.ts'
+import { fetchPromptLayers, resetLayers, saveLayers, type NativeProbe, type PromptLayersPayload } from './api.ts'
 import type { LayerConfig, Rule } from '../../prompt/types.ts'
 import css from './prompt.module.css'
 
@@ -20,9 +20,9 @@ export function PromptLayersModal({ open, onClose }: PromptLayersModalProps): Re
   )
 }
 
-function nextOrder(layers: LayerConfig[]): number {
-  return layers.reduce((min, layer) => Math.min(min, layer.order), 0) - 10
-}
+/** 原生段名：只读行的 section 名（与 dsh system-prompt / prompt 模块一致）。 */
+const IDENTITY_SECTION = 'harness:identity'
+const MODEL_NOTES_SECTION = 'prompt-stack:model-notes'
 
 function sortedLayers(layers: LayerConfig[]): LayerConfig[] {
   return [...layers].sort((a, b) => a.order - b.order)
@@ -37,64 +37,40 @@ function matchSummary(rule: Rule): string {
   return parts.join(' AND ')
 }
 
+function nativeText(native: NativeProbe, name: string): string {
+  return native.sections.find(s => s.name === name)?.text ?? ''
+}
+
 function PromptLayersBody(): ReactNode {
-  const { state, reload } = useLoadState<{ layers: LayerConfig[]; rules: Rule[]; seedLayers: LayerConfig[] }>(fetchPromptLayers, [])
+  const { state, reload } = useLoadState<PromptLayersPayload>(fetchPromptLayers, [])
   const [layers, setLayers] = useState<LayerConfig[]>([])
   const [rules, setRules] = useState<Rule[]>([])
+  const [native, setNative] = useState<NativeProbe>({ sections: [], contexts: [] })
   const [loaded, setLoaded] = useState(false)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showRules, setShowRules] = useState(false)
+  const [showContexts, setShowContexts] = useState(false)
   const [confirmingReset, setConfirmingReset] = useState(false)
 
   useEffect(() => {
     if (state.kind !== 'ok' || loaded) return
     setLayers(sortedLayers(state.data.layers))
     setRules(state.data.rules)
+    setNative(state.data.native ?? { sections: [], contexts: [] })
     setLoaded(true)
   }, [state, loaded])
 
   const ordered = sortedLayers(layers)
-  const selectedIndex = ordered.findIndex(l => l.name === selectedKey)
-  const activeIndex = selectedIndex >= 0 ? selectedIndex : 0
-  const selected = selectedIndex >= 0 ? ordered[selectedIndex] : ordered[0]
+  const selected = ordered.find(l => l.name === selectedKey) ?? ordered[0]
+  const isReadonlyRow = selectedKey === IDENTITY_SECTION || selectedKey === MODEL_NOTES_SECTION
   const layerNames = new Set(ordered.map(l => l.name))
 
-  function updateSelected(patch: Partial<LayerConfig>): void {
+  function updateSelectedText(text: string): void {
     if (selected === undefined) return
-    const next = layers.map(l => (l.name === selected.name && l.order === selected.order ? { ...l, ...patch } : l))
-    setLayers(next)
-    if (patch.name !== undefined) setSelectedKey(patch.name)
-    setDirty(true)
-  }
-
-  function addLayer(): void {
-    const layer: LayerConfig = { name: '', order: nextOrder(layers), text: '' }
-    setLayers([...layers, layer])
-    setSelectedKey(layer.name)
-    setDirty(true)
-  }
-
-  function deleteSelected(): void {
-    if (selected === undefined) return
-    const next = layers.filter(l => !(l.name === selected.name && l.order === selected.order))
-    setLayers(next)
-    setSelectedKey(null)
-    setDirty(true)
-  }
-
-  function moveSelected(dir: -1 | 1): void {
-    if (selected === undefined) return
-    const index = ordered.findIndex(l => l.name === selected.name && l.order === selected.order)
-    const target = index + dir
-    if (index < 0 || target < 0 || target >= ordered.length) return
-    const a = ordered[index]
-    const b = ordered[target]
-    const next = ordered.map((l, i) =>
-      i === index ? { ...b, order: a.order } : i === target ? { ...a, order: b.order } : l)
-    setLayers(next)
+    setLayers(layers.map(l => (l.name === selected.name ? { ...l, text } : l)))
     setDirty(true)
   }
 
@@ -129,48 +105,64 @@ function PromptLayersBody(): ReactNode {
     }
   }
 
+  const readonlyRow = (section: string, label: string, note: string): ReactNode => (
+    <button key={section} type="button"
+      className={clsx(css.layerRow, selectedKey === section && css.layerRowActive)}
+      onClick={() => { setSelectedKey(section) }}>
+      <span className={css.layerName}>
+        {label}
+        <span className={css.readonlyTag}>只读</span>
+      </span>
+      <span className={css.layerOrder}>{note}</span>
+    </button>
+  )
+
   return (
     <div className={css.split}>
       <div className={css.listPane}>
         {state.kind === 'loading' && <p className={css.hint}>加载中…</p>}
         {state.kind === 'error' && <p className={css.hint}>加载失败，请重试</p>}
-        {state.kind === 'ok' && ordered.map((layer, index) => (
-          <button key={`${layer.name}-${layer.order}`} type="button"
-            className={clsx(css.layerRow, index === activeIndex && css.layerRowActive)}
-            onClick={() => { setSelectedKey(layer.name) }}>
-            <span className={css.layerName}>{layer.name || '(未命名)'}</span>
-            <span className={css.layerOrder}>order {layer.order}</span>
-          </button>
-        ))}
-        <Button variant="primary" className={css.createButton} onClick={addLayer}>新建层</Button>
+        {state.kind === 'ok' && (
+          <>
+            {readonlyRow(IDENTITY_SECTION, 'harness:identity', '原生身份段')}
+            {ordered.map((layer) => (
+              <button key={layer.name} type="button"
+                className={clsx(css.layerRow, selected === layer && !isReadonlyRow && css.layerRowActive)}
+                onClick={() => { setSelectedKey(layer.name) }}>
+                <span className={css.layerName}>{layer.name}</span>
+                <span className={css.layerOrder}>order {layer.order}</span>
+              </button>
+            ))}
+            {readonlyRow(MODEL_NOTES_SECTION, 'model-notes', '由规则 append 渲染')}
+          </>
+        )}
       </div>
       <div className={css.editorPane}>
-        {state.kind === 'ok' && selected !== undefined ? (
+        {state.kind === 'ok' && isReadonlyRow ? (
           <div className={css.editor}>
-            <label className={css.field}>
+            <p className={css.hint}>
+              {selectedKey === IDENTITY_SECTION
+                ? 'harness:identity 是 dsh 原生身份段，不可编辑。'
+                : 'model-notes 是保留层：规则命中时以其 append 文本渲染，不可直接编辑。'}
+            </p>
+            <textarea className={css.textarea} readOnly aria-label="只读段文本" rows={8}
+              value={nativeText(native, selectedKey ?? '')} />
+          </div>
+        ) : state.kind === 'ok' && selected !== undefined ? (
+          <div className={css.editor}>
+            <div className={css.field}>
               层名
-              <Input value={selected.name} aria-label="层名" className={css.input}
-                onChange={(e) => { updateSelected({ name: e.target.value }) }} />
-            </label>
-            <label className={css.field}>
+              <span className={css.staticValue}>{selected.name}</span>
+            </div>
+            <div className={css.field}>
               order
-              <Input value={String(selected.order)} aria-label="order" className={css.input}
-                onChange={(e) => {
-                  const parsed = Number(e.target.value)
-                  if (Number.isFinite(parsed)) updateSelected({ order: parsed })
-                }} />
-            </label>
+              <span className={css.staticValue}>{selected.order}</span>
+            </div>
             <label className={css.field}>
               层文本
               <textarea className={css.textarea} value={selected.text} aria-label="层文本" rows={8}
-                onChange={(e) => { updateSelected({ text: e.target.value }) }} />
+                onChange={(e) => { updateSelectedText(e.target.value) }} />
             </label>
-
-            <div className={css.rowActions}>
-              <Button variant="outline" onClick={() => { moveSelected(-1) }}>上移</Button>
-              <Button variant="outline" onClick={() => { moveSelected(1) }}>下移</Button>
-              <Button variant="outline" className={css.dangerButton} onClick={deleteSelected}>删除层</Button>
-            </div>
 
             <div className={css.actions}>
               {error !== null && <p role="alert" className={css.error}>{error}</p>}
@@ -214,6 +206,18 @@ function PromptLayersBody(): ReactNode {
               )
             })}
             {rules.length === 0 && <li className={css.hint}>无规则（rules 由 cordis.yml 配置）</li>}
+          </ul>
+        )}
+        <Button variant="outline" onClick={() => { setShowContexts(!showContexts) }}>动态层（只读）</Button>
+        {showContexts && (
+          <ul className={css.ruleList}>
+            {native.contexts.map((context) => (
+              <li key={context.name} className={css.ruleItem}>
+                <span className={css.ruleMatch}>{context.name}</span>
+                <span className={css.ruleOverrides}>{context.text}</span>
+              </li>
+            ))}
+            {native.contexts.length === 0 && <li className={css.hint}>当前无动态层</li>}
           </ul>
         )}
       </div>
