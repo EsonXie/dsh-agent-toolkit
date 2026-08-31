@@ -1,23 +1,30 @@
 import { describe, expect, test } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import SystemPrompt, { renderPrompt, type AssembleContext } from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { renderPrompt, type AssembleContext, type PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
+import { createScope, scopeOf } from '@deepseek-ai/dsh-scope'
+import type { Scope } from '@deepseek-ai/dsh-scope'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { setupPrompt, type LayerView } from './index.ts'
+import { BASE_TEXT } from './defaults.ts'
 import type { Config as ConfigT } from './types.ts'
 
-/** 构造最小 agent 替身（assemble 路径读 agent.options；钉住缓存读 agent.session.id）。 */
 function agentContext(options: { provider?: string; model?: string }): AssembleContext {
   return { agent: { options, session: { id: 'test-session' } } as unknown as Agent }
 }
 
+/** 照 runtime-model.test.ts：铸造 agent 级 scope（scoped shadow 测试用）。 */
+async function mintScope(ctx: Context, name: string): Promise<Scope> {
+  let scope!: Scope
+  await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, { name }) },
+    { inject: ['systemPrompt'] }))
+  return scope
+}
+
 const CONFIG: ConfigT = {
-  layers: [
-    { name: 'base', order: 0, text: 'BASE' },
-    { name: 'task', order: 50, text: 'TASK' },
-  ],
+  layers: [{ name: 'persona', order: 10, text: 'PERSONA' }],
   rules: [
     { match: { modelPattern: 'claude*' }, overrides: { base: 'CLAUDE-BASE' } },
-    { match: { provider: 'deepseek', model: 'deepseek-v4' }, overrides: { task: 'V4-TASK' }, append: 'V4-NOTES' },
+    { match: { provider: 'deepseek', model: 'deepseek-v4' }, append: 'V4-NOTES' },
   ],
 }
 
@@ -36,56 +43,56 @@ function sectionTexts(sections: Array<{ name: string; text: string }>): Record<s
   return Object.fromEntries(sections.map(section => [section.name, section.text]))
 }
 
-describe('prompt-stack 组装', () => {
-  test('裸组装（无 agent）：全部默认文本，model-notes 不渲染', async () => {
+describe('prompt 组装（模型层 + persona 普通段）', () => {
+  test('裸组装（无 agent）：模型层为内置 BASE_TEXT，model-notes 不渲染', async () => {
     const ctx = await boot()
     const assembly = await ctx.systemPrompt.assemble()
     const texts = sectionTexts(assembly.sections)
-    expect(texts['prompt-stack:base']).toBe('BASE')
-    expect(texts['prompt-stack:task']).toBe('TASK')
+    expect(texts['prompt-stack:base']).toBe(BASE_TEXT)
+    expect(texts['prompt-stack:persona']).toBe('PERSONA')
     expect(texts['prompt-stack:model-notes']).toBe('')
-    // 空段在渲染期被丢弃
     expect(renderPrompt(assembly)).not.toContain('model-notes')
   })
 
-  test('命中规则：覆盖层替换、未覆盖层保持默认、append 进 model-notes 且排在最后', async () => {
+  test('渲染顺序：模型层（order 0）在 persona（order 10）之前，notes 最后', async () => {
+    const ctx = await boot()
+    const names = (await ctx.systemPrompt.assemble()).sections.map(s => s.name)
+    expect(names.indexOf('prompt-stack:base')).toBeLessThan(names.indexOf('prompt-stack:persona'))
+    expect(names.indexOf('prompt-stack:model-notes')).toBeGreaterThan(names.indexOf('prompt-stack:persona'))
+  })
+
+  test('命中规则：模型层整体覆盖、persona 保持存储文本、append 进 model-notes', async () => {
     const ctx = await boot()
     const assembly = await ctx.systemPrompt.assemble(agentContext({ provider: 'deepseek', model: 'deepseek-v4' }))
     const texts = sectionTexts(assembly.sections)
-    expect(texts['prompt-stack:base']).toBe('BASE')
-    expect(texts['prompt-stack:task']).toBe('V4-TASK')
+    expect(texts['prompt-stack:base']).toBe(BASE_TEXT)   // deepseek 规则以 append，不覆盖 base
+    expect(texts['prompt-stack:persona']).toBe('PERSONA')
     expect(texts['prompt-stack:model-notes']).toBe('V4-NOTES')
-    // model-notes order = 最大层 order(50) + 1 = 51，排在 prompt-stack 各层最后
-    const names = assembly.sections.map(section => section.name)
-    expect(names.indexOf('prompt-stack:model-notes')).toBeGreaterThan(names.indexOf('prompt-stack:task'))
   })
 
-  test('通配命中另一规则：只替换被覆盖层', async () => {
+  test('通配命中 claude：模型层替换为 CLAUDE-BASE', async () => {
     const ctx = await boot()
     const assembly = await ctx.systemPrompt.assemble(agentContext({ model: 'claude-sonnet-4' }))
     const texts = sectionTexts(assembly.sections)
     expect(texts['prompt-stack:base']).toBe('CLAUDE-BASE')
-    expect(texts['prompt-stack:task']).toBe('TASK')
     expect(texts['prompt-stack:model-notes']).toBe('')
   })
 
-  test('宿主提供的 model/provider 变量可插值（agent-loop 原生注册，插件不重复注册）', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt, { persona: '' })
-    // 模拟宿主 agent-loop 的注册（agent-loop/src/index.ts:351-352），prompt-stack 不再自注册。
-    ctx.systemPrompt.variable('provider', context => context.agent?.options.provider)
-    ctx.systemPrompt.variable('model', context => context.agent?.options.model)
-    setupPrompt(ctx, { source: fakeSource([{ name: 'who', order: 0, text: 'model={{model}} provider={{provider}}' }]), rules: [] })
-    const assembly = await ctx.systemPrompt.assemble(agentContext({ provider: 'deepseek', model: 'deepseek-v4' }))
-    expect(renderPrompt(assembly)).toContain('model=deepseek-v4 provider=deepseek')
+  test('persona 默认空串时段被丢弃（行为零变化）', async () => {
+    const ctx = await boot({ ...CONFIG, layers: [{ name: 'persona', order: 10, text: '' }] })
+    const assembly = await ctx.systemPrompt.assemble(agentContext({}))
+    expect(sectionTexts(assembly.sections)['prompt-stack:persona']).toBe('')
+    expect(renderPrompt(assembly)).not.toContain('persona')
   })
 
-  test('宿主已注册 model/provider 变量时 apply 不因重名抛错（回归）', async () => {
+  test('宿主变量插值与重名不抛错（回归，同原语义）', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, { persona: '' })
     ctx.systemPrompt.variable('provider', context => context.agent?.options.provider)
     ctx.systemPrompt.variable('model', context => context.agent?.options.model)
-    expect(() => setupPrompt(ctx, { source: fakeSource([{ name: 'base', order: 0, text: 'B' }]), rules: [] })).not.toThrow()
+    setupPrompt(ctx, { source: fakeSource([{ name: 'who', order: 10, text: 'model={{model}} provider={{provider}}' }]), rules: [] })
+    const assembly = await ctx.systemPrompt.assemble(agentContext({ provider: 'deepseek', model: 'deepseek-v4' }))
+    expect(renderPrompt(assembly)).toContain('model=deepseek-v4 provider=deepseek')
   })
 
   test('Config 校验失败在 apply 期响亮抛错', async () => {
@@ -94,7 +101,7 @@ describe('prompt-stack 组装', () => {
     expect(() => setupPrompt(ctx, { source: fakeSource([]), rules: [] })).toThrow(/at least one layer/)
   })
 
-  test('子 Agent（origin=subagent）：人设/任务层渲染空串，model-notes 按子的模型照常命中', async () => {
+  test('子 Agent（origin=subagent）：模型层与 persona 渲染空串，model-notes 按子的模型照常命中', async () => {
     const ctx = await boot()
     const childContext = {
       agent: {
@@ -105,84 +112,33 @@ describe('prompt-stack 组装', () => {
     const assembly = await ctx.systemPrompt.assemble(childContext)
     const texts = sectionTexts(assembly.sections)
     expect(texts['prompt-stack:base']).toBe('')
-    expect(texts['prompt-stack:task']).toBe('')          // 规则命中的覆盖层同样隔离
-    expect(texts['prompt-stack:model-notes']).toBe('V4-NOTES') // 模型层共用：按子模型命中
-    expect(renderPrompt(assembly)).not.toContain('BASE')
+    expect(texts['prompt-stack:persona']).toBe('')
+    expect(texts['prompt-stack:model-notes']).toBe('V4-NOTES')
+    expect(renderPrompt(assembly)).not.toContain(BASE_TEXT.slice(0, 40))
     expect(renderPrompt(assembly)).toContain('V4-NOTES')
-  })
-
-  test('非子 Agent（origin 缺省）：分层与规则照常生效', async () => {
-    const ctx = await boot()
-    const assembly = await ctx.systemPrompt.assemble(agentContext({ provider: 'deepseek', model: 'deepseek-v4' }))
-    const texts = sectionTexts(assembly.sections)
-    expect(texts['prompt-stack:task']).toBe('V4-TASK')
   })
 })
 
-describe('persona 层 → deployment:persona 槽位', () => {
-  const PERSONA_CONFIG: ConfigT = {
-    layers: [
-      { name: 'persona', order: 0, text: 'PERSONA' },
-      { name: 'base', order: 0, text: 'BASE' },
-    ],
-    rules: [
-      { match: { modelPattern: 'claude*' }, overrides: { persona: 'CLAUDE-PERSONA' } },
-    ],
-  }
-
-  test('persona 不注册 prompt-stack:* 段，而是填入原生 deployment:persona 槽位', async () => {
-    const ctx = await boot(PERSONA_CONFIG)
-    const assembly = await ctx.systemPrompt.assemble(agentContext({}))
-    const texts = sectionTexts(assembly.sections)
-    expect(texts['deployment:persona']).toBe('PERSONA')
-    expect(assembly.sections.map(s => s.name)).not.toContain('prompt-stack:persona')
-  })
-
-  test('persona 层为空串时槽位保持空（段被丢弃）', async () => {
-    const ctx = await boot({
-      ...PERSONA_CONFIG,
-      layers: [{ name: 'persona', order: 0, text: '' }, { name: 'base', order: 0, text: 'BASE' }],
-    })
-    const assembly = await ctx.systemPrompt.assemble(agentContext({}))
-    expect(sectionTexts(assembly.sections)['deployment:persona']).toBe('')
-    expect(renderPrompt(assembly)).not.toContain('persona')
-  })
-
-  test('规则 overrides 可命中 persona 层', async () => {
-    const ctx = await boot(PERSONA_CONFIG)
-    const assembly = await ctx.systemPrompt.assemble(agentContext({ model: 'claude-sonnet-4' }))
-    expect(sectionTexts(assembly.sections)['deployment:persona']).toBe('CLAUDE-PERSONA')
-  })
-
-  test('子 Agent：不改写（子的 deployment:persona 由委派装配提供）', async () => {
-    const ctx = await boot(PERSONA_CONFIG)
-    const childContext = {
-      agent: {
-        options: {},
-        session: { header: { origin: 'subagent' } },
-      } as unknown as Agent,
-    }
-    const assembly = await ctx.systemPrompt.assemble(childContext)
-    expect(sectionTexts(assembly.sections)['deployment:persona']).toBe('')
-  })
-
-  test('角色 scoped persona 段在场（bot 会话）：不填充主 Agent persona', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt, { persona: '' })
-    // 模拟 bot 会话的 scoped 角色 persona 段（channels/agent-setup.ts 注册名）。
-    ctx.systemPrompt.section({ name: 'dsh-agent-toolkit:persona', order: 0, text: 'ROLE-PERSONA' })
-    setupPrompt(ctx, { source: fakeSource(PERSONA_CONFIG.layers), rules: PERSONA_CONFIG.rules })
-    const assembly = await ctx.systemPrompt.assemble(agentContext({}))
-    const texts = sectionTexts(assembly.sections)
-    expect(texts['deployment:persona']).toBe('')
-    expect(texts['dsh-agent-toolkit:persona']).toBe('ROLE-PERSONA')
-  })
-
-  test('无 persona 层时槽位保持原值（尊重 cordis.yml 的 systemPrompt.persona）', async () => {
+describe('deployment:persona 槽位还原生', () => {
+  test('toolkit 不改写槽位：cordis.yml 的 systemPrompt.persona 原样渲染', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, { persona: 'NATIVE-PERSONA' })
     setupPrompt(ctx, { source: fakeSource(CONFIG.layers), rules: CONFIG.rules })
     const assembly = await ctx.systemPrompt.assemble(agentContext({}))
-    expect(sectionTexts(assembly.sections)['deployment:persona']).toBe('NATIVE-PERSONA')
+    const texts = sectionTexts(assembly.sections)
+    expect(texts['deployment:persona']).toBe('NATIVE-PERSONA')
+    // UI persona 层走自己的普通段，与槽位互不影响
+    expect(texts['prompt-stack:persona']).toBe('PERSONA')
+  })
+
+  test('bot 角色 scoped 同名段 shadow 全局 persona 段', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { persona: '' })
+    setupPrompt(ctx, { source: fakeSource(CONFIG.layers), rules: CONFIG.rules })
+    // scoped shadow 是 agent scope 机制：根 ctx 全局重名注册会抛错，必须走 scope。
+    const scope = await mintScope(ctx, 'agent')
+    scope.ctx.systemPrompt.section({ name: 'prompt-stack:persona', order: 10, text: 'ROLE-PERSONA' })
+    const assembly = await ctx.systemPrompt.assemble({ ...agentContext({}), scope: scopeOf(scope.ctx)! })
+    expect(sectionTexts(assembly.sections)['prompt-stack:persona']).toBe('ROLE-PERSONA')
   })
 })

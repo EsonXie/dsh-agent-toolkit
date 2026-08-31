@@ -5,6 +5,7 @@ import { createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { Scope, ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { setupPrompt, type LayerView } from './index.ts'
+import { BASE_TEXT } from './defaults.ts'
 
 /** 构造最小 agent 替身：options（创建期模型）+ 可变 session（钉住缓存按 session.id 失效）。 */
 function fakeAgent(options: { provider?: string; model?: string }, session: { id: string } = { id: 's1' }): Agent {
@@ -12,10 +13,7 @@ function fakeAgent(options: { provider?: string; model?: string }, session: { id
 }
 
 const CONFIG = {
-  layers: [
-    { name: 'base', order: 0, text: 'BASE' },
-    { name: 'task', order: 50, text: 'TASK' },
-  ],
+  layers: [{ name: 'persona', order: 10, text: 'P' }],
   rules: [
     { match: { modelPattern: 'claude*' }, overrides: { base: 'CLAUDE-BASE' } },
     { match: { modelPattern: 'deepseek*' }, append: 'DS-NOTES' },
@@ -85,7 +83,7 @@ describe('运行时模型匹配（web 会话选模型场景）', () => {
     })
     const texts = sectionTexts(assembly.sections)
     expect(texts['prompt-stack:base']).toBe('CLAUDE-BASE')
-    expect(texts['prompt-stack:task']).toBe('TASK')
+    expect(texts['prompt-stack:persona']).toBe('P')
     // claude 规则无 append；创建期的 deepseek 规则不生效
     expect(texts['prompt-stack:model-notes']).toBe('')
   })
@@ -120,7 +118,7 @@ describe('运行时模型匹配（web 会话选模型场景）', () => {
     selection.current = { provider: 'deepseek', model: 'deepseek-v4' }
     session.id = 's2'
     const second = sectionTexts((await ctx.systemPrompt.assemble({ scope: key, agent })).sections)
-    expect(second['prompt-stack:base']).toBe('BASE')
+    expect(second['prompt-stack:base']).toBe(BASE_TEXT)
     expect(second['prompt-stack:model-notes']).toBe('DS-NOTES')
   })
 
@@ -134,7 +132,7 @@ describe('运行时模型匹配（web 会话选模型场景）', () => {
       agent: fakeAgent({ provider: 'deepseek', model: 'deepseek-v4' }),
     })
     const texts = sectionTexts(assembly.sections)
-    expect(texts['prompt-stack:base']).toBe('BASE')
+    expect(texts['prompt-stack:base']).toBe(BASE_TEXT)
     expect(texts['prompt-stack:model-notes']).toBe('DS-NOTES')
   })
 })

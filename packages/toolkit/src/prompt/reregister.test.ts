@@ -33,29 +33,31 @@ function names(sections: Array<{ name: string }>): string[] {
 
 describe('setupPrompt 层重注册', () => {
   test('层变更后新组装使用新层（新增层出现、被删层消失）', async () => {
-    const source = mutableSource([{ name: 'base', order: 0, text: 'B' }])
+    const source = mutableSource([{ name: 'persona', order: 10, text: 'P' }])
     const ctx = await boot(source)
 
-    expect(names((await ctx.systemPrompt.assemble()).sections)).toContain('prompt-stack:base')
+    expect(names((await ctx.systemPrompt.assemble()).sections)).toContain('prompt-stack:persona')
 
     source.setLayers([
-      { name: 'base', order: 0, text: 'B' },
+      { name: 'persona', order: 10, text: 'P' },
       { name: 'task', order: 50, text: 'T' },
     ])
     const afterAdd = names((await ctx.systemPrompt.assemble()).sections)
     expect(afterAdd).toContain('prompt-stack:task')
 
-    source.setLayers([{ name: 'base', order: 0, text: 'B' }])
+    source.setLayers([{ name: 'persona', order: 10, text: 'P' }])
     const afterRemove = names((await ctx.systemPrompt.assemble()).sections)
     expect(afterRemove).not.toContain('prompt-stack:task')
+    // base 是内置固定段：层集如何变化都恒在场
+    expect(afterRemove).toContain('prompt-stack:base')
   })
 
   test('model-notes 的 order 随最大层 order 重算，始终排在层之后', async () => {
-    const source = mutableSource([{ name: 'base', order: 0, text: 'B' }])
+    const source = mutableSource([{ name: 'persona', order: 10, text: 'P' }])
     const ctx = await boot(source)
 
     source.setLayers([
-      { name: 'base', order: 0, text: 'B' },
+      { name: 'persona', order: 10, text: 'P' },
       { name: 'task', order: 100, text: 'T' },
     ])
     const sections = (await ctx.systemPrompt.assemble()).sections
