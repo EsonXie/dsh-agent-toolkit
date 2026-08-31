@@ -145,6 +145,94 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(jsdom@26.1.0(supports-color@7.1.0))(lightningcss@1.33.0)(supports-color@7.1.0)
 
+  packages/usage:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.1
+        version: 3.18.1
+      clsx:
+        specifier: ^2.0.0
+        version: 2.1.1
+      recharts:
+        specifier: ^3.10.1
+        version: 3.10.1(@types/react@18.3.31)(react-dom@18.2.0(react@18.2.0))(react-is@17.0.1)(react@18.2.0)(redux@5.0.1)
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: link:../../deepseek-harness/vendor/cordis
+        version: link:../../deepseek-harness/vendor/cordis
+      '@deepseek-ai/dsh-client-locale':
+        specifier: link:../../deepseek-harness/packages/client/locale
+        version: link:../../deepseek-harness/packages/client/locale
+      '@deepseek-ai/dsh-client-runtime':
+        specifier: link:../../deepseek-harness/packages/client/runtime
+        version: link:../../deepseek-harness/packages/client/runtime
+      '@deepseek-ai/dsh-client-ui-primitives':
+        specifier: link:../../deepseek-harness/packages/client/ui-primitives
+        version: link:../../deepseek-harness/packages/client/ui-primitives
+      '@deepseek-ai/dsh-client-ui-sidebar':
+        specifier: link:../../deepseek-harness/packages/client/ui-sidebar
+        version: link:../../deepseek-harness/packages/client/ui-sidebar
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: link:../../deepseek-harness/packages/client/ui-slots
+        version: link:../../deepseek-harness/packages/client/ui-slots
+      '@deepseek-ai/dsh-commands':
+        specifier: link:../../deepseek-harness/packages/interaction/commands
+        version: link:../../deepseek-harness/packages/interaction/commands
+      '@deepseek-ai/dsh-compaction':
+        specifier: link:../../deepseek-harness/packages/compaction/compaction
+        version: link:../../deepseek-harness/packages/compaction/compaction
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: link:../../deepseek-harness/packages/host/webserver
+        version: link:../../deepseek-harness/packages/host/webserver
+      '@deepseek-ai/dsh-llm':
+        specifier: link:../../deepseek-harness/packages/llm/llm
+        version: link:../../deepseek-harness/packages/llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: link:../../deepseek-harness/packages/core/session
+        version: link:../../deepseek-harness/packages/core/session
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: link:../../deepseek-harness/packages/storage/storage-domain
+        version: link:../../deepseek-harness/packages/storage/storage-domain
+      '@deepseek-ai/dsh-token-meter':
+        specifier: link:../../deepseek-harness/packages/llm/token-meter
+        version: link:../../deepseek-harness/packages/llm/token-meter
+      '@testing-library/react':
+        specifier: ^16.1.0
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@18.3.0)(@types/react@18.3.31)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      '@types/react-dom':
+        specifier: ~18.3.0
+        version: 18.3.0
+      jsdom:
+        specifier: ^26.1.0
+        version: 26.1.0(supports-color@7.1.0)
+      lightningcss:
+        specifier: ^1.30.0
+        version: 1.33.0
+      react:
+        specifier: ^18.2.0
+        version: 18.2.0
+      react-dom:
+        specifier: ^18.2.0
+        version: 18.2.0(react@18.2.0)
+      tsdown:
+        specifier: ^0.22.2
+        version: 0.22.14(typescript@6.0.3)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(jsdom@26.1.0(supports-color@7.1.0))(lightningcss@1.33.0)(supports-color@7.1.0)
+
 packages:
 
   '@asamuzakjp/css-color@2.8.2':

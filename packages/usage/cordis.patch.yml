@@ -1,0 +1,3 @@
+- insert:
+    - id: '@dsh-agent-toolkit/token-usage'
+      name: '@dsh-agent-toolkit/token-usage'
