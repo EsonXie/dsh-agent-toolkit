@@ -13,6 +13,9 @@ export type { Config, LayerConfig, Rule, RuleMatch } from './types.ts'
 /** 固定追加层的层名（保留，用户层不得使用）。 */
 export const MODEL_NOTES_LAYER = 'model-notes'
 
+/** 内置模型层名（保留）：固定注册 prompt-stack:base 段、不进存储，仍是 rules overrides 的合法目标。 */
+export const BASE_LAYER = 'base'
+
 /** persona 层名（固定层栈成员）：不注册 prompt-stack:* 段，运行时填入原生 deployment:persona 槽位。 */
 export const PERSONA_LAYER = 'persona'
 
@@ -29,8 +32,8 @@ export function validateLayers(layers: LayerConfig[]): void {
   }
   const names = new Set<string>()
   for (const layer of layers) {
-    if (layer.name === MODEL_NOTES_LAYER) {
-      throw new Error(`prompt-stack: layer name "${MODEL_NOTES_LAYER}" is reserved for the rules' append text`)
+    if (layer.name === MODEL_NOTES_LAYER || layer.name === BASE_LAYER) {
+      throw new Error(`prompt-stack: layer name "${layer.name}" is reserved`)
     }
     if (names.has(layer.name)) {
       throw new Error(`prompt-stack: duplicate layer name "${layer.name}"`)
@@ -46,7 +49,7 @@ export function validateLayers(layers: LayerConfig[]): void {
  */
 export function validateConfig(config: ConfigT): void {
   validateLayers(config.layers)
-  const names = new Set(config.layers.map(layer => layer.name))
+  const names = new Set([BASE_LAYER, ...config.layers.map(layer => layer.name)])
   for (const [index, rule] of config.rules.entries()) {
     const { provider, model, modelPattern } = rule.match
     if (provider === undefined && model === undefined && modelPattern === undefined) {

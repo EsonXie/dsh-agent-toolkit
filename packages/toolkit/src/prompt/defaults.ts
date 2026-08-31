@@ -381,16 +381,13 @@ export const GLM_APPEND = `Notes for GLM models:
 - For thinking-enabled GLM models, the reasoning_content of each message must be passed back verbatim on the next request; never drop or rewrite it.
 - With interleaved thinking, keep the reasoning context across tool-call rounds.`
 
-/** 默认语义层（固定层栈的可编辑四层）：persona/base/domain/task。
+/** 默认语义层（固定层栈的唯一可编辑层）：persona。
  *  结构固定——UI 与服务端均不允许增删层、改名、改序，仅文本可编辑。
- *  persona 层运行时填入原生 `deployment:persona` 槽位（order 0，主 Agent；
- *  角色 persona 经 scoped 段覆盖）；base/domain/task 注册为 prompt-stack:* 段。
- *  persona/domain/task 默认空串：dsh「空段不渲染」，未填写时行为零变化。 */
+ *  persona 注册为普通 prompt-stack:persona（order 10），排在内置模型层
+ *  prompt-stack:base（order 0）之后；默认空串：dsh「空段不渲染」，未填写时行为零变化。
+ *  persona 是唯一可编辑存储层；base 为内置模型层（保留层名，不进存储），见 index.ts。 */
 export const DEFAULT_LAYERS: LayerConfig[] = [
-  { name: 'persona', order: 0, text: '' },
-  { name: 'base', order: 0, text: BASE_TEXT },
-  { name: 'domain', order: 20, text: '' },
-  { name: 'task', order: 50, text: '' },
+  { name: 'persona', order: 10, text: '' },
 ]
 
 /** 默认模型规则（顺序即同分仲裁序，勿调整）。 */
