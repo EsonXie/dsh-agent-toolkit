@@ -14,8 +14,8 @@
     provider: spawn
     toolName: team_delegate
     layers:
-      - name: base
-        order: 0
+      - name: persona
+        order: 10
         text: '...'
     rules:
       - match: { modelPattern: 'claude*' }
@@ -35,7 +35,7 @@
 |---|---|---|---|
 | `modules.feishu` | boolean | `true` | 启用飞书 bots 模块。`false` 时不开 `project_bot` 存储域、不注册 bots API |
 | `modules.usage` | boolean | `true` | 启用 token 用量模块。`false` 时不开 `token_usage` 域、不注册 `/token-usage` 命令 |
-| `layers` | array | 内置固定四层（persona/base/domain/task） | 语义化提示词分层，见 [prompt-layers.md](prompt-layers.md)。元素：`{name: string, order: number, text: string}` 皆必填（首启种子；若已用 UI 管理分层提示词，此后由存储域生效，此处仅在重置时作为默认值）。层结构固定：UI/API 仅可改文本，增删层/改名/改序被拒绝 |
+| `layers` | array | `[{ name: 'persona', order: 10, text: '' }]` | 语义化提示词分层，见 [prompt-layers.md](prompt-layers.md)。元素：`{name: string, order: number, text: string}` 皆必填（首启种子；若已用 UI 管理分层提示词，此后由存储域生效，此处仅在重置时作为默认值）。层结构固定：UI/API 仅可改 persona 文本，增删层/改名/改序被拒绝；`base` / `model-notes` 为保留层名不可占用 |
 | `rules` | array | 内置 15 条规则 | 按模型匹配的覆盖/追加规则。元素：`{match: {provider?, model?, modelPattern?}, overrides?: Record<string,string>, append?: string}` |
 | `timezone` | string | `Asia/Shanghai` | 用量按日/按小时聚合的时区（IANA 时区名） |
 | `provider` | string | `spawn` | 委派用的 subagent provider 名 |
@@ -55,6 +55,6 @@
 ## 注意事项
 
 - **layers/rules 是整体替换**：配置了自己的 `layers` 或 `rules` 会完全替换内置默认值，不是合并。想保留默认行为需把默认内容一并写入。
-- **激活期校验**：`layers`/`rules` 非法（空数组、层名重复、保留层名 `model-notes`、overrides 引用未定义层、match 全空、modelPattern 非法 glob）时插件激活直接失败并给出具体原因，见 [prompt-layers.md](prompt-layers.md)。
+- **激活期校验**：`layers`/`rules` 非法（空数组、层名重复、保留层名 `base`/`model-notes`、overrides 引用未定义层、match 全空、modelPattern 非法 glob）时插件激活直接失败并给出具体原因，见 [prompt-layers.md](prompt-layers.md)。
 - **委派卡与 toolName 绑定**：见上表 `toolName` 行。
 - **空 overrides 自动丢弃**：只写 `append` 的规则不需要（也不应）提供空 `overrides` 对象。

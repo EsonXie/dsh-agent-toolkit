@@ -3,7 +3,7 @@
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件，把五个 Agent 生产力功能合进一个包：
 
 - **Agent 注册表** —— UI 管理的可复用 Agent 名册（persona、模型、工具白名单），支持 YAML 首启导入，内置 `main` / `explorer` / `general` 三个角色。
-- **分层提示词** —— 语义化提示词分层 + 按模型匹配的覆盖/追加规则，base 层随模型家族（Claude、GPT、Gemini、Kimi……）自动切换。
+- **分层提示词** —— 语义化提示词分层 + 按模型匹配的覆盖/追加规则，内置模型层随模型家族（Claude、GPT、Gemini、Kimi……）自动切换。
 - **并行委派** —— `team_delegate` 工具从名册启动一次性子 Agent，web UI 渲染实时委派卡。
 - **飞书 bots** —— 项目绑定飞书自建应用，扫码一键创建应用，在飞书里以流式卡片与 Agent 对话。
 - **Token 用量** —— 按日/按小时计量，13 周活动热力图 + 单日堆叠图 + `/token-usage` 命令。
@@ -37,7 +37,7 @@ dsh plugin add dsh-agent-toolkit
 |---|---|---|---|
 | `modules.feishu` | boolean | `true` | 启用飞书 bots 模块 |
 | `modules.usage` | boolean | `true` | 启用 token 用量模块 |
-| `layers` | array | 内置固定四层（persona/base/domain/task） | 语义化提示词分层 `{name, order, text}`（首启种子/重置默认值；层结构固定，UI 仅可编辑文本） |
+| `layers` | array | `[{ name: 'persona', order: 10, text: '' }]` | 语义化提示词分层 `{name, order, text}`（首启种子/重置默认值；层结构固定，UI 仅可编辑 persona 文本；`base`/`model-notes` 保留名不可占用） |
 | `rules` | array | 内置 15 条规则 | 按模型匹配的覆盖/追加规则 |
 | `timezone` | string | `Asia/Shanghai` | 用量按日/按小时聚合的时区 |
 | `provider` | string | `spawn` | 委派用的 subagent provider 名 |
@@ -54,7 +54,7 @@ dsh plugin add dsh-agent-toolkit
 
 ### 分层提示词
 
-固定层栈：`harness:identity`（原生只读）→ `persona`（主 Agent 人设，填入原生 `deployment:persona` 槽位，角色 persona 可覆盖）→ `base` → `domain` → `task` → `model-notes`（保留层，只读）。层不可增删/改名/改序，面板中仅文本可编辑。规则按 `provider` / `model` / `modelPattern`（glob）匹配当前模型，打分最高者生效：`overrides` 整体替换指定层，`append` 渲染进保留层 `model-notes`。模型身份在会话首条消息组装时钉住，中途切模型不改写系统提示词。
+四层模型固定层栈：`harness:identity`（原生只读）→ 模型层（内置 `prompt-stack:base`，只读，按模型命中规则整体覆盖）→ persona（`prompt-stack:persona`，唯一可编辑层，存 `prompt_layers` 表）→ `model-notes`（自动层，只读）。层不可增删/改名/改序。规则按 `provider` / `model` / `modelPattern`（glob）匹配当前模型，打分最高者生效：`overrides` 整体替换指定层（合法目标 = `base` + 存储层名），`append` 渲染进 `model-notes`。模型身份在会话首条消息组装时钉住，中途切模型不改写系统提示词。cordis.yml 的 `systemPrompt.persona` 恢复原生语义（渲染在 identity 后、模型层前），与 UI persona 层各自独立。
 
 ### 委派
 
