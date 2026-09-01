@@ -20,6 +20,7 @@ function makeCtx() {
     storageDomain: { open: vi.fn(() => Promise.resolve(domain)) },
     on: () => {},
     commands: { register: vi.fn() },
+    get: () => undefined,
     inject: (deps: string[], callback: (webCtx: {
       effect: (fn: () => unknown) => unknown
       webServer: { register: (r: { kind: string; path: string }) => () => void }

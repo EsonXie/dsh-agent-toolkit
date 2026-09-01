@@ -56,6 +56,7 @@
     "@deepseek-ai/dsh-compaction": "link:../../deepseek-harness/packages/compaction/compaction",
     "@deepseek-ai/dsh-host-webserver": "link:../../deepseek-harness/packages/host/webserver",
     "@deepseek-ai/dsh-llm": "link:../../deepseek-harness/packages/llm/llm",
+    "@deepseek-ai/dsh-session-persistence": "link:../../deepseek-harness/packages/session/session-persistence",
     "@deepseek-ai/dsh-session": "link:../../deepseek-harness/packages/core/session",
     "@deepseek-ai/dsh-storage-domain": "link:../../deepseek-harness/packages/storage/storage-domain",
     "@deepseek-ai/dsh-token-meter": "link:../../deepseek-harness/packages/llm/token-meter",

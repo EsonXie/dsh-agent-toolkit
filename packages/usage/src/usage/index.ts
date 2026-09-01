@@ -5,7 +5,10 @@ import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-commands'
+// Type-only 激活 @deepseek-ai/dsh-session-persistence 对 cordis Context 的声明合并（可选服务，ctx.get 惰性读取）。
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import { openDomainSafely } from '../shared/storage.ts'
+import { BACKFILL_DONE_KEY, backfillMissingDays, refreshUsageRange } from './backfill.ts'
 import { registerOptionalRoutes } from '../shared/webserver.ts'
 import { addSample, dayParts, emptyDaily, sampleFromEvent } from './aggregate.ts'
 import { parseDaysParam, rangeSummaries } from './heatmap.ts'
@@ -107,16 +110,72 @@ export function setupUsage(ctx: Context, config: { timezone: string }, owner: st
     })
   }, () => undefined)
 
+  // 一次性历史回填（仅计量主）：sessionPersistence 是可选服务，按仓库规则走 ctx.get
+  // （不进 inject，headless 无持久化后端时 warn 跳过、不落地标记，下次启动重试）。
+  // 标记已落地则每次启动只读一次 meta 键，零扫描开销。
+  void meteringReady.then((metering) => {
+    if (!metering) return
+    if (meta!.get(BACKFILL_DONE_KEY) !== undefined) return
+    const persistence = ctx.get('sessionPersistence')
+    if (persistence === undefined) {
+      ctx.logger.warn('sessionPersistence 服务缺失，跳过历史用量回填（下次启动重试）')
+      return
+    }
+    // 回填写与实时采集写共用同一条 tail 串行链（读改写不交错）。
+    const enqueue = (job: () => Promise<unknown>): Promise<unknown> => {
+      const write = tail.then(job)
+      tail = write.then(() => undefined, () => undefined)
+      return write
+    }
+    // backfillMissingDays 内部全捕获、永不 reject，无需再挂 rejection handler。
+    void backfillMissingDays({
+      persistence,
+      timezone: config.timezone,
+      daily: daily!,
+      meta: meta!,
+      estimate: (m) => ctx.tokenMeter.estimateMessage(m),
+      enqueue,
+      warn: (m) => ctx.logger.warn(m),
+    })
+  }, () => undefined)
+
   void openSucceeded.then((ok) => {
     if (!ok) return
     ctx.commands.register({
       name: 'token-usage',
-      description: '查看 token 用量（今日+近7日，或指定日期）',
-      input: { hint: 'YYYY-MM-DD，可空' },
+      description: '查看 token 用量（今日+近7日，或指定日期）；refresh [天数] 按会话日志重建近 N 天',
+      input: { hint: 'YYYY-MM-DD 或 refresh [天数]，可空' },
       handler: async ({ rawInput }) => {
         const table = await domainReady.then(() => daily!)
         const arg = rawInput.trim()
         const today = dayParts(Date.now(), config.timezone).date
+        if (arg === 'refresh' || arg.startsWith('refresh ')) {
+          // 手动刷新：以会话日志为权威整日重建最近 N 天（默认 30）。仅计量主可写；
+          // 写全部排进与实时采集共享的 tail 串行链（读改写不交错）。
+          if (!ownsMeter) return { kind: 'error' as const, text: 'token 计量由其他实例挂载，无法刷新' }
+          const persistence = ctx.get('sessionPersistence')
+          if (persistence === undefined) return { kind: 'error' as const, text: 'sessionPersistence 服务缺失，无法刷新用量' }
+          const daysArg = arg.slice('refresh'.length).trim()
+          const days = daysArg === '' ? 30 : parseDaysParam(daysArg)
+          if (days === null) return { kind: 'error' as const, text: '用法：/token-usage refresh [天数 1..366，默认 30]' }
+          const enqueue = (job: () => Promise<unknown>): Promise<unknown> => {
+            const write = tail.then(job)
+            tail = write.then(() => undefined, () => undefined)
+            return write
+          }
+          const result = await refreshUsageRange({
+            persistence,
+            timezone: config.timezone,
+            daily: table,
+            estimate: (m) => ctx.tokenMeter.estimateMessage(m),
+            enqueue,
+            warn: (m) => ctx.logger.warn(m),
+          }, days, today)
+          if (result.failed) return { kind: 'error' as const, text: '刷新失败（详见日志），部分日期可能已更新' }
+          const lines = result.changed.map((c) => `${c.date}: ${c.before} → ${c.after} calls`)
+          lines.push(`刷新完成：${result.changed.length} 天有变化，${result.unchanged} 天无变化`)
+          return { kind: 'success' as const, text: lines.join('\n') }
+        }
         if (arg !== '' && !DATE_RE.test(arg)) {
           return { kind: 'error' as const, text: '用法：/token-usage [YYYY-MM-DD]' }
         }
@@ -127,7 +186,6 @@ export function setupUsage(ctx: Context, config: { timezone: string }, owner: st
           const date = dayParts(Date.now() - i * 86_400_000, config.timezone).date
           return table.get(date) ?? emptyDaily(date)
         })
-        void today
         return { kind: 'success' as const, text: renderWeek(days[0].date, days) }
       },
     })

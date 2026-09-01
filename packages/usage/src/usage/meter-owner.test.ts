@@ -28,6 +28,7 @@ function makeCtx() {
     on: (_event: string, fn: unknown) => { listeners.push(fn) },
     commands: { register: vi.fn() },
     inject: vi.fn(),
+    get: () => undefined,
   }
   return { ctx: ctx as unknown as Context, tables, listeners, disposers, warn }
 }
@@ -155,6 +156,7 @@ test('占位 put 在途时卸载：释放不丢 meter_owner', async () => {
     on: (_event: string, fn: unknown) => { listeners.push(fn) },
     commands: { register: vi.fn() },
     inject: () => {},
+    get: () => undefined,
   }
   setupUsage(ctx as unknown as Context, { timezone: 'Asia/Shanghai' }, 'pkg-a')
   await flush()
