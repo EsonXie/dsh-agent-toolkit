@@ -18,10 +18,10 @@
 ### 从 npm 安装（发布后）
 
 ```bash
-dsh plugin add dsh-agent-toolkit
+dsh plugin --profile <profile 名> add dsh-agent-toolkit
 ```
 
-包自带 `cordis.patch.yml`（bundles 层），装进 profile 后自动激活，无需手工添加 patch 条目。
+`--profile` 为必填项（profile 位于 `$DSH_HOME/profiles/<name>`，默认 `~/.dsh/profiles/<name>`）。包自带 `cordis.patch.yml`（bundles 层），装进 profile 后自动激活，无需手工添加 patch 条目。
 
 ### 本地开发安装
 

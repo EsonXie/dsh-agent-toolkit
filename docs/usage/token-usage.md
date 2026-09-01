@@ -7,8 +7,10 @@
 本模块由依赖包 [`@dsh-agent-toolkit/token-usage`](https://www.npmjs.com/package/@dsh-agent-toolkit/token-usage) 提供。若只需要用量统计，可单独安装，功能/数据/路由与集成进 `dsh-agent-toolkit` 时完全一致：
 
 ```bash
-dsh plugin add @dsh-agent-toolkit/token-usage
+dsh plugin --profile <profile 名> add @dsh-agent-toolkit/token-usage
 ```
+
+（`--profile` 为必填项；profile 位于 `$DSH_HOME/profiles/<name>`，默认 `~/.dsh/profiles/<name>`。）
 
 > 与 `dsh-agent-toolkit` 二选一：两者同时安装时，后到实例会自动停用用量功能（不重复计量、不注册 `/token-usage` 命令与面板），先到者完整工作；仍建议只装其一。
 

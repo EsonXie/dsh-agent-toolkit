@@ -18,10 +18,10 @@ DeepSeek Harness plugin: per-day token usage statistics — 13-week heatmap, sta
 ## 安装
 
 ```bash
-dsh plugin add @dsh-agent-toolkit/token-usage
+dsh plugin --profile <profile 名> add @dsh-agent-toolkit/token-usage
 ```
 
-包自带 `cordis.patch.yml`（bundles 层），装进 profile 后自动激活。
+`--profile` 为必填项；profile 是 `$DSH_HOME/profiles/<name>`（默认 `~/.dsh/profiles/<name>`）下的目录。包自带 `cordis.patch.yml`（bundles 层），装进 profile 后自动激活。
 
 > **与 dsh-agent-toolkit 二选一**：`dsh-agent-toolkit` 已内置本插件全部功能（Agent 注册表/分层提示词/委派/飞书 bots + token 用量）。
 > 两者同时安装时，后到实例会自动停用用量功能（不重复计量、不注册 `/token-usage` 命令与面板），先到者完整工作；仍建议只装其一。

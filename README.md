@@ -11,10 +11,10 @@
 ## 快速开始
 
 ```bash
-dsh plugin add dsh-agent-toolkit
+dsh plugin --profile <profile 名> add dsh-agent-toolkit
 ```
 
-包自带 `cordis.patch.yml`（bundles 层），装进 profile 后自动激活。安装、配置与功能细节见 [使用手册](docs/usage/README.md) 和 [插件包 README](packages/toolkit/README.md)。
+`--profile` 为必填项（profile 位于 `$DSH_HOME/profiles/<name>`，默认 `~/.dsh/profiles/<name>`）。包自带 `cordis.patch.yml`（bundles 层），装进 profile 后自动激活。安装、配置与功能细节见 [使用手册](docs/usage/README.md) 和 [插件包 README](packages/toolkit/README.md)。
 
 ## 开发
 
