@@ -3,7 +3,8 @@ import type { SessionId, SubagentAddress, ToolCallBlock } from '@deepseek-ai/dsh
 import { MarkdownText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { fetchActiveRoute, type DelegateRoute } from './api.ts'
 import css from './delegate-card.module.css'
 import type { NS } from './locales.ts'
 
@@ -14,6 +15,8 @@ export interface DelegateCardInjected {
 
 interface DelegateMeta {
   readonly childSessionId?: SessionId
+  readonly provider?: string
+  readonly model?: string
 }
 
 interface DelegateArgs {
@@ -21,6 +24,9 @@ interface DelegateArgs {
   readonly description?: string
   readonly prompt?: string
 }
+
+/** 运行中轮询间隔（命中/settled/卸载即停）。 */
+const ACTIVE_POLL_MS = 1500
 
 function argsOf(block: ToolCallBlock): DelegateArgs {
   const raw = 'kind' in block && block.kind === 'tool-result' ? block.call?.argsRaw : (block as { argsRaw?: string }).argsRaw
@@ -48,6 +54,30 @@ export function DelegateCard(props: DelegateCardProps) {
   const args = argsOf(block)
   const meta = settled ? (block.meta as DelegateMeta | undefined) : undefined
   const [expanded, setExpanded] = useState(false)
+  const role = args.role
+  const [activeRoute, setActiveRoute] = useState<DelegateRoute | null>(null)
+  useEffect(() => {
+    if (settled || role === undefined) return
+    let cancelled = false
+    let timer: ReturnType<typeof setInterval> | undefined
+    const pull = (): void => {
+      void fetchActiveRoute(String(sessionId), role).then((route) => {
+        if (cancelled || route === null) return
+        setActiveRoute(route)
+        if (timer !== undefined) clearInterval(timer)
+      }).catch(() => undefined)
+    }
+    pull()
+    timer = setInterval(pull, ACTIVE_POLL_MS)
+    return () => { cancelled = true; if (timer !== undefined) clearInterval(timer) }
+  }, [settled, sessionId, role])
+
+  // settled 时取 meta，运行中取在途结果；error 无 meta → null：
+  const route: DelegateRoute | null = settled
+    ? (typeof meta?.provider === 'string' && typeof meta?.model === 'string'
+      ? { provider: meta.provider, model: meta.model }
+      : null)
+    : activeRoute
   const state = !settled ? 'ongoing' as const : isError ? 'error' as const : 'done' as const
   return (
     <div className={css.root} data-state={!settled ? 'running' : isError ? 'error' : 'ok'}>
@@ -61,6 +91,11 @@ export function DelegateCard(props: DelegateCardProps) {
       >
         <StateDot state={state} />
         {args.role !== undefined && <span className={css.chip}>{args.role}</span>}
+        {route !== null && (
+          <span className={css.chip} aria-label={t('card.modelAria', { route: `${route.provider} / ${route.model}` })}>
+            {route.provider} / {route.model}
+          </span>
+        )}
         <span className={css.summary}>{args.description ?? ''}</span>
         <span className={css.visuallyHidden}>
           {!settled ? t('card.running') : isError ? t('card.failed') : ''}
