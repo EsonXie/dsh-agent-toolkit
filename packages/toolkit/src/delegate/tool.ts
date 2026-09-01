@@ -5,6 +5,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import type { AgentRecord } from '../agents/store.ts'
+import type { ActiveRoutes, DelegateRoute } from './active.ts'
 
 /** createDelegateTool 的外部依赖。 */
 export interface DelegateToolDeps {
@@ -16,6 +17,10 @@ export interface DelegateToolDeps {
   readonly buildPersona: (role: AgentRecord) => string
   /** 委派入口：生产为 ctx.subagents.start.bind(ctx.subagents)，测试注入假实现。 */
   readonly startRun: (provider: string, request: SubagentStartRequest) => Promise<SubagentRun>
+  /** 在途表：运行中委派卡 chip 的数据源。 */
+  readonly active: ActiveRoutes
+  /** 持久路由写入（子会话头部 chip 数据源）；实现方保证不抛错语义由调用处 catch 兜底。 */
+  readonly recordRoute: (childSessionId: string, route: DelegateRoute) => Promise<void>
 }
 
 /** 非 completed 的 stopReason 意味着成员未干净完成。 */
@@ -40,7 +45,7 @@ function withPartialText(error: string, output: ContentBlock[]): string {
 }
 
 /** 收集并释放一次前台运行；dispose 失败不掩盖独立的结果失败。 */
-async function settleForegroundRun(run: SubagentRun, roleId: string) {
+async function settleForegroundRun(run: SubagentRun, roleId: string, route?: DelegateRoute) {
   // 本地 run 的 run.id 契约上即子 session id（dsh-subagent types.ts:249-255）。
   const childSessionId = String(run.id)
   const [execution] = await Promise.allSettled([
@@ -53,6 +58,7 @@ async function settleForegroundRun(run: SubagentRun, roleId: string) {
         runId: String(run.id),
         childSessionId,
         output: result.output as unknown as JsonValue[],
+        ...route !== undefined ? { provider: route.provider, model: route.model } : {},
       }
     }),
   ])
@@ -100,6 +106,8 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
           runId: { type: 'string', required: true },
           childSessionId: { type: 'string', required: true },
           output: { type: 'array', required: true, items: { type: 'json' } },
+          provider: { type: 'string' },
+          model: { type: 'string' },
         },
       },
       render: (_args, value) => [{
@@ -113,6 +121,9 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
         role: value.role as string,
         runId: value.runId as string,
         childSessionId: value.childSessionId as string,
+        ...typeof value.provider === 'string' && typeof value.model === 'string'
+          ? { provider: value.provider, model: value.model }
+          : {},
       }),
     },
     // 成员不改父会话；父方无写操作。与内置 subagent 工具同款。
@@ -149,8 +160,25 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
           ? { toolFilter: { allow: [...role.tools.allow] } }
           : {},
       } as SubagentStartRequest
-      const run = await deps.startRun(deps.provider, request)
-      return settleForegroundRun(run, role.id)
+      // 路由解析与 spawn driver resolveChildAgentOptions 同源：角色覆盖 ?? 父 options。
+      // 任一缺失整体省略（不猜部署默认——显示错值比不显示更糟）。
+      const route: DelegateRoute | undefined = role.model
+        ?? (typeof parent.options.provider === 'string' && parent.options.provider !== ''
+            && typeof parent.options.model === 'string' && parent.options.model !== ''
+          ? { provider: parent.options.provider, model: parent.options.model }
+          : undefined)
+      const parentSessionId = String(parent.session.id)
+      if (route !== undefined) deps.active.set(parentSessionId, role.id, route)
+      try {
+        const run = await deps.startRun(deps.provider, request)
+        if (route !== undefined) {
+          // 展示向写入失败不阻断委派（域关闭等异常吞掉）。
+          await deps.recordRoute(String(run.id), route).catch(() => undefined)
+        }
+        return await settleForegroundRun(run, role.id, route)
+      } finally {
+        if (route !== undefined) deps.active.delete(parentSessionId, role.id)
+      }
     },
   })
   return tool

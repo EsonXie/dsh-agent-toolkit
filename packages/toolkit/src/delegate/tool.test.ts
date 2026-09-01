@@ -3,6 +3,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import type { AgentRecord } from '../agents/store.ts'
+import { createActiveRoutes, type ActiveRoutes, type DelegateRoute } from './active.ts'
 import { createDelegateTool, type DelegateToolDeps } from './tool.ts'
 
 const ROSTER: AgentRecord[] = [
@@ -12,7 +13,10 @@ const ROSTER: AgentRecord[] = [
   { id: 'worker', name: 'Worker', description: '通用执行' },
 ]
 
-const parent = { options: { provider: 'deepseek', model: 'deepseek-chat' } } as unknown as Agent
+const parent = {
+  options: { provider: 'deepseek', model: 'deepseek-chat' },
+  session: { id: 'parent-session-1' },
+} as unknown as Agent
 
 function okRun(output: ContentBlock[], disposeError?: Error): SubagentRun {
   return {
@@ -30,12 +34,19 @@ function fakePersona(role: AgentRecord): string {
   return `你是审查员。\n不能再次委派（role=${role.id}）`
 }
 
-function depsWith(run: SubagentRun, captured: Captured[], buildPersona: (role: AgentRecord) => string = fakePersona): DelegateToolDeps {
+function depsWith(
+  run: SubagentRun,
+  captured: Captured[],
+  buildPersona: (role: AgentRecord) => string = fakePersona,
+  extras: { active?: ActiveRoutes; recordRoute?: (id: string, route: DelegateRoute) => Promise<void> } = {},
+): DelegateToolDeps {
   return {
     roster: () => ROSTER,
     provider: 'spawn',
     buildPersona,
     startRun: async (provider, request) => { captured.push({ provider, request }); return run },
+    active: extras.active ?? createActiveRoutes(),
+    recordRoute: extras.recordRoute ?? (async () => {}),
   }
 }
 
@@ -168,4 +179,86 @@ test('presentCall/presentResult 保持 generic 兜底；presentationMeta 投影 
   expect(tool.output.presentationMeta({}, {
     kind: 'foreground', role: 'reviewer', runId: 'r1', childSessionId: 'c1', output: [{ type: 'text', text: 'x' }],
   })).toEqual({ role: 'reviewer', runId: 'r1', childSessionId: 'c1' })
+})
+
+/** 读工具的 presentationMeta（output 面测试 casts，与既有 description 测试同法）。 */
+function metaOf(tool: unknown, value: Record<string, unknown>): Record<string, unknown> {
+  return (tool as unknown as {
+    output: { presentationMeta: (args: unknown, v: Record<string, unknown>) => Record<string, unknown> }
+  }).output.presentationMeta({}, value)
+}
+
+test('角色有 model：路由=角色覆盖；在途条目 startRun 前可见、settle 后删除；recordRoute 收到子会话坐标；meta 透出', async () => {
+  const active = createActiveRoutes()
+  const recorded: { id: string; route: DelegateRoute }[] = []
+  const captured: Captured[] = []
+  const run = okRun([{ type: 'text', text: '结论' } as ContentBlock])
+  const deps = depsWith(run, captured, fakePersona, {
+    active,
+    recordRoute: async (id, route) => { recorded.push({ id, route }) },
+  })
+  // startRun 时在途条目已写入（运行中卡片的读取窗口）。spread 拷贝绕开 readonly。
+  const checkingDeps: DelegateToolDeps = {
+    ...deps,
+    startRun: async (p, req) => {
+      expect(active.get('parent-session-1', 'reviewer')).toEqual({ provider: 'deepseek', model: 'deepseek-reasoner' })
+      return deps.startRun(p, req)
+    },
+  }
+  const tool = createDelegateTool('team_delegate', checkingDeps)
+  const result = await callTool(tool, { role: 'reviewer', description: '审查', prompt: '任务' }) as Record<string, unknown>
+  expect(result.provider).toBe('deepseek')
+  expect(result.model).toBe('deepseek-reasoner')
+  expect(recorded).toEqual([{ id: 'child-session-1', route: { provider: 'deepseek', model: 'deepseek-reasoner' } }])
+  expect(active.get('parent-session-1', 'reviewer')).toBeUndefined() // settle 后删除
+  expect(metaOf(tool, result)).toMatchObject({
+    role: 'reviewer', childSessionId: 'child-session-1',
+    provider: 'deepseek', model: 'deepseek-reasoner',
+  })
+})
+
+test('角色无 model：路由继承父 options', async () => {
+  const recorded: { id: string; route: DelegateRoute }[] = []
+  const tool = createDelegateTool('team_delegate', depsWith(okRun([]), [], fakePersona, {
+    recordRoute: async (id, route) => { recorded.push({ id, route }) },
+  }))
+  const result = await callTool(tool, { role: 'worker', description: '执行', prompt: '任务' }) as Record<string, unknown>
+  expect(result.provider).toBe('deepseek')
+  expect(result.model).toBe('deepseek-chat')
+  expect(recorded).toEqual([{ id: 'child-session-1', route: { provider: 'deepseek', model: 'deepseek-chat' } }])
+})
+
+test('父 options 不完整且角色无覆盖：全链路省略（无 meta/无在途/无持久写）', async () => {
+  const active = createActiveRoutes()
+  let recordCalls = 0
+  const bareParent = { options: {}, session: { id: 'p2' } } as unknown as Agent
+  const tool = createDelegateTool('team_delegate', depsWith(okRun([]), [], fakePersona, {
+    active,
+    recordRoute: async () => { recordCalls += 1 },
+  }))
+  const result = await callTool(tool, { role: 'worker', description: 'x', prompt: 'y' },
+    { agent: bareParent, signal: new AbortController().signal }) as Record<string, unknown>
+  expect(result.provider).toBeUndefined()
+  expect(result.model).toBeUndefined()
+  expect(metaOf(tool, result).provider).toBeUndefined()
+  expect(active.get('p2', 'worker')).toBeUndefined()
+  expect(recordCalls).toBe(0)
+})
+
+test('settle 抛错路径：在途条目仍被 finally 删除；持久行已写（子会话确曾以该路由运行）', async () => {
+  const active = createActiveRoutes()
+  const recorded: string[] = []
+  const run: SubagentRun = {
+    id: 'child-err' as unknown as SubagentRun['id'],
+    localAgent: undefined,
+    result: Promise.resolve<SubagentResult>({ stopReason: 'error', output: [] } as SubagentResult),
+    dispose: () => Promise.resolve(),
+  } as unknown as SubagentRun
+  const tool = createDelegateTool('team_delegate', depsWith(run, [], fakePersona, {
+    active,
+    recordRoute: async (id) => { recorded.push(id) },
+  }))
+  await expect(callTool(tool, { role: 'reviewer', description: 'x', prompt: 'y' })).rejects.toThrow()
+  expect(active.get('parent-session-1', 'reviewer')).toBeUndefined()
+  expect(recorded).toEqual(['child-err'])
 })
