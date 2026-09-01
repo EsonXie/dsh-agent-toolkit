@@ -95,6 +95,20 @@
 .select:focus,
 .textarea:focus { outline: none; border-color: var(--dsw-alias-brand-primary); }
 
+.toolMode {
+  display: flex;
+  gap: 8px;
+}
+.toolGroupSet {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.toolGroupSet:disabled { opacity: 0.55; }
 .toolGrid {
   display: flex;
   flex-wrap: wrap;

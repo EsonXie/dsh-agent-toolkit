@@ -29,6 +29,10 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
   const [providers, setProviders] = useState<ProviderOption[]>([])
   const [models, setModels] = useState<ModelOption[]>([])
   const [tools, setTools] = useState<string[]>(agent?.tools?.allow ?? [])
+  // 工具模式：不限制（省略 tools 字段）/ 自定义白名单。编辑态按记录有无 tools 派生；新建默认自定义（名册到达后全勾）。
+  const [toolsMode, setToolsMode] = useState<'unrestricted' | 'custom'>(
+    agent === undefined || agent.tools !== undefined ? 'custom' : 'unrestricted',
+  )
   const [catalog, setCatalog] = useState<ToolsCatalog>({ native: [], global: [] })
   const [catalogLoaded, setCatalogLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -78,7 +82,7 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
       ...(description.trim() ? { description: description.trim() } : {}),
       ...(persona.trim() ? { persona: persona.trim() } : {}),
       ...(provider.trim().length > 0 && model.trim().length > 0 ? { model: { provider: provider.trim(), model: model.trim() } } : {}),
-      ...(tools.length > 0 ? { tools: { allow: tools } } : {}),
+      ...(toolsMode === 'custom' && tools.length > 0 ? { tools: { allow: tools } } : {}),
     }
     setSaving(true)
     try {
@@ -159,15 +163,27 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
 
       <section className={css.block}>
         <h3 className={css.blockTitle}>工具白名单</h3>
+        <div className={css.toolMode}>
+          <label className={css.toolCheck}>
+            <input type="radio" name="agent-tools-mode" checked={toolsMode === 'unrestricted'}
+              aria-label="不限制（继承会话全部工具）" onChange={() => { setToolsMode('unrestricted') }} />
+            不限制（继承会话全部工具）
+          </label>
+          <label className={css.toolCheck}>
+            <input type="radio" name="agent-tools-mode" checked={toolsMode === 'custom'}
+              aria-label="自定义白名单" onChange={() => { setToolsMode('custom') }} />
+            自定义白名单
+          </label>
+        </div>
         {catalog.native.length === 0 && catalog.global.length === 0 ? (
           <p className={css.hint}>暂无可用工具</p>
         ) : (
-          <>
+          <fieldset className={css.toolGroupSet} disabled={toolsMode !== 'custom'}>
             <p className={css.toolGroupTitle}>原生工具</p>
             <div className={css.toolGrid}>
               {catalog.native.map((t) => (
                 <label key={t} className={css.toolCheck}>
-                  <input type="checkbox" checked={tools.includes(t)} aria-label={`工具 ${t}`}
+                  <input type="checkbox" checked={tools.includes(t)} aria-label={`工具 ${t}`} disabled={toolsMode !== 'custom'}
                     onChange={(e) => { toggleTool(t, e.target.checked) }} />
                   {t}
                 </label>
@@ -187,7 +203,10 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
                 </div>
               </>
             )}
-          </>
+          </fieldset>
+        )}
+        {toolsMode === 'custom' && tools.length === 0 && catalogLoaded && (
+          <p className={css.hint}>自定义白名单至少勾选一个工具，或改选不限制</p>
         )}
       </section>
 
@@ -197,7 +216,7 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
         {onDeleted !== undefined && !creating && !locked && (
           <Button variant="outline" className={css.dangerButton} disabled={saving} onClick={() => { void remove() }}>删除</Button>
         )}
-        <Button variant="primary" disabled={saving || (creating && !catalogLoaded)} onClick={() => { void save() }}>保存</Button>
+        <Button variant="primary" disabled={saving || (creating && !catalogLoaded) || (toolsMode === 'custom' && tools.length === 0)} onClick={() => { void save() }}>保存</Button>
       </div>
     </div>
   )

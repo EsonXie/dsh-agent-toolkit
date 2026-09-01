@@ -5,7 +5,7 @@ import { AgentsModal } from './AgentsModal.tsx'
 
 const AGENTS = [
   { id: 'main', name: '主 Agent', builtin: true },
-  { id: 'explorer', name: 'Explorer', description: '快速只读代码库探索', builtin: true },
+  { id: 'explorer', name: 'Explorer', description: '快速只读代码库探索', builtin: true, tools: { allow: ['read'] } },
   { id: 'scout', name: '侦察', description: '只读探索' },
 ]
 
@@ -74,6 +74,7 @@ test('新建角色→保存：Persona 单文本 + 工具默认全勾（原生+�
   fireEvent.change(screen.getByLabelText('名称'), { target: { value: '运维' } })
   fireEvent.change(screen.getByLabelText('提示词'), { target: { value: '你是运维。' } })
   // 新建模式默认全勾 native + global（fetchTools 返回 ToolsCatalog 后异步填入）
+  expect((screen.getByLabelText('自定义白名单') as HTMLInputElement).checked).toBe(true)
   await vi.waitFor(() => {
     expect((screen.getByLabelText('工具 bash') as HTMLInputElement).checked).toBe(true)
     expect((screen.getByLabelText('工具 read') as HTMLInputElement).checked).toBe(true)
@@ -162,4 +163,49 @@ test('加载失败显示错误态', async () => {
   render(<AgentsModal open onClose={() => undefined} />)
   // 左右两栏（列表 + 编辑器）都会显示加载失败提示
   expect((await screen.findAllByText('加载失败，请重试')).length).toBeGreaterThan(0)
+})
+
+test('编辑已配白名单角色：默认选中「自定义白名单」并回显勾选', async () => {
+  stubFetch(routes())
+  render(<AgentsModal open onClose={() => undefined} />)
+  // 初始选中首个可见角色 explorer（fixture 带 tools.allow ['read']）
+  await screen.findByText('Explorer')
+  expect((screen.getByLabelText('自定义白名单') as HTMLInputElement).checked).toBe(true)
+  await vi.waitFor(() => {
+    expect((screen.getByLabelText('工具 read') as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText('工具 bash') as HTMLInputElement).checked).toBe(false)
+  })
+})
+
+test('编辑无 tools 角色：默认选中「不限制」，checkbox 禁用；保存省略 tools 字段', async () => {
+  const calls = stubFetch(routes())
+  render(<AgentsModal open onClose={() => undefined} />)
+  await screen.findByText('Explorer')
+
+  fireEvent.click(screen.getByText('侦察')) // scout 无 tools
+  expect((screen.getByLabelText('不限制（继承会话全部工具）') as HTMLInputElement).checked).toBe(true)
+  await vi.waitFor(() => {
+    expect((screen.getByLabelText('工具 bash') as HTMLInputElement).disabled).toBe(true)
+  })
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+  await vi.waitFor(() => {
+    const put = calls.find((c) => c.url === '/dsh-agent-toolkit/api/agents/scout' && c.method === 'PUT')
+    expect(put).toBeTruthy()
+    expect(put?.body).not.toHaveProperty('tools')
+  })
+})
+
+test('自定义白名单全不勾 → 保存禁用并提示', async () => {
+  stubFetch(routes())
+  render(<AgentsModal open onClose={() => undefined} />)
+  await screen.findByText('Explorer')
+
+  // explorer 自定义回显 read → 取消勾选 → 空自定义
+  await vi.waitFor(() => {
+    expect((screen.getByLabelText('工具 read') as HTMLInputElement).checked).toBe(true)
+  })
+  fireEvent.click(screen.getByLabelText('工具 read'))
+  expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.getByText('自定义白名单至少勾选一个工具，或改选不限制')).toBeTruthy()
 })
