@@ -66,6 +66,20 @@ test('meter_owner 已占用：不挂采集监听、warn 提示、命令仍注册
   expect((h2.ctx as unknown as { commands: { register: unknown } }).commands.register).toHaveBeenCalled()
 })
 
+test('meter_owner 残留同名主（上次非正常退出）：接管计量而非自我锁死', async () => {
+  const { ctx, tables, listeners, warn } = makeCtx()
+  // 模拟上次进程崩溃/强杀留下的自身残留键（beforeClose 未跑，释放丢失）。
+  let meta = tables.get('meta')
+  if (meta === undefined) { meta = new Map(); tables.set('meta', meta) }
+  meta.set('meter_owner', { value: 'pkg-a' })
+  setupUsage(ctx, { timezone: 'Asia/Shanghai' }, 'pkg-a')
+  await flush()
+  // 同名主接管：挂采集监听、占位保持为本主、warn 明确说明接管的是残留键。
+  expect(listeners).toHaveLength(1)
+  expect(tables.get('meta')?.get('meter_owner')).toEqual({ value: 'pkg-a' })
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining('残留'))
+})
+
 test('占位方卸载：释放 meter_owner', async () => {
   const { ctx, tables, disposers } = makeCtx()
   setupUsage(ctx, { timezone: 'Asia/Shanghai' }, 'pkg-a')

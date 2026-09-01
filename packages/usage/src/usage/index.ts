@@ -58,13 +58,20 @@ export function setupUsage(ctx: Context, config: { timezone: string }, owner: st
   const meteringReady = domainReady.then(
     async () => {
       const existing = meta!.get(METER_OWNER_KEY)
-      if (existing !== undefined) {
+      if (existing !== undefined && existing.value !== owner) {
         // 已被他包占用：本实例跳过计量（命令/路由仍在，读同一份数据）。
         ctx.logger.warn(`token 计量已由 ${existing.value} 挂载，本实例（${owner}）跳过计量采集`)
         return false
       }
+      if (existing !== undefined) {
+        // 同名主残留键：上次进程未干净退出（崩溃/强杀），beforeClose 的释放丢失。
+        // 残留键不带活性信息且同一介质不支撑双实例并发计量，按 stale 处理直接接管，
+        // 否则该键会把本包的后续所有启动永久锁死（自我锁死，观测为统计恒 0）。
+        ctx.logger.warn(`发现本实例（${owner}）上次非正常退出残留的 meter_owner 占位键，接管计量采集`)
+      }
       // 占位意图先置位再落盘：即便 put 在途时就卸载，beforeClose 也会释放。真实 KvTable 的
       // put/delete 走同一串行链（host.enqueue），delete 排在 put 之后会观测到落盘再删除。
+      // 接管路径同样重 put 一遍：接管不改变值，只是让 ownsMeter/释放语义与首次占位一致。
       ownsMeter = true
       await meta!.put(METER_OWNER_KEY, { value: owner })
       return true
