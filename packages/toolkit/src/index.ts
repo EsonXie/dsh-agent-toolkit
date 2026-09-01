@@ -11,6 +11,9 @@ import { openLayerSource, type PromptLayersRow } from './prompt/layer-source.ts'
 import { setupPromptLayersApi } from './prompt/api.ts'
 import type { LayerConfig, Rule } from './prompt/types.ts'
 import { setupDelegate } from './delegate/index.ts'
+import { createActiveRoutes } from './delegate/active.ts'
+import { delegationRoutesDomain, type DelegationRouteRecord } from './delegate/routes.ts'
+import { setupDelegateApi } from './delegate/api.ts'
 import { setupAgentsApi } from './agents/api.ts'
 import { setupBots, type BotsModuleConfig } from './bots/index.ts'
 import { setupUsage } from '@dsh-agent-toolkit/token-usage'
@@ -101,11 +104,20 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const registry = await createRegistry(warn, { agents: tables.agents, meta: tables.meta })
   const layerSource = await openLayerSource({ promptLayers: tables.promptLayers, meta: tables.meta }, config.layers)
   setupPrompt(ctx, { source: layerSource, rules: config.rules })
+  const routesDomain = await openDomainSafely(ctx, delegationRoutesDomain, warn)
+  const routesTable = routesDomain.table('routes') as KvTable<string, DelegationRouteRecord>
+  const activeRoutes = createActiveRoutes()
   setupDelegate(ctx, {
     provider: config.provider,
     toolName: config.toolName,
     rules: config.rules,
-  }, registry)
+  }, registry, {
+    active: activeRoutes,
+    recordRoute: async (childSessionId, route) => {
+      await routesTable.put(childSessionId, { provider: route.provider, model: route.model, at: Date.now() })
+    },
+  })
+  setupDelegateApi(ctx, { active: activeRoutes, routes: routesTable })
   // agents/providers/tools RPC 为核心恒启用（Agents 面板总是挂载，端点缺失即「加载失败」），
   // 不随 modules.feishu 门控；仅 bots 分支受 feishu 开关控制。
   setupAgentsApi(ctx, {

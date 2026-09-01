@@ -6,6 +6,7 @@ import type { AgentRegistry } from '../agents/registry.ts'
 import { buildAgentPersona } from '../prompt/persona.ts'
 import type { Rule } from '../prompt/types.ts'
 import { createDelegateTool } from './tool.ts'
+import type { ActiveRoutes, DelegateRoute } from './active.ts'
 
 export type { DelegateToolDeps } from './tool.ts'
 export { createDelegateTool } from './tool.ts'
@@ -22,13 +23,19 @@ export interface DelegateConfig {
   rules: Rule[]
 }
 
+/** setupDelegate 的存储/在途通道（Task 3 DelegateToolDeps 的两个新字段）。 */
+export interface DelegateChannels {
+  readonly active: ActiveRoutes
+  readonly recordRoute: (childSessionId: string, route: DelegateRoute) => Promise<void>
+}
+
 /**
  * 挂载 team_delegate 工具与函数式团队提示段。
  * provider 能力守卫与生命周期镜像同归档 tool-subagent：persona/depthLimit 缺失响亮报错，
  * 工具随 provider 在场与否挂载/摘除。名册来自注册表（main 排除），工具与提示段都经
  * 闭包读取 registry，UI 改角色后新会话即生效。
  */
-export function setupDelegate(ctx: Context, config: DelegateConfig, registry: AgentRegistry): void {
+export function setupDelegate(ctx: Context, config: DelegateConfig, registry: AgentRegistry, channels: DelegateChannels): void {
   const { provider, toolName } = config
   let disposeTool: (() => void) | undefined
   let providerFailed = false
@@ -48,6 +55,8 @@ export function setupDelegate(ctx: Context, config: DelegateConfig, registry: Ag
         buildPersona: (role: AgentRecord) =>
           buildAgentPersona({ rules: config.rules }, role, role.model),
         startRun: (pr, request) => ctx.subagents.start(pr, request),
+        active: channels.active,
+        recordRoute: channels.recordRoute,
       }))
     }
   }
