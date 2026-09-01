@@ -19,7 +19,7 @@ Agent 注册表管理一组可复用的 Agent 角色：每个角色有自己的�
 | 模型 | Provider + 模型两个级联下拉，可「跟随默认」。设置后该角色被委派/被 bot 引用时使用指定模型 |
 | 工具白名单 | 「不限制（继承会话全部工具）/ 自定义白名单」radio 二选一 + checkbox 列表，分「原生工具」（pwsh/bash、read/write/edit/read_image、glob/grep）和「扩展工具」（顶层全局工具）两组。仅白名单语义：勾选的才可用，**没有 deny**。新建模式默认自定义 + 全勾；自定义下全不勾不可保存（改选不限制请用 radio） |
 
-![编辑器下半区：模型选择与工具白名单](images/agents-tools.png)
+![编辑器：模型选择与工具白名单（explorer 回显默认只读白名单）](images/agents-tools.png)
 
 ## 内置角色
 
@@ -29,7 +29,7 @@ Agent 注册表管理一组可复用的 Agent 角色：每个角色有自己的�
 | `explorer` | Explorer | 只读代码库探索：定位文件/符号、回答结构与调用关系问题，不做任何修改 |
 | `general` | General | 通用多步骤任务执行：可读可写、可运行命令，完成实现/修复类任务 |
 
-内置角色可编辑 persona/模型/工具，但 `builtin` 标记不可移除、角色不可删除。
+内置角色可编辑 persona/模型/工具，但 `builtin` 标记不可移除、角色不可删除。`explorer` 默认携带只读白名单（`pwsh`/`bash` + `read`/`read_image`/`glob`/`grep`，即原生工具去掉 `write`/`edit`），委派时硬约束只读；如需放开可在面板改选「不限制」。
 
 ## YAML 首启导入
 
@@ -64,6 +64,7 @@ tools:
 - 存储域 `dsh_agent_toolkit`，表 `agents`（角色记录）+ `meta`（一次性标记）。
 - 旧版 `promptLayers` 多分层字段在读取时自动按 order 拼接进 `persona` 并剥离（幂等迁移）。
 - 旧角色的 `tools.allow` 会一次性并入原生工具名（`meta` 表 `tools_native_migrated` 标记，幂等）。
+- 未配置工具的存量 `explorer` 会一次性补默认只读白名单（`meta` 表 `explorer_readonly_migrated` 标记，幂等）；已自行配置过工具的不受影响。
 
 ## 相关 HTTP API
 
