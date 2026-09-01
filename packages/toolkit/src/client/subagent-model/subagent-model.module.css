@@ -1,0 +1,8 @@
+/* 子会话头部模型 chip：几何照委派卡 chip（单行、token 着色）。 */
+.chip {
+  flex: none; padding: 0 6px; border-radius: 6px;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-tertiary);
+  border: 1px solid var(--dsw-alias-border-l2);
+  white-space: nowrap;
+}

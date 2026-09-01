@@ -39,6 +39,8 @@ function renderCard(block: ToolCallBlock, openChild: (address: SubagentAddress) 
       useSessions={(() => undefined) as never}
       useProjection={(() => undefined) as never}
       useWorkspaces={(() => undefined) as never}
+      useInput={(() => undefined) as never}
+      inputActions={(() => undefined) as never}
       openChild={openChild}
       t={((key: keyof typeof zh) => zh[key]) as never}
     />,
