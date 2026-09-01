@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "dsh-agent-toolkit",
   "version": "0.2.0",
   "description": "DeepSeek Harness plugin: agent registry with layered prompts, parallel delegation, Feishu bots and token usage",
