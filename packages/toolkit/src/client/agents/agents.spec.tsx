@@ -186,6 +186,7 @@ test('编辑无 tools 角色：默认选中「不限制」，checkbox 禁用；�
   expect((screen.getByLabelText('不限制（继承会话全部工具）') as HTMLInputElement).checked).toBe(true)
   await vi.waitFor(() => {
     expect((screen.getByLabelText('工具 bash') as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByLabelText('工具 write') as HTMLInputElement).disabled).toBe(true)
   })
   fireEvent.click(screen.getByRole('button', { name: '保存' }))
 

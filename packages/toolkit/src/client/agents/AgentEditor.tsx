@@ -195,7 +195,7 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
                 <div className={css.toolGrid}>
                   {catalog.global.map((t) => (
                     <label key={t} className={css.toolCheck}>
-                      <input type="checkbox" checked={tools.includes(t)} aria-label={`工具 ${t}`}
+                      <input type="checkbox" checked={tools.includes(t)} aria-label={`工具 ${t}`} disabled={toolsMode !== 'custom'}
                         onChange={(e) => { toggleTool(t, e.target.checked) }} />
                       {t}
                     </label>
