@@ -228,6 +228,33 @@ test('角色无 model：路由继承父 options', async () => {
   expect(recorded).toEqual([{ id: 'child-session-1', route: { provider: 'deepseek', model: 'deepseek-chat' } }])
 })
 
+test('角色 model 字段含空串：视为未配置，路由回退父 options', async () => {
+  const roster: AgentRecord[] = [
+    { id: 'main', name: '主 Agent' },
+    { id: 'both-empty', name: 'BothEmpty', model: { provider: '', model: '' } },
+    { id: 'provider-empty', name: 'ProviderEmpty', model: { provider: '', model: 'deepseek-chat' } },
+  ]
+  const recorded: { id: string; route: DelegateRoute }[] = []
+  const tool = createDelegateTool('team_delegate', {
+    roster: () => roster,
+    provider: 'spawn',
+    buildPersona: fakePersona,
+    startRun: async () => okRun([]),
+    active: createActiveRoutes(),
+    recordRoute: async (id, route) => { recorded.push({ id, route }) },
+  })
+  const a = await callTool(tool, { role: 'both-empty', description: 'a', prompt: '任务' }) as Record<string, unknown>
+  const b = await callTool(tool, { role: 'provider-empty', description: 'b', prompt: '任务' }) as Record<string, unknown>
+  expect(a.provider).toBe('deepseek')
+  expect(a.model).toBe('deepseek-chat')
+  expect(b.provider).toBe('deepseek')
+  expect(b.model).toBe('deepseek-chat')
+  expect(recorded).toEqual([
+    { id: 'child-session-1', route: { provider: 'deepseek', model: 'deepseek-chat' } },
+    { id: 'child-session-1', route: { provider: 'deepseek', model: 'deepseek-chat' } },
+  ])
+})
+
 test('父 options 不完整且角色无覆盖：全链路省略（无 meta/无在途/无持久写）', async () => {
   const active = createActiveRoutes()
   let recordCalls = 0

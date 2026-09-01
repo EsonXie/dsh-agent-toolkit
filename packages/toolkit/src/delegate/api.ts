@@ -26,7 +26,7 @@ export function createDelegateApiHandler(deps: DelegateApiDeps): (req: IncomingM
         json(res, 404, { error: 'not found' })
         return
       }
-      json(res, 200, route)
+      json(res, 200, { provider: route.provider, model: route.model })
       return
     }
     if (sub === '/delegate/route') {

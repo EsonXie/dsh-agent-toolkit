@@ -161,8 +161,11 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
           : {},
       } as SubagentStartRequest
       // 路由解析与 spawn driver resolveChildAgentOptions 同源：角色覆盖 ?? 父 options。
-      // 任一缺失整体省略（不猜部署默认——显示错值比不显示更糟）。
-      const route: DelegateRoute | undefined = role.model
+      // 字段为空串视为未配置；任一缺失整体省略（不猜部署默认——显示错值比不显示更糟）。
+      const route: DelegateRoute | undefined =
+        (role.model !== undefined && role.model.provider !== '' && role.model.model !== ''
+          ? role.model
+          : undefined)
         ?? (typeof parent.options.provider === 'string' && parent.options.provider !== ''
             && typeof parent.options.model === 'string' && parent.options.model !== ''
           ? { provider: parent.options.provider, model: parent.options.model }

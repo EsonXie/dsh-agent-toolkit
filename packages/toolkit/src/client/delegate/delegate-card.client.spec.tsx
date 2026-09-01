@@ -39,6 +39,9 @@ function renderCard(block: ToolCallBlock, openChild: (address: SubagentAddress) 
       useSessions={(() => undefined) as never}
       useProjection={(() => undefined) as never}
       useWorkspaces={(() => undefined) as never}
+      // subagent-model 模块的 `import type {}` from ui-conversation 触发全局
+      // SessionStandardProps 声明合并，使这两项在会话作用域 slot props 上必填；
+      // 纯类型效应、无运行时影响，故用 as never 桩掉。
       useInput={(() => undefined) as never}
       inputActions={(() => undefined) as never}
       openChild={openChild}

@@ -59,6 +59,15 @@ test('运行中：404 → 不渲染 chip', async () => {
   expect(screen.queryByText(/deepseek/)).toBeNull()
 })
 
+test('运行中且 args 缺 role：不发起轮询、不渲染 chip', () => {
+  const fetchMock = vi.fn()
+  vi.stubGlobal('fetch', fetchMock)
+  render(<DelegateCard {...propsFor(callBlock({ description: '审查登录模块', prompt: '请审查' }))} />)
+  expect(fetchMock).not.toHaveBeenCalled()
+  expect(screen.queryByText(/deepseek/)).toBeNull()
+  expect(screen.queryByText('reviewer')).toBeNull()
+})
+
 test('settled：读 meta 渲染 chip，不请求在途端点', async () => {
   const fetchMock = vi.fn()
   vi.stubGlobal('fetch', fetchMock)
