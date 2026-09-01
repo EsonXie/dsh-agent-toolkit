@@ -57,13 +57,10 @@ test('parseRoleYaml：provider/model 同存才合并为 model 字段', () => {
   expect(onlyModel.model).toBeUndefined()
 })
 
-test('parseRoleYaml：tools.deny 丢弃并 warn；allow 保留', () => {
-  const warn = vi.fn()
-  const denyOnly = parseRoleYaml(VALID + 'tools:\n  deny: [write, edit]\n', 's.yml', 's', warn)
-  expect(denyOnly.tools).toBeUndefined()
-  expect(warn).toHaveBeenCalledTimes(1)
-  const withAllow = parseRoleYaml(VALID + 'tools:\n  allow: [read]\n  deny: [write]\n', 's.yml', 's', vi.fn())
+test('parseRoleYaml：deny 作未知键剥离；deny-only → tools 空抛错', () => {
+  const withAllow = parseRoleYaml(VALID + 'tools:\n  allow: [read]\n  deny: [write]\n', 's.yml', 's')
   expect(withAllow.tools).toEqual({ allow: ['read'] })
+  expect(() => parseRoleYaml(VALID + 'tools:\n  deny: [write, edit]\n', 's.yml', 's')).toThrowError(/tools 为空/)
 })
 
 test('parseRoleYaml：name 与文件名不一致 / 非法 id / 缺失必填 / tools 空 → 抛错', () => {

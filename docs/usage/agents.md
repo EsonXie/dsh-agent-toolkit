@@ -56,7 +56,7 @@ tools:
 - `name`：可省略（取文件名）；若显式给出必须与文件名一致
 - `description`、`persona`：必填且非空
 - `provider` / `model`：必须成对出现才生效
-- `tools.allow`：白名单；`tools.deny` 被忽略并记 warn（注册表仅支持白名单）；`tools` 不能配成空对象
+- `tools.allow`：白名单（仅支持 allow，无 deny 语义）；`tools` 不能配成空对象
 - id 合法性同上面板规则（小写字母开头、小写字母/数字/`-`、≤32）
 
 ## 存储与迁移

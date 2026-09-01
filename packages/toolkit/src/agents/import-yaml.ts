@@ -32,7 +32,6 @@ const RoleYamlSchema = z.object({
   model: z.string().optional(),
   tools: z.object({
     allow: z.array(z.string()).optional(),
-    deny: z.array(z.string()).optional(),
   }).optional(),
 })
 
@@ -41,10 +40,9 @@ const RoleYamlSchema = z.object({
  * @param text - 文件内容。
  * @param source - 用于错误信息的来源名（通常是文件路径）。
  * @param fileName - 文件名（去 .yml），name 省略时的取值；显式 name 须与它一致。
- * @param warn - 非致命丢弃（如 tools.deny）的通知通道。
  * @throws YAML 语法错误、结构非法、name 与文件名不一致、id 非法、tools 空。
  */
-export function parseRoleYaml(text: string, source: string, fileName: string, warn?: (msg: string) => void): AgentRecord {
+export function parseRoleYaml(text: string, source: string, fileName: string): AgentRecord {
   let parsed: unknown
   try {
     parsed = yaml.load(text)
@@ -65,11 +63,8 @@ export function parseRoleYaml(text: string, source: string, fileName: string, wa
   if (!AGENT_ID_RE.test(id)) {
     throw new Error(`dsh-agent-toolkit: 角色 id "${id}" 非法（${source}）：只允许小写字母、数字、-，且以小写字母开头`)
   }
-  if (hasTools && raw.tools !== undefined && (raw.tools.allow?.length ?? 0) === 0 && (raw.tools.deny?.length ?? 0) === 0) {
-    throw new Error(`dsh-agent-toolkit: 角色文件 ${source} 的 tools 为空：allow/deny 至少配一个`)
-  }
-  if (raw.tools?.deny !== undefined && raw.tools.deny.length > 0) {
-    warn?.(`dsh-agent-toolkit: 角色文件 ${source} 的 tools.deny 已忽略（注册表仅支持 allow 白名单）`)
+  if (hasTools && raw.tools !== undefined && (raw.tools.allow?.length ?? 0) === 0) {
+    throw new Error(`dsh-agent-toolkit: 角色文件 ${source} 的 tools 为空：allow 至少配一个（不需要限制请整段省略 tools）`)
   }
   const model = raw.provider !== undefined && raw.model !== undefined ? { provider: raw.provider, model: raw.model } : undefined
   const tools = hasTools && raw.tools !== undefined && raw.tools.allow !== undefined && raw.tools.allow.length > 0
@@ -156,7 +151,7 @@ export async function importRolesYaml(ctx: ImportRolesContext, rolesDir?: string
   for (const ref of refs) {
     try {
       const text = await readFile(ref.path, 'utf8')
-      const record = parseRoleYaml(text, ref.path, ref.fileName, ctx.warn)
+      const record = parseRoleYaml(text, ref.path, ref.fileName)
       await ctx.agents.put(record.id, record)
       result.imported++
     } catch (error) {

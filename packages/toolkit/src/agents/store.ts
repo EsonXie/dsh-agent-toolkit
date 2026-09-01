@@ -6,7 +6,7 @@ import type { LayerConfig } from '../prompt/types.ts'
 /** Agent id 约束：'main' 或小写字母开头、仅 [a-z0-9-]、总长 ≤ 32。 */
 export const AGENT_ID_RE = /^(?:main|[a-z][a-z0-9-]{0,31})$/
 
-/** 一条 Agent 注册表记录。tools 仅白名单（用户定案：deny 不做）。 */
+/** 一条 Agent 注册表记录。tools 仅白名单。 */
 export interface AgentRecord {
   id: string // 'main' 或 [a-z0-9-] slug
   name: string
