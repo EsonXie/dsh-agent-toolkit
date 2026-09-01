@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { DomainSpec, KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { agentToolkitDomain, type AgentRecord } from './store.ts'
-import { createRegistry, type AgentRegistry } from './registry.ts'
+import { createRegistry, EXPLORER_READONLY_MIGRATED_KEY, TOOLS_NATIVE_MIGRATED_KEY, type AgentRegistry } from './registry.ts'
+import { EXPLORER_READONLY_ALLOW } from './builtin.ts'
 import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 
 class FakeTable<V> implements KvTable<string, V> {
@@ -185,4 +186,34 @@ test('createRegistry：存量 tools.allow 一次性并入原生工具名，meta 
   await registry.upsert({ id: 'dev', name: 'Dev', tools: { allow: ['read'] } })
   const registry2 = await createRegistry(vi.fn(), tablesOf(domain))
   expect(registry2.get('dev')?.tools?.allow).toEqual(['read'])
+})
+
+test('createRegistry：内置 explorer 默认携带只读白名单（不含 write/edit）；general 不限制', async () => {
+  const domain = new FakeDomain(agentToolkitDomain)
+  const registry = await createRegistry(vi.fn(), tablesOf(domain))
+  expect(registry.get('explorer')?.tools?.allow).toEqual(EXPLORER_READONLY_ALLOW)
+  expect(registry.get('explorer')?.tools?.allow).not.toContain('write')
+  expect(registry.get('explorer')?.tools?.allow).not.toContain('edit')
+  expect(registry.get('general')?.tools).toBeUndefined()
+})
+
+test('createRegistry：存量无 tools 的 explorer 一次性补默认白名单；改回不限制后不再补', async () => {
+  const domain = new FakeDomain(agentToolkitDomain)
+  await agentsOf(domain).put('explorer', { id: 'explorer', name: 'Explorer', builtin: true })
+  const registry = await createRegistry(vi.fn(), tablesOf(domain))
+  expect(registry.get('explorer')?.tools?.allow).toEqual(EXPLORER_READONLY_ALLOW)
+  expect(tablesOf(domain).meta.get(EXPLORER_READONLY_MIGRATED_KEY)).toEqual({ value: '1' })
+  // 用户经 UI 显式改回不限制（省略 tools）后，迁移不再回补
+  await registry.upsert({ id: 'explorer', name: 'Explorer', builtin: true })
+  const registry2 = await createRegistry(vi.fn(), tablesOf(domain))
+  expect(registry2.get('explorer')?.tools).toBeUndefined()
+})
+
+test('createRegistry：已配 tools 的存量 explorer 不被只读迁移改动', async () => {
+  const domain = new FakeDomain(agentToolkitDomain)
+  const tables = tablesOf(domain)
+  await tables.meta.put(TOOLS_NATIVE_MIGRATED_KEY, { value: '1' }) // 隔离原生并入的干扰
+  await tables.agents.put('explorer', { id: 'explorer', name: 'Explorer', builtin: true, tools: { allow: ['read'] } })
+  const registry = await createRegistry(vi.fn(), tables)
+  expect(registry.get('explorer')?.tools?.allow).toEqual(['read'])
 })

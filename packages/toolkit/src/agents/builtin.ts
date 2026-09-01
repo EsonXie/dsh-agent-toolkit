@@ -1,5 +1,10 @@
-/** 内置保底 Agent 记录：main + explorer（只读）/ general（可读写）。 */
+/** 内置保底 Agent 记录：main + explorer（只读白名单）/ general（不限制）。 */
+import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 import type { AgentRecord } from './store.ts'
+
+/** explorer 默认白名单：原生工具去掉写类（write/edit）。shell 名平台互斥（win32=pwsh、其余=bash），
+ *  必须从 NATIVE_TOOL_NAMES 派生不可写死——宿主 tools.restrict 对未知名响亮失败。 */
+export const EXPLORER_READONLY_ALLOW: readonly string[] = NATIVE_TOOL_NAMES.filter((n) => n !== 'write' && n !== 'edit')
 
 export const BUILTIN_AGENTS: readonly AgentRecord[] = [
   {
@@ -15,6 +20,7 @@ export const BUILTIN_AGENTS: readonly AgentRecord[] = [
 调用关系、实现位置的问题。你只读不写：不修改任何文件、不运行有副作用的命令。
 输出结论清单，每条附文件路径与行号；信息不足时说明缺口，不要猜测。`,
     builtin: true,
+    tools: { allow: [...EXPLORER_READONLY_ALLOW] },
   },
   {
     id: 'general',

@@ -1,7 +1,7 @@
 /** Agent 注册表：内存缓存 + 持久化回写 + 订阅通知；main 置顶、内置保底不可删。 */
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { AgentRecordSchema, migrateAgentRecord, type AgentRecord } from './store.ts'
-import { BUILTIN_AGENTS } from './builtin.ts'
+import { BUILTIN_AGENTS, EXPLORER_READONLY_ALLOW } from './builtin.ts'
 import { importRolesYaml } from './import-yaml.ts'
 import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 
@@ -20,9 +20,12 @@ export interface AgentRegistry {
 /** tools.allow 一次性并入原生工具名的 meta 表标记键。 */
 export const TOOLS_NATIVE_MIGRATED_KEY = 'tools_native_migrated'
 
+/** explorer 只读白名单一次性并入的 meta 表标记键。 */
+export const EXPLORER_READONLY_MIGRATED_KEY = 'explorer_readonly_migrated'
+
 /**
- * 打开 dsh_agent_toolkit 域 → 缺 main/explorer/general 时种入内置 → 首启 YAML 导入 →
- * 构建内存缓存。域由 apply 统一 open（storage-domain 同名单开），此处只消费表句柄。
+ * 打开 dsh_agent_toolkit 域 → 首启 YAML 导入 → 旧记录迁移（promptLayers/原生并入/explorer 只读）→
+ * 缺 main/explorer/general 时种入内置 → 构建内存缓存。域由 apply 统一 open（storage-domain 同名单开），此处只消费表句柄。
  */
 export async function createRegistry(
   warn: (msg: string) => void,
@@ -30,7 +33,6 @@ export async function createRegistry(
 ): Promise<AgentRegistry> {
   const { agents, meta } = tables
 
-  await seedBuiltins(agents)
   await importRolesYaml({ agents, meta, warn })
 
   // 旧记录迁移：promptLayers → persona（逐条幂等）；tools.allow 一次性并入原生工具名
@@ -47,6 +49,19 @@ export async function createRegistry(
     if (next !== record) await agents.put(id, next)
   }
   if (!nativeMigrated) await meta.put(TOOLS_NATIVE_MIGRATED_KEY, { value: '1' })
+
+  // explorer 只读白名单一次性迁移：deny 语义取消后 explorer 失去硬约束，此处补派生白名单恢复。
+  // 先于 seedBuiltins 执行：新装环境的 explorer 由种入直接携带白名单，不经过本迁移与原生并入。
+  const explorerMigrated = meta.get(EXPLORER_READONLY_MIGRATED_KEY) !== undefined
+  if (!explorerMigrated) {
+    const explorer = agents.get('explorer')
+    if (explorer !== undefined && explorer.tools === undefined) {
+      await agents.put('explorer', { ...explorer, tools: { allow: [...EXPLORER_READONLY_ALLOW] } })
+    }
+    await meta.put(EXPLORER_READONLY_MIGRATED_KEY, { value: '1' })
+  }
+
+  await seedBuiltins(agents)
 
   const cache = new Map<string, AgentRecord>()
   for (const [id, record] of agents.entries()) cache.set(id, record)
