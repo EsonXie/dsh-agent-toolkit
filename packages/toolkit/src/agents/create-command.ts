@@ -64,7 +64,7 @@ export function buildCreateAgentGuidance(input: CreateAgentGuidanceInput): strin
       '   （description/persona/tools 均可省略；省略 tools 表示不限制）',
       '3. curl 示例（Windows 的 pwsh 里用 curl.exe）：',
       `   curl.exe -s -X PUT "${input.origin}/dsh-agent-toolkit/api/agents/<id>" -H "Content-Type: application/json" -d "{\\"name\\":\\"...\\"}"`,
-      `4. 返回 200 后必须再 GET ${input.origin}/dsh-agent-toolkit/api/agents/<id>，把返回的 name/description/persona/tools 关键字段展示给用户，作为落库证据；`,
+      `4. 返回 200 后必须再 GET ${input.origin}/dsh-agent-toolkit/api/agents，在返回列表中找到该 id 的记录，把它的 name/description/persona/tools 关键字段展示给用户，作为落库证据；`,
       '5. 落库成功后告知用户可在 Agents 面板查看、并可被 team_delegate 委派；任一步返回 4xx 则把错误信息展示给用户，修正后重试。',
     )
   }

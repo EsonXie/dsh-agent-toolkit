@@ -27,7 +27,7 @@ test('无参：含工作流/现有 id/工具清单/落库四节，无「用户�
 test('落库防呆：PUT 成功后必须 GET 复核并展示证据', () => {
   const text = buildCreateAgentGuidance(BASE_INPUT)
   expect(text).toContain('落库证据')
-  expect(text).toContain(`GET http://127.0.0.1:3080/dsh-agent-toolkit/api/agents/<id>`)
+  expect(text).toContain('在返回列表中找到该 id 的记录')
 })
 
 test('带内联需求：含「用户初始需求」节并嵌入 trim 后原文', () => {

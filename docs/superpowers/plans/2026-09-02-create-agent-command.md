@@ -65,7 +65,7 @@ test('无参：含工作流/现有 id/工具清单/落库四节，无「用户�
 test('落库防呆：PUT 成功后必须 GET 复核并展示证据', () => {
   const text = buildCreateAgentGuidance(BASE_INPUT)
   expect(text).toContain('落库证据')
-  expect(text).toContain(`GET http://127.0.0.1:3080/dsh-agent-toolkit/api/agents/<id>`)
+  expect(text).toContain('在返回列表中找到该 id 的记录')
 })
 
 test('带内联需求：含「用户初始需求」节并嵌入 trim 后原文', () => {
@@ -157,7 +157,7 @@ export function buildCreateAgentGuidance(input: CreateAgentGuidanceInput): strin
       '   （description/persona/tools 均可省略；省略 tools 表示不限制）',
       '3. curl 示例（Windows 的 pwsh 里用 curl.exe）：',
       `   curl.exe -s -X PUT "${input.origin}/dsh-agent-toolkit/api/agents/<id>" -H "Content-Type: application/json" -d "{\\"name\\":\\"...\\"}"`,
-      `4. 返回 200 后必须再 GET ${input.origin}/dsh-agent-toolkit/api/agents/<id>，把返回的 name/description/persona/tools 关键字段展示给用户，作为落库证据；`,
+      `4. 返回 200 后必须再 GET ${input.origin}/dsh-agent-toolkit/api/agents，在返回列表中找到该 id 的记录，把它的 name/description/persona/tools 关键字段展示给用户，作为落库证据；`,
       '5. 落库成功后告知用户可在 Agents 面板查看、并可被 team_delegate 委派；任一步返回 4xx 则把错误信息展示给用户，修正后重试。',
     )
   }

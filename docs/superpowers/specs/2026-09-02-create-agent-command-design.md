@@ -72,8 +72,9 @@ handler 逻辑：经 `ctx.get('webServer')`（可选服务，按仓库规则不�
 
 1. `GET <origin>/dsh-agent-toolkit/api/agents` 复核所选 id 未被占用（PUT 是 upsert 语义，此为防覆盖软约束之一，另一道是引导文本内嵌的现有 id 列表）；
 2. `PUT <origin>/dsh-agent-toolkit/api/agents/<id>`，请求体 JSON：`{"name":"...","description":"...","persona":"...","tools":{"allow":["..."]}}`；`description`/`persona`/`tools` 均可省略，**body 不携带 id/builtin**；附可直接照抄的 curl 示例（Windows pwsh 下用 `curl.exe`）；
-3. **防呆（硬约束写入引导文本）：PUT 返回 200 后必须再 `GET /dsh-agent-toolkit/api/agents/<id>`，把返回的关键字段展示给用户作为落库证据**——防「口头声称已创建但实际未执行/失败」；
+3. **防呆（硬约束写入引导文本）：PUT 返回 200 后必须再 `GET /dsh-agent-toolkit/api/agents`（列表端点，/agents/<id> 仅支持 PUT/DELETE），在返回列表中找到该 id 的记录，把关键字段展示给用户作为落库证据**——防「口头声称已创建但实际未执行/失败」；
 4. 返回 4xx 时把错误信息展示给用户，修正后重试。
+5. 落库成功后告知用户可在 Agents 面板查看、并可被 team_delegate 委派。
 
 ## 错误处理与降级
 
