@@ -152,6 +152,7 @@ describe('apply 模块接线与开关', () => {
     await apply(h.ctx, Config({}))
     await flush()
     expect(h.commands).toContain('token-usage')
+    expect(h.commands).toContain('create-agent')
     expect(h.openedDomains.sort()).toEqual(['dsh_agent_toolkit', 'dsh_agent_toolkit_routes', 'project_bot', 'token_usage'])
     expect(h.sections).toEqual(expect.arrayContaining(['plugin:dsh-agent-toolkit:team', 'prompt-stack:base', 'prompt-stack:model-notes']))
     expect(h.tools).not.toContain('team_delegate') // 无 subagent provider 在场时不挂载工具

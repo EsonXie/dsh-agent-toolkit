@@ -15,6 +15,7 @@ import { createActiveRoutes } from './delegate/active.ts'
 import { delegationRoutesDomain, type DelegationRouteRecord } from './delegate/routes.ts'
 import { setupDelegateApi } from './delegate/api.ts'
 import { setupAgentsApi } from './agents/api.ts'
+import { setupCreateAgentCommand } from './agents/create-command.ts'
 import { setupBots, type BotsModuleConfig } from './bots/index.ts'
 import { setupAgentTeamPreset, type AgentTeamPresetConfig } from './agents/team-preset.ts'
 import { setupUsage } from '@dsh-agent-toolkit/token-usage'
@@ -137,12 +138,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   setupDelegateApi(ctx, { active: activeRoutes, routes: routesTable })
   // agents/providers/tools RPC 为核心恒启用（Agents 面板总是挂载，端点缺失即「加载失败」），
   // 不随 modules.feishu 门控；仅 bots 分支受 feishu 开关控制。
+  const listTools = (): string[] => ctx.tools.schemas().map((s) => s.name)
   setupAgentsApi(ctx, {
     registry,
-    listTools: () => ctx.tools.schemas().map((s) => s.name),
+    listTools,
     listProviders: () => ctx.llm.listProviders().map(({ id, name }) => ({ id, name })),
     listModels: (provider) => ctx.llm.listModels(provider).then((models) => models.map(({ id, name }) => ({ id, name }))),
   })
+  // /create-agent 命令恒启用（引导主 Agent 访谈并复用面板 API 落库，不新增工具/API）。
+  setupCreateAgentCommand(ctx, { registry, listTools })
   setupPromptLayersApi(ctx, {
     source: layerSource,
     rules: config.rules,
