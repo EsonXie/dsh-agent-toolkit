@@ -197,6 +197,18 @@ describe('setupAgentTeamPreset', () => {
     await expect(readFile(join(targetDir(), 'agent.cordis.yml'), 'utf8')).rejects.toThrow()
   })
 
+  test('同名用户 preset 保护：.generated-by 内容不符的已存在目录不覆盖', async () => {
+    await mkdir(targetDir(), { recursive: true })
+    await writeFile(join(targetDir(), '.generated-by'), 'other-tool\n', 'utf8')
+    await writeFile(join(targetDir(), 'keep.txt'), 'user data', 'utf8')
+    const { ctx, warn } = makeCtx(makeAgentPresets())
+    await setupAgentTeamPreset(ctx, CONFIG)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('不覆盖'))
+    expect(await readFile(join(targetDir(), '.generated-by'), 'utf8')).toBe('other-tool\n')
+    expect(await readFile(join(targetDir(), 'keep.txt'), 'utf8')).toBe('user data')
+    await expect(readFile(join(targetDir(), 'agent.cordis.yml'), 'utf8')).rejects.toThrow()
+  })
+
   test('正常路径：写入 3 个文件，composition 带头部注释 + 4 个 disabled；重复运行（带标记）重写', async () => {
     const { ctx, warn } = makeCtx(makeAgentPresets())
     await setupAgentTeamPreset(ctx, CONFIG)

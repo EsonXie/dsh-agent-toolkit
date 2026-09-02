@@ -4,7 +4,7 @@
  * 设计：docs/superpowers/specs/2026-09-02-agent-team-preset-design.md
  */
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import yaml from 'js-yaml'
 import type { Context } from '@deepseek-ai/cordis'
 import { expandHomePath } from '@deepseek-ai/dsh-home-paths'
@@ -69,7 +69,12 @@ export function disableSubagentRows(source: string, warn: (msg: string) => void)
 // 契约（文件名即 discovery 协议）；不 import 宿主常量，避免新增运行时耦合。
 const COMPOSITION_FILE = 'agent.cordis.yml'
 const METADATA_FILE = 'preset.yml'
-/** 生成目录的归属标记：无此标记的同名目录视为用户手工 preset，不覆盖。 */
+/**
+ * 生成目录的归属标记：无此标记的同名目录视为用户手工 preset，不覆盖。
+ * 标记必须在 mkdir 后最先写入（marker-first）：这样写 composition/metadata 失败留下的是
+ * 带标记的半成品目录，下次启动会被正常重写自愈；若最后才写标记，则半成品目录无标记、
+ * 会被误判为用户手工 preset 而永久卡死不覆盖。
+ */
 const MARKER_FILE = '.generated-by'
 const MARKER_CONTENT = 'dsh-agent-toolkit'
 /** 镜像宿主 PRESET_ID：preset id 即目录名，正则白名单是路径逃逸的 containment 边界。 */
@@ -115,7 +120,7 @@ export async function setupAgentTeamPreset(ctx: Context, config: AgentTeamPreset
     return
   }
   const composition = GENERATED_HEADER + disableSubagentRows(source, warn)
-  const dir = join(expandHomePath(root.path), config.id)
+  const dir = join(resolve(expandHomePath(root.path)), config.id)
   try {
     const markerPath = join(dir, MARKER_FILE)
     let dirExists = true
@@ -137,9 +142,9 @@ export async function setupAgentTeamPreset(ctx: Context, config: AgentTeamPreset
       }
     }
     await mkdir(dir, { recursive: true })
+    await writeFile(markerPath, `${MARKER_CONTENT}\n`, 'utf8')
     await writeFile(join(dir, COMPOSITION_FILE), composition, 'utf8')
     await writeFile(join(dir, METADATA_FILE), yaml.dump({ name: config.name, description: config.description }, { lineWidth: -1 }), 'utf8')
-    await writeFile(markerPath, `${MARKER_CONTENT}\n`, 'utf8')
   } catch (error) {
     warn(`dsh-agent-toolkit: 写入 agent-team preset 失败（${dir}）：${error instanceof Error ? error.message : String(error)}`)
   }
