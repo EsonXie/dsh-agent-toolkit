@@ -6,7 +6,7 @@
 
 ## 背景与目标
 
-Agent 团队（Agents 面板管理的注册表）目前只能在 UI 面板手动创建 Agent，或经 YAML 首启导入。本设计新增一个 slash 命令 `/create-agent`，让用户在会话中以对话方式创建 Agent：命令返回一段引导文本，驱动当前会话的主 Agent 完成「访谈澄清 → 推荐配置 → 用户确认 → 落库」全流程。
+Agent 团队（Agents 面板管理的注册表）目前只能在 UI 面板手动创建 Agent，或经 YAML 首启导入。本设计新增一个 slash 命令 `/create-agent`，让用户在会话中以对话方式创建 Agent：命令把一段引导文本**经 `agent.followup` 投递为主 Agent 的 user 消息**（命令返回值不进模型，见「关键约束」），驱动当前会话的主 Agent 完成「访谈澄清 → 推荐配置 → 用户确认 → 落库」全流程。
 
 原始需求工作流：
 1. 用户需求不够明确时，以提问方式明确需求，整体提问不超过 5 次；
@@ -16,6 +16,7 @@ Agent 团队（Agents 面板管理的注册表）目前只能在 UI 面板手动
 ## 关键约束（宿主能力核实结论）
 
 - slash 命令由 UI 适配器在用户敲入时调 `CommandRuntime.execute` 分发，`CommandSourceMap` 仅 `user` 一种来源，命令**不经模型**——主 Agent（LLM）无法直接触发任何 slash 命令（`deepseek-harness/packages/interaction/commands/src/index.ts:296`、`types.ts:54-57`）。
+- 命令结果同理不进模型：`command/run`/`command/done` 是 log-only 事件（「no turn wraps them」），handler 返回的 text 只渲染为命令卡片，**不触发 turn、不进模型上下文**。因此「返回引导文本驱动主 Agent」必须经 `invocation.agent.followup(createUserMessage(...))` 投递为 user 消息实现（唤醒 driver 开新 turn；与 `channels/inbound.ts` 飞书消息投递、ACP 同一机制，`source` 用 `kind: 'user'`）——handler 返回值只留一句短回执给命令卡片。
 - 因此否决了「save 落库子命令由主 Agent 直接调用」与「新增 create_agent 常驻工具」两个方案：
   - 前者技术上不成立（模型无命令触发通道）；
   - 后者被用户否掉（常驻工具污染所有会话的工具面）。
@@ -50,7 +51,7 @@ Agent 团队（Agents 面板管理的注册表）目前只能在 UI 面板手动
 - `description: '交互式创建 Agent 团队成员：访谈澄清需求 → 推荐配置 → 确认后经面板 API 落库'`
 - `input.hint: '初始需求描述，可空'`
 
-handler 逻辑：经 `ctx.get('webServer')`（可选服务，按仓库规则不走 inject）读取 port 组装 origin `http://127.0.0.1:<port>`；`registry.list().map(a => a.id)` 取现有 id；`listTools()` 取全局工具名；调用纯函数返回 `{ kind: 'success', text }`。handler 无失败路径（纯文本组装）。
+handler 逻辑：经 `ctx.get('webServer')`（可选服务，按仓库规则不走 inject）读取 port 组装 origin `http://127.0.0.1:<port>`；`registry.list().map(a => a.id)` 取现有 id；`listTools()` 取全局工具名；调用纯函数拼出引导文本，**经 `invocation.agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))` 投递给主 Agent**（模型看到引导文本后开始访谈）；返回 `{ kind: 'success', text: '已向主 Agent 发出创建 Agent 引导，请继续对话完成访谈与确认。' }` 作为命令卡片回执。handler 无失败路径（纯文本组装 + followup）。
 
 ## 引导文本契约（模型面，中文完整指令）
 
@@ -89,9 +90,9 @@ handler 逻辑：经 `ctx.get('webServer')`（可选服务，按仓库规则不�
 - `origin: undefined`：输出降级文案，不含 `PUT`；
 - 现有 id 列表与工具清单（原生 + 全局）正确嵌入文本。
 
-接线 `setupCreateAgentCommand`（mock ctx 捕获 handler）：
-- `ctx.get('webServer')` 返回 `{ port: 3080 }` 时，handler 返回 `kind: 'success'` 且文本含 `http://127.0.0.1:3080`；
-- `ctx.get('webServer')` 返回 `undefined` 时输出降级文案；
+接线 `setupCreateAgentCommand`（mock ctx 捕获 handler + 假 agent 捕获 followup）：
+- `ctx.get('webServer')` 返回 `{ port: 3080 }` 时，handler 返回 `kind: 'success'`，followup 投递的消息文本含 `http://127.0.0.1:3080`，回执为短文案（不含引导正文）；
+- `ctx.get('webServer')` 返回 `undefined` 时 followup 投递降级文案；
 - `rawInput` 带需求时 trim 后进入「初始需求」节。
 
 回归：`src/index.test.ts` 的命令清单断言需包含 `create-agent`（如现有断言为全量清单则同步更新）。

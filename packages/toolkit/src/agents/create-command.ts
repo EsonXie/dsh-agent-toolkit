@@ -4,6 +4,7 @@
  * 设计：docs/superpowers/specs/2026-09-02-create-agent-command-design.md
  */
 import type { Context } from '@deepseek-ai/cordis'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 import type { AgentRegistry } from './registry.ts'
 
@@ -80,13 +81,16 @@ export interface CreateAgentCommandDeps {
 /**
  * 注册 /create-agent。webServer 为可选服务按仓库规则经 ctx.get 读取（不进 inject），
  * 缺席（headless/CLI）时 origin 为 undefined，引导文本落库节降级为手动创建指引。
+ *
+ * 命令结果（command/done）是 log-only、不进模型：引导文本必须经 agent.followup
+ * 投递为 user 消息驱动主 Agent（与 channels/inbound.ts 同一机制），命令卡只回执短文案。
  */
 export function setupCreateAgentCommand(ctx: Context, deps: CreateAgentCommandDeps): void {
   ctx.commands.register({
     name: 'create-agent',
     description: '交互式创建 Agent 团队成员：访谈澄清需求 → 推荐配置 → 确认后经面板 API 落库',
     input: { hint: '初始需求描述，可空' },
-    handler: ({ rawInput }: { rawInput: string }) => {
+    handler: ({ rawInput, agent }: { rawInput: string; agent: { followup(message: unknown): void } }) => {
       const webServer = ctx.get('webServer') as { port: number } | undefined
       const origin = webServer === undefined ? undefined : `http://127.0.0.1:${webServer.port}`
       const text = buildCreateAgentGuidance({
@@ -95,7 +99,12 @@ export function setupCreateAgentCommand(ctx: Context, deps: CreateAgentCommandDe
         globalTools: deps.listTools(),
         origin,
       })
-      return { kind: 'success', text }
+      // source 用 kind 'user'（与 ACP/inbound 先例一致）：命令由用户敲入，引导消息即用户发起。
+      agent.followup(createUserMessage({
+        content: [{ type: 'text', text }],
+        source: { kind: 'user' },
+      }))
+      return { kind: 'success', text: '已向主 Agent 发出创建 Agent 引导，请继续对话完成访谈与确认。' }
     },
   })
 }

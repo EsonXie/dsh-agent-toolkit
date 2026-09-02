@@ -261,6 +261,7 @@ test('rawInput 带需求：trim 后进入「用户初始需求」节', () => {
 
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { AgentRegistry } from './registry.ts'
 ```
 
@@ -276,13 +277,16 @@ export interface CreateAgentCommandDeps {
 /**
  * 注册 /create-agent。webServer 为可选服务按仓库规则经 ctx.get 读取（不进 inject），
  * 缺席（headless/CLI）时 origin 为 undefined，引导文本落库节降级为手动创建指引。
+ *
+ * 命令结果（command/done）是 log-only、不进模型：引导文本必须经 agent.followup
+ * 投递为 user 消息驱动主 Agent（与 channels/inbound.ts 同一机制），命令卡只回执短文案。
  */
 export function setupCreateAgentCommand(ctx: Context, deps: CreateAgentCommandDeps): void {
   ctx.commands.register({
     name: 'create-agent',
     description: '交互式创建 Agent 团队成员：访谈澄清需求 → 推荐配置 → 确认后经面板 API 落库',
     input: { hint: '初始需求描述，可空' },
-    handler: ({ rawInput }: { rawInput: string }) => {
+    handler: ({ rawInput, agent }: { rawInput: string; agent: { followup(message: unknown): void } }) => {
       const webServer = ctx.get('webServer') as { port: number } | undefined
       const origin = webServer === undefined ? undefined : `http://127.0.0.1:${webServer.port}`
       const text = buildCreateAgentGuidance({
@@ -291,7 +295,11 @@ export function setupCreateAgentCommand(ctx: Context, deps: CreateAgentCommandDe
         globalTools: deps.listTools(),
         origin,
       })
-      return { kind: 'success', text }
+      agent.followup(createUserMessage({
+        content: [{ type: 'text', text }],
+        source: { kind: 'user' },
+      }))
+      return { kind: 'success', text: '已向主 Agent 发出创建 Agent 引导，请继续对话完成访谈与确认。' }
     },
   })
 }
@@ -303,6 +311,8 @@ export function setupCreateAgentCommand(ctx: Context, deps: CreateAgentCommandDe
 
 运行：`pnpm --filter dsh-agent-toolkit exec vitest run src/agents/create-command.test.ts`
 预期：PASS（7 个用例全绿）。
+
+> **勘误（2026-09-02 人工验收后修订）**：原设计「handler 返回引导文本」在宿主架构下无法驱动模型——`command/done` 是 log-only 事件，不进模型上下文、不触发 turn（`deepseek-harness/packages/interaction/commands/src/index.ts:281-286`）。已修订为：handler 经 `invocation.agent.followup(createUserMessage({ ..., source: { kind: 'user' } }))` 把引导文本投递为主 Agent 的 user 消息（唤醒 driver 开 turn），返回值仅留短回执。上方步骤 1 的三个接线测试块相应改为断言 followup 投递内容（见 `create-command.test.ts` 现行版本），步骤 3 实现块已同步为修订后代码。
 
 - [ ] **步骤 5：验证记录**
 

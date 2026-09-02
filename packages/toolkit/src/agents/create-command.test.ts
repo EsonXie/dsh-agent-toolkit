@@ -44,10 +44,10 @@ test('无 origin（headless）：输出降级文案，不含 PUT 指令', () => 
   expect(text).not.toContain('PUT ')
 })
 
-/** 捕获 commands.register 定义的最小面。 */
+/** 捕获 commands.register 定义与 followup 投递的最小面。 */
 interface CapturedCommand {
   name: string
-  handler: (invocation: { rawInput: string }) => { kind: string; text?: string }
+  handler: (invocation: { rawInput: string; agent: { followup(message: unknown): void } }) => { kind: string; text?: string }
 }
 
 function makeCommandCtx(webServer: { port: number } | undefined): { ctx: Context; captured: CapturedCommand[] } {
@@ -66,28 +66,47 @@ const fakeRegistry = {
   ],
 } as unknown as AgentRegistry
 
-test('webServer 在场：注册 create-agent，handler 输出含回环 origin 与动态清单', () => {
+/** 记录 followup 投递文本的假 agent。 */
+function makeFakeAgent(): { agent: { followup(message: unknown): void }; delivered: string[] } {
+  const delivered: string[] = []
+  const agent = {
+    followup: (message: unknown) => {
+      const content = (message as { content: { type: string; text?: string }[] }).content
+      delivered.push(content[0]?.text ?? '')
+    },
+  }
+  return { agent, delivered }
+}
+
+// 命令结果（command/done）是 log-only、不进模型：引导文本必须经 agent.followup
+// 投递为 user 消息驱动主 Agent，命令卡只回执一句短文案。
+test('webServer 在场：followup 投递含回环 origin 与动态清单的引导文本，回执为短文案', () => {
   const { ctx, captured } = makeCommandCtx({ port: 3080 })
   setupCreateAgentCommand(ctx, { registry: fakeRegistry, listTools: () => ['team_delegate'] })
   expect(captured.map((c) => c.name)).toEqual(['create-agent'])
-  const result = captured[0]!.handler({ rawInput: '' })
+  const { agent, delivered } = makeFakeAgent()
+  const result = captured[0]!.handler({ rawInput: '', agent })
   expect(result.kind).toBe('success')
-  expect(result.text).toContain('http://127.0.0.1:3080')
-  expect(result.text).toContain('main, explorer')
-  expect(result.text).toContain('team_delegate')
+  expect(delivered).toHaveLength(1)
+  expect(delivered[0]).toContain('http://127.0.0.1:3080')
+  expect(delivered[0]).toContain('main, explorer')
+  expect(delivered[0]).toContain('team_delegate')
+  expect(result.text).not.toContain('## 工作流')
 })
 
-test('webServer 缺席（headless）：handler 输出降级文案', () => {
+test('webServer 缺席（headless）：followup 投递降级文案', () => {
   const { ctx, captured } = makeCommandCtx(undefined)
   setupCreateAgentCommand(ctx, { registry: fakeRegistry, listTools: () => [] })
-  const result = captured[0]!.handler({ rawInput: '' })
+  const { agent, delivered } = makeFakeAgent()
+  const result = captured[0]!.handler({ rawInput: '', agent })
   expect(result.kind).toBe('success')
-  expect(result.text).toContain('无法自动落库')
+  expect(delivered[0]).toContain('无法自动落库')
 })
 
 test('rawInput 带需求：trim 后进入「用户初始需求」节', () => {
   const { ctx, captured } = makeCommandCtx({ port: 3080 })
   setupCreateAgentCommand(ctx, { registry: fakeRegistry, listTools: () => [] })
-  const result = captured[0]!.handler({ rawInput: '  做一个翻译 Agent  ' })
-  expect(result.text).toContain('「做一个翻译 Agent」')
+  const { agent, delivered } = makeFakeAgent()
+  captured[0]!.handler({ rawInput: '  做一个翻译 Agent  ', agent })
+  expect(delivered[0]).toContain('「做一个翻译 Agent」')
 })
