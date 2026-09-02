@@ -3,7 +3,9 @@
  * 「访谈澄清 → 推荐配置 → 用户确认 → 复用面板 HTTP API 落库」全流程。
  * 设计：docs/superpowers/specs/2026-09-02-create-agent-command-design.md
  */
+import type { Context } from '@deepseek-ai/cordis'
 import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
+import type { AgentRegistry } from './registry.ts'
 
 /** buildCreateAgentGuidance 的输入。 */
 export interface CreateAgentGuidanceInput {
@@ -67,4 +69,33 @@ export function buildCreateAgentGuidance(input: CreateAgentGuidanceInput): strin
     )
   }
   return lines.join('\n')
+}
+
+/** setupCreateAgentCommand 的依赖。 */
+export interface CreateAgentCommandDeps {
+  registry: AgentRegistry
+  listTools(): string[]
+}
+
+/**
+ * 注册 /create-agent。webServer 为可选服务按仓库规则经 ctx.get 读取（不进 inject），
+ * 缺席（headless/CLI）时 origin 为 undefined，引导文本落库节降级为手动创建指引。
+ */
+export function setupCreateAgentCommand(ctx: Context, deps: CreateAgentCommandDeps): void {
+  ctx.commands.register({
+    name: 'create-agent',
+    description: '交互式创建 Agent 团队成员：访谈澄清需求 → 推荐配置 → 确认后经面板 API 落库',
+    input: { hint: '初始需求描述，可空' },
+    handler: ({ rawInput }: { rawInput: string }) => {
+      const webServer = ctx.get('webServer') as { port: number } | undefined
+      const origin = webServer === undefined ? undefined : `http://127.0.0.1:${webServer.port}`
+      const text = buildCreateAgentGuidance({
+        requirement: rawInput.trim(),
+        agentIds: deps.registry.list().map((agent) => agent.id),
+        globalTools: deps.listTools(),
+        origin,
+      })
+      return { kind: 'success', text }
+    },
+  })
 }
