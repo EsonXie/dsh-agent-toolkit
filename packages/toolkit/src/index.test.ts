@@ -136,6 +136,13 @@ describe('Config 默认值', () => {
       processingReactionEmoji: 'OneSecond',
       errorDetailMaxChars: 500,
     })
+    expect(config.agentTeamPreset).toEqual({
+      enabled: true,
+      id: 'agent-team',
+      source: 'standard',
+      name: 'Agent 团队',
+      description: 'Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色',
+    })
   })
 })
 

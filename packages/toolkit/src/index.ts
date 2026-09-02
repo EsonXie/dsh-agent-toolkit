@@ -16,6 +16,7 @@ import { delegationRoutesDomain, type DelegationRouteRecord } from './delegate/r
 import { setupDelegateApi } from './delegate/api.ts'
 import { setupAgentsApi } from './agents/api.ts'
 import { setupBots, type BotsModuleConfig } from './bots/index.ts'
+import { setupAgentTeamPreset, type AgentTeamPresetConfig } from './agents/team-preset.ts'
 import { setupUsage } from '@dsh-agent-toolkit/token-usage'
 
 export const name = 'dsh-agent-toolkit'
@@ -45,6 +46,7 @@ export interface Config {
   provider: string
   toolName: string
   feishu: BotsModuleConfig
+  agentTeamPreset: AgentTeamPresetConfig
 }
 
 /** layers/rules 的 schemastery schema 照归档 prompt-stack/src/index.ts:21-41 逐字段平移（含 overrides transform hack）。 */
@@ -89,6 +91,21 @@ export const Config: z<unknown, Config> = z.object({
     registerAppTimeoutMs: 600_000,
     processingReactionEmoji: 'OneSecond',
     errorDetailMaxChars: 500,
+  }),
+  // agent-team preset 自动生成：派生 shipped standard、禁用 subagent 工具族 4 行，
+  // 写入首个 trust=user root（spec: docs/superpowers/specs/2026-09-02-agent-team-preset-design.md）。
+  agentTeamPreset: z.object({
+    enabled: z.boolean().default(true),
+    id: z.string().default('agent-team'),
+    source: z.string().default('standard'),
+    name: z.string().default('Agent 团队'),
+    description: z.string().default('Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色'),
+  }).default({
+    enabled: true,
+    id: 'agent-team',
+    source: 'standard',
+    name: 'Agent 团队',
+    description: 'Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色',
   }),
 }) as z<unknown, Config>
 
@@ -139,6 +156,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       }
     },
   })
+  // agentPresets 为可选服务（rc2 旧宿主缺席时内部静默跳过），不进 inject。
+  await setupAgentTeamPreset(ctx, config.agentTeamPreset)
   if (config.modules.feishu) setupBots(ctx, config.feishu, { registry })
   if (config.modules.usage) setupUsage(ctx, { timezone: config.timezone }, name)
 }
