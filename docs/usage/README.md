@@ -9,6 +9,7 @@
 | 飞书 bots | 侧边栏底栏「消息机器人」 | [feishu-bots.md](feishu-bots.md) |
 | Token 用量 | 侧边栏底栏「Token 用量」+ `/token-usage` 命令 | [token-usage.md](token-usage.md) |
 | 分层提示词 | 自动生效（随模型切换提示词） | [prompt-layers.md](prompt-layers.md) |
+| Agent 团队模式 | 模式选择器选用「Agent 团队」 | [agent-team-preset.md](agent-team-preset.md) |
 | 配置参考 | `cordis.yml` | [config-reference.md](config-reference.md) |
 
 > 界面截图存于 `images/`（Agents 面板、消息机器人、Token 用量已补拍；委派卡待真实委派后补拍）。

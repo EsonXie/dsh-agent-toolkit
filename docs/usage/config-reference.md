@@ -27,6 +27,12 @@
       registerAppTimeoutMs: 600000
       processingReactionEmoji: OneSecond
       errorDetailMaxChars: 500
+    agentTeamPreset:
+      enabled: true
+      id: agent-team
+      source: standard
+      name: Agent 团队
+      description: '...'
 ```
 
 ## 顶层字段
@@ -51,6 +57,18 @@
 | `feishu.registerAppTimeoutMs` | number | `600000` | 扫码一键创建应用的轮询超时（毫秒，默认 10 分钟） |
 | `feishu.processingReactionEmoji` | string | `OneSecond` | 「处理中」表情回复的 emoji_type |
 | `feishu.errorDetailMaxChars` | number | `500` | 回传飞书的错误摘要最大字符数 |
+
+## `agentTeamPreset.*` 字段
+
+Agent 团队 preset 自动生成（见 [agent-team-preset.md](agent-team-preset.md)）。启动时派生源 preset 的 composition、文本级禁用 subagent 工具族 4 行后写入首个 trust=user 的 preset root；无 presets 架构的旧宿主（如 rc2）下自动静默关闭。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `agentTeamPreset.enabled` | boolean | `true` | 总开关。`false` 时启动不生成/刷新 preset |
+| `agentTeamPreset.id` | string | `agent-team` | 生成的 preset id（即目录名）。须匹配 `^[a-z0-9][a-z0-9-]*$`，非法时记 warn 跳过 |
+| `agentTeamPreset.source` | string | `standard` | 派生源 preset id，读其 composition 做文本级派生 |
+| `agentTeamPreset.name` | string | `Agent 团队` | preset.yml 的显示名（roster 显示） |
+| `agentTeamPreset.description` | string | `Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色` | preset.yml 的描述 |
 
 ## 注意事项
 
