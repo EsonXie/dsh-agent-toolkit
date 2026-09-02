@@ -3,6 +3,11 @@
  * 文本级禁用 subagent 工具族 4 个行，写入首个 trust=user 的 preset root。
  * 设计：docs/superpowers/specs/2026-09-02-agent-team-preset-design.md
  */
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import yaml from 'js-yaml'
+import type { Context } from '@deepseek-ai/cordis'
+import { expandHomePath } from '@deepseek-ai/dsh-home-paths'
 
 /** 本功能的可调配置（Config schema 在 ../index.ts）。 */
 export interface AgentTeamPresetConfig {
@@ -58,4 +63,84 @@ export function disableSubagentRows(source: string, warn: (msg: string) => void)
     lines.splice(index + 1, 0, `${' '.repeat(indent + 2)}disabled: true`)
   }
   return lines.join('\n')
+}
+
+// 三个文件名镜像宿主 @deepseek-ai/dsh-agent-presets 的 COMPOSITION_FILE / METADATA_FILE
+// 契约（文件名即 discovery 协议）；不 import 宿主常量，避免新增运行时耦合。
+const COMPOSITION_FILE = 'agent.cordis.yml'
+const METADATA_FILE = 'preset.yml'
+/** 生成目录的归属标记：无此标记的同名目录视为用户手工 preset，不覆盖。 */
+const MARKER_FILE = '.generated-by'
+const MARKER_CONTENT = 'dsh-agent-toolkit'
+/** 镜像宿主 PRESET_ID：preset id 即目录名，正则白名单是路径逃逸的 containment 边界。 */
+const PRESET_ID = /^[a-z0-9][a-z0-9-]*$/
+
+const GENERATED_HEADER = '# 本文件由 dsh-agent-toolkit 自动生成，勿手改（每次启动重写）。\n'
+
+/**
+ * agentPresets 服务的结构类型。可选服务经 ctx.get 读取（宿主约定：可选服务用
+ * ctx.get，不进 inject），结构类型避免对 @deepseek-ai/dsh-agent-presets 的依赖
+ *（bots/index.ts 的 WorkspaceRegistryLike 先例）。
+ */
+interface AgentPresetsLike {
+  readonly roots: readonly { path: string; trust: 'system' | 'user' }[]
+  read(id: string): Promise<string>
+}
+
+/**
+ * 启动时生成/刷新 agent-team preset。所有失败路径 warn 降级，不影响插件其余功能。
+ * 不设为默认 preset、卸载不删目录（可能有会话在用；composition 不引用 toolkit 行，
+ * 残留 preset 自身仍可用）。每次启动重写：standing mount 按文件代际，重写只影响新会话。
+ */
+export async function setupAgentTeamPreset(ctx: Context, config: AgentTeamPresetConfig): Promise<void> {
+  if (!config.enabled) return
+  const warn = (msg: string): void => { ctx.logger.warn(msg) }
+  // rc2 等无 presets 的旧宿主：静默跳过（旧宿主无 subagent/team_delegate 工具竞争问题）。
+  const agentPresets = ctx.get('agentPresets', false) as AgentPresetsLike | undefined
+  if (agentPresets === undefined) return
+  if (!PRESET_ID.test(config.id)) {
+    warn(`dsh-agent-toolkit: agentTeamPreset.id "${config.id}" 不是合法 preset id，跳过 agent-team 生成`)
+    return
+  }
+  let source: string
+  try {
+    source = await agentPresets.read(config.source)
+  } catch (error) {
+    warn(`dsh-agent-toolkit: 读取源 preset "${config.source}" 失败，跳过 agent-team 生成：${error instanceof Error ? error.message : String(error)}`)
+    return
+  }
+  const root = agentPresets.roots.find((r) => r.trust === 'user')
+  if (root === undefined) {
+    warn('dsh-agent-toolkit: preset roots 中无 trust=user 的目录，跳过 agent-team 生成')
+    return
+  }
+  const composition = GENERATED_HEADER + disableSubagentRows(source, warn)
+  const dir = join(expandHomePath(root.path), config.id)
+  try {
+    const markerPath = join(dir, MARKER_FILE)
+    let dirExists = true
+    try {
+      await access(dir)
+    } catch {
+      dirExists = false
+    }
+    if (dirExists) {
+      let marked = false
+      try {
+        marked = (await readFile(markerPath, 'utf8')).trim() === MARKER_CONTENT
+      } catch {
+        // 无标记文件 = 用户手工同名 preset。
+      }
+      if (!marked) {
+        warn(`dsh-agent-toolkit: ${dir} 已存在且非本插件生成，不覆盖，跳过 agent-team 生成`)
+        return
+      }
+    }
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, COMPOSITION_FILE), composition, 'utf8')
+    await writeFile(join(dir, METADATA_FILE), yaml.dump({ name: config.name, description: config.description }, { lineWidth: -1 }), 'utf8')
+    await writeFile(markerPath, `${MARKER_CONTENT}\n`, 'utf8')
+  } catch (error) {
+    warn(`dsh-agent-toolkit: 写入 agent-team preset 失败（${dir}）：${error instanceof Error ? error.message : String(error)}`)
+  }
 }
