@@ -1,6 +1,21 @@
 /** 扫码一键创建飞书应用：lark.registerApp（OAuth 2.0 Device Authorization Grant）的状态机封装。 */
 import { randomUUID } from 'node:crypto'
 
+/** 扫码创建应用时申请的权限/事件（流式卡片 + 收发消息 + 表情 + 通讯录基础信息）。 */
+export const FEISHU_REGISTER_APP_ADDONS = {
+  scopes: {
+    tenant: [
+      'im:message',
+      'im:message:send_as_bot',
+      'cardkit:card:write',
+      'contact:user.base:readonly',
+    ],
+  },
+  events: {
+    items: { tenant: ['im.message.receive_v1'] },
+  },
+}
+
 export interface QRInfo {
   url: string
   expireIn: number
@@ -9,6 +24,7 @@ export interface QRInfo {
 /** lark.registerApp 的结构化签名（便于 fake 注入）。 */
 export type RegisterAppFn = (options: {
   signal: AbortSignal
+  addons: typeof FEISHU_REGISTER_APP_ADDONS
   onQRCodeReady(info: QRInfo): void
 }) => Promise<{ client_id: string; client_secret: string }>
 
@@ -46,6 +62,7 @@ export class RegisterAppService {
     this.sessions.set(id, entry)
     void this.deps.registerApp({
       signal: controller.signal,
+      addons: FEISHU_REGISTER_APP_ADDONS,
       onQRCodeReady: (info) => {
         entry.state = { status: 'pending', url: info.url, expireIn: info.expireIn }
       },

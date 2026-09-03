@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import { RegisterAppService, type RegisterAppFn } from './register-app.ts'
+import { FEISHU_REGISTER_APP_ADDONS, RegisterAppService, type RegisterAppFn } from './register-app.ts'
 
 function harness(registerApp: RegisterAppFn, timeoutMs = 60_000) {
   const stored: { appId: string; secret: string }[] = []
@@ -60,5 +60,23 @@ describe('RegisterAppService', () => {
     svc.start()
     svc.dispose()
     await vi.waitFor(() => { expect(aborted).toBe(true) })
+  })
+
+  test('扫码创建带 addons：申请的权限/事件完整且原样透传', async () => {
+    let receivedAddons: unknown
+    const registerApp: RegisterAppFn = async (options) => {
+      receivedAddons = options.addons
+      options.onQRCodeReady({ url: 'https://open.feishu.cn/page/launcher?user_code=ABCD-EFGH', expireIn: 600 })
+      return { client_id: 'cli_a1b2c3d4e5f60718', client_secret: 's3cret' }
+    }
+    const { svc } = harness(registerApp)
+    const id = svc.start()
+    await vi.waitFor(() => { expect(svc.get(id)?.status).toBe('done') })
+    expect(receivedAddons).toEqual(FEISHU_REGISTER_APP_ADDONS)
+    expect(receivedAddons).toMatchObject({
+      scopes: { tenant: expect.arrayContaining(['im:message', 'im:message:send_as_bot', 'cardkit:card:write', 'contact:user.base:readonly']) },
+      events: { items: { tenant: expect.arrayContaining(['im.message.receive_v1']) } },
+    })
+    svc.dispose()
   })
 })
