@@ -18,16 +18,21 @@ interface Recorded {
   acked: number
   followups: { text: string; source: Record<string, unknown>; content: unknown[] }[]
   cancels: number
+  hookInputs: unknown[]
 }
 
 function harness(opts: { createError?: unknown; attachments?: () => AttachmentsPort | undefined } = {}) {
-  const rec: Recorded = { notices: [], acked: 0, followups: [], cancels: 0 }
+  const rec: Recorded = { notices: [], acked: 0, followups: [], cancels: 0, hookInputs: [] }
   const agents: AgentsPort = {
     create: async (input) => {
       if (opts.createError !== undefined) throw opts.createError
+      rec.hookInputs.push(input.hooks)
       return fakeAgent(input.sessionId, rec)
     },
-    resume: async (input) => fakeAgent(input.sessionId, rec),
+    resume: async (input) => {
+      rec.hookInputs.push(input.hooks)
+      return fakeAgent(input.sessionId, rec)
+    },
   }
   const map = new Map<string, string>()
   const bindings: BindingStore = {
@@ -225,4 +230,20 @@ test('懒下载失败：走失败路径并回复错误摘要', async () => {
     expect(rec.notices.some((n) => n.includes('处理失败') && n.includes('下载超时'))).toBe(true)
   })
   expect(rec.followups).toHaveLength(0)
+})
+
+test('入站消息把 userId 透传：会话 hooks 含 sender 段（ou_u1）', async () => {
+  const { inbound, msg, rec } = harness()
+  inbound.onMessage(msg('你好'))
+  await vi.waitFor(() => { expect(rec.hookInputs).toHaveLength(1) })
+  expect(rec.hookInputs[0]).toMatchObject({
+    sections: [{ name: 'dsh-agent-toolkit:channel:sender', order: 20, text: '本会话由 feishu 渠道的单聊会话发起。发起人 ID（feishu open_id）：`ou_u1`。' }],
+  })
+})
+
+test('/new 指令：reset 路径同样携带 userId', async () => {
+  const { inbound, msg, rec } = harness()
+  inbound.onMessage(msg('/new'))
+  await vi.waitFor(() => { expect(rec.hookInputs).toHaveLength(1) })
+  expect(rec.hookInputs[0]).toMatchObject({ sections: [{ name: 'dsh-agent-toolkit:channel:sender' }] })
 })

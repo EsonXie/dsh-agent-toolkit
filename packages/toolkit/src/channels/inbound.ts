@@ -39,7 +39,7 @@ export class Inbound {
 
     const directive = parseDirective(msg.text)
     if (directive === 'new') {
-      await this.deps.router.reset(bot, msg.chatId, msg.reply)
+      await this.deps.router.reset(bot, msg.chatId, msg.reply, msg.userId)
       await msg.reply.notice('已开启新会话')
       return
     }
@@ -61,7 +61,7 @@ export class Inbound {
       return
     }
 
-    const rt = await this.deps.router.ensure(bot, msg.chatId, msg.reply)
+    const rt = await this.deps.router.ensure(bot, msg.chatId, msg.reply, msg.userId)
     if (rt.inflight !== undefined) {
       await msg.reply.notice('上一条还在处理中，请稍候（或发送 /stop 取消）')
       return
