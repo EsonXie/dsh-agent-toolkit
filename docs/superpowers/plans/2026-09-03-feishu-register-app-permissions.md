@@ -61,7 +61,7 @@ test('扫码创建带 addons：申请的权限/事件完整且原样透传', asy
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `pnpm --filter dsh-agent-toolkit test packages/toolkit/src/bots/register-app.test.ts`
+Run（从 `packages/toolkit` 目录）: `pnpm exec vitest run src/bots/register-app.test.ts`
 Expected: FAIL（`FEISHU_REGISTER_APP_ADDONS` 未定义 / `addons` 类型缺失）
 
 - [ ] **Step 3: 实现**
@@ -82,7 +82,7 @@ export const FEISHU_REGISTER_APP_ADDONS = {
   events: {
     items: { tenant: ['im.message.receive_v1'] },
   },
-} as const
+}
 ```
 
 `RegisterAppFn` 改为：
@@ -109,7 +109,7 @@ void this.deps.registerApp({
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `pnpm --filter dsh-agent-toolkit test packages/toolkit/src/bots/register-app.test.ts`
+Run（从 `packages/toolkit` 目录）: `pnpm exec vitest run src/bots/register-app.test.ts`
 Expected: PASS（新旧 5 个用例全过）
 
 - [ ] **Step 5: 提交**
@@ -157,7 +157,7 @@ test('手动填写 tab：展示所需权限提示文案', async () => {
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `pnpm --filter dsh-agent-toolkit test packages/toolkit/src/client/bots/bot-form.client.spec.tsx`
+Run（从 `packages/toolkit` 目录）: `pnpm exec vitest run src/client/bots/bot-form.client.spec.tsx`
 Expected: FAIL（找不到 `im:message` 文本）
 
 - [ ] **Step 3: 实现**
@@ -181,7 +181,7 @@ Expected: FAIL（找不到 `im:message` 文本）
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `pnpm --filter dsh-agent-toolkit test packages/toolkit/src/client/bots/bot-form.client.spec.tsx`
+Run（从 `packages/toolkit` 目录）: `pnpm exec vitest run src/client/bots/bot-form.client.spec.tsx`
 Expected: PASS
 
 - [ ] **Step 5: 提交**
