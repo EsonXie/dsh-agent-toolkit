@@ -9,7 +9,8 @@ export const feishuChannel: BotChannel = {
   type: 'feishu',
 
   async start(bot, io, tunables, log): Promise<ChannelHandle> {
-    const { appId } = bot.record.feishu
+    // runtime 仅对已绑定记录启动渠道（reconcile 的 feishu guard），此处安全。
+    const { appId } = bot.record.feishu!
     const client = new lark.Client({ appId, appSecret: bot.secret })
     const api = createFeishuApi(client)
     const dedup = new MessageDedup()

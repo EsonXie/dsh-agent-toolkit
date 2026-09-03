@@ -18,8 +18,9 @@ export type FeishuConfig = z.infer<typeof FeishuConfigSchema>
 export const BotRecordSchema = z.object({
   id: z.string().regex(BOT_ID_RE),
   name: z.string().min(1).max(64),
-  channel: z.literal('feishu'),
-  feishu: FeishuConfigSchema,
+  /** 渠道类型；与 feishu 同有或同无（未绑定为双双缺省）。 */
+  channel: z.literal('feishu').optional(),
+  feishu: FeishuConfigSchema.optional(),
   /** 绑定项目（agent 的 cwd，绝对路径）。一 bot 一项目。 */
   project: z.string().min(1),
   /** 透传到 agent 创作期的 persona 提示段。 */
@@ -34,7 +35,10 @@ export const BotRecordSchema = z.object({
   }).optional(),
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
-})
+}).refine(
+  (r) => (r.channel === undefined) === (r.feishu === undefined),
+  { message: 'channel 与 feishu 必须同有或同无' },
+)
 export type BotRecord = z.infer<typeof BotRecordSchema>
 
 export const BindingSchema = z.object({ sessionId: z.string().min(1) })

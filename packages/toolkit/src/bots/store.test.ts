@@ -37,7 +37,7 @@ describe('BotRecordSchema', () => {
   })
 
   test('拒绝非法 appId / 非法 id / 空工具白名单', () => {
-    expect(BotRecordSchema.safeParse({ ...validBot, feishu: { ...validBot.feishu, appId: 'bad' } }).success).toBe(false)
+    expect(BotRecordSchema.safeParse({ ...validBot, feishu: { appId: 'bad', appSecretRef: 'project_bot_reviewer' } }).success).toBe(false)
     expect(BotRecordSchema.safeParse({ ...validBot, id: '1bad' }).success).toBe(false)
     expect(BotRecordSchema.safeParse({ ...validBot, tools: [] }).success).toBe(false)
   })
@@ -62,6 +62,18 @@ describe('BotRecordSchema', () => {
     const parsed = BotRecordSchema.safeParse(legacy)
     expect(parsed.success).toBe(true)
     expect(parsed.success ? parsed.data : {}).not.toHaveProperty('preset')
+  })
+
+  test('未绑定记录：channel 与 feishu 双缺省通过', () => {
+    const unbound = {
+      id: 'ops', name: '运维', project: '/tmp/x', createdAt: 0, updatedAt: 0,
+    }
+    expect(BotRecordSchema.safeParse(unbound).success).toBe(true)
+  })
+
+  test('半绑定态拒绝：只有 channel 或只有 feishu 均不通过', () => {
+    expect(BotRecordSchema.safeParse({ ...validBot, channel: undefined }).success).toBe(false)
+    expect(BotRecordSchema.safeParse({ ...validBot, feishu: undefined }).success).toBe(false)
   })
 })
 
