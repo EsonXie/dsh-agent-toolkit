@@ -55,8 +55,13 @@ const UpdateBodySchema = z.object({
   agentRef: z.string().min(1).nullable().optional(),
   tools: z.array(z.string().min(1)).min(1).nullable().optional(),
   agentOptions: z.object({ provider: z.string().min(1).optional(), model: z.string().min(1).optional() }).nullable().optional(),
-  /** 换绑应用：明文新密钥（立即入 credentials）。 */
-  feishu: z.object({ appId: z.string().regex(FEISHU_APP_ID_RE), appSecret: z.string().min(1) }).optional(),
+  /** 重绑：明文新密钥（立即入 credentials）或扫码引用（已入库）；null = 解绑渠道（删密钥、保留会话绑定）。 */
+  feishu: z.object({
+    appId: z.string().regex(FEISHU_APP_ID_RE),
+    appSecret: z.string().min(1).optional(),
+    appSecretRef: z.string().min(1).optional(),
+  }).refine((f) => f.appSecret !== undefined || f.appSecretRef !== undefined, { message: '缺少 appSecret 或 appSecretRef' })
+    .nullable().optional(),
 })
 
 function json(res: ServerResponse, code: number, body: unknown): void {
@@ -124,7 +129,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         return
       }
       for (const [, existing] of deps.bots.entries()) {
-        if (existing.feishu.appId === input.feishu.appId) {
+        if (existing.feishu !== undefined && existing.feishu.appId === input.feishu.appId) {
           json(res, 409, { error: `appId 已被 bot "${existing.id}" 使用` })
           return
         }
@@ -172,21 +177,44 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         return
       }
       const input = parsed.data
-      let feishu = existing.feishu
-      if (input.feishu !== undefined) {
-        feishu = { appId: input.feishu.appId, appSecretRef: await deps.storeSecret(id, input.feishu.appSecret) }
-      }
       const project = input.project ?? existing.project
       if (!deps.validateProject(project)) {
         json(res, 400, { error: `项目路径不可用：${project}` })
         return
       }
-      const merged: Record<string, unknown> = {
-        ...existing,
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        project,
-        feishu,
-        updatedAt: deps.now(),
+      // 重绑路径：appId 先查冲突（未绑定 bot 不占 appId），再做任何副作用。
+      if (input.feishu !== null && input.feishu !== undefined) {
+        for (const [, other] of deps.bots.entries()) {
+          if (other.id !== id && other.feishu?.appId === input.feishu.appId) {
+            json(res, 409, { error: `appId 已被 bot "${other.id}" 使用` })
+            return
+          }
+        }
+      }
+      // 渠道副作用：null 解绑（停渠道 + 删旧密钥）；对象重绑（新密钥入库或引用 + 旧 ref ≠ 新 ref 时清旧密钥）。
+      let appSecretRef: string | undefined
+      if (input.feishu === null) {
+        await deps.runtime.unbindBot(id)
+        if (existing.feishu !== undefined) await deps.deleteSecret(existing.feishu.appSecretRef)
+      } else if (input.feishu !== undefined) {
+        if (input.feishu.appSecret !== undefined) {
+          appSecretRef = await deps.storeSecret(id, input.feishu.appSecret)
+        } else {
+          appSecretRef = input.feishu.appSecretRef
+        }
+        if (existing.feishu !== undefined && existing.feishu.appSecretRef !== appSecretRef) {
+          await deps.deleteSecret(existing.feishu.appSecretRef)
+        }
+      }
+      const merged: Record<string, unknown> = { ...existing }
+      if (input.name !== undefined) merged.name = input.name
+      merged.project = project
+      if (input.feishu === null) {
+        delete merged.channel
+        delete merged.feishu
+      } else if (input.feishu !== undefined && appSecretRef !== undefined) {
+        merged.channel = 'feishu'
+        merged.feishu = { appId: input.feishu.appId, appSecretRef }
       }
       if (input.persona === null) delete merged.persona
       else if (input.persona !== undefined) merged.persona = input.persona
@@ -212,7 +240,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       }
       await deps.runtime.stopBot(id)
       await deps.bots.delete(id)
-      await deps.deleteSecret(existing.feishu.appSecretRef)
+      if (existing.feishu !== undefined) await deps.deleteSecret(existing.feishu.appSecretRef)
       json(res, 200, { ok: true })
       return
     }

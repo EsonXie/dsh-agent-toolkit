@@ -12,6 +12,14 @@ const BOT: BotRecord = {
   feishu: { appId: 'cli_a1b2c3d4e5f60718', appSecretRef: 'project_bot_reviewer' },
   project: 'D:\\work\\demo', createdAt: 1, updatedAt: 1,
 }
+const UNBOUND: BotRecord = {
+  id: 'loose', name: '未绑定', project: 'D:\\work\\demo', createdAt: 1, updatedAt: 1,
+}
+const SCAN_BOUND: BotRecord = {
+  id: 'scan-bot', name: '扫码', channel: 'feishu',
+  feishu: { appId: 'cli_ffffffffffffffff', appSecretRef: 'project_bot_ffffffff' },
+  project: 'D:\\work\\demo', createdAt: 1, updatedAt: 1,
+}
 
 function mockReq(method: string, url: string, body?: unknown): IncomingMessage {
   const req = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]) as unknown as IncomingMessage
@@ -31,9 +39,10 @@ function mockRes(): MockRes {
 }
 
 function harness(overrides: Partial<ApiDeps> = {}) {
-  const bots = new Map<string, BotRecord>([['reviewer', BOT]])
+  const bots = new Map<string, BotRecord>([['reviewer', BOT], ['loose', UNBOUND], ['scan-bot', SCAN_BOUND]])
   const reconciled: string[] = []
   const stopped: string[] = []
+  const unbound: string[] = []
   const deletedSecrets: string[] = []
   const storedSecrets: { key: string; secret: string }[] = []
   const registerApp = new RegisterAppService({
@@ -55,6 +64,7 @@ function harness(overrides: Partial<ApiDeps> = {}) {
     runtime: {
       reconcile: async (id: string) => { reconciled.push(id) },
       stopBot: async (id: string) => { stopped.push(id) },
+      unbindBot: async (id: string) => { unbound.push(id) },
       statusOf: () => 'connected',
     } as unknown as ApiDeps['runtime'],
     registerApp,
@@ -70,7 +80,7 @@ function harness(overrides: Partial<ApiDeps> = {}) {
     now: () => 1000,
     ...overrides,
   }
-  return { deps, bots, reconciled, stopped, deletedSecrets, storedSecrets, handler: createApiHandler(deps), registerApp }
+  return { deps, bots, reconciled, stopped, unbound, deletedSecrets, storedSecrets, handler: createApiHandler(deps), registerApp }
 }
 
 describe('GET /bots', () => {
@@ -80,7 +90,7 @@ describe('GET /bots', () => {
     await handler(mockReq('GET', '/dsh-agent-toolkit/api/bots/bots'), res)
     expect(res.status).toBe(200)
     const body = JSON.parse(res.body)
-    expect(body.bots).toHaveLength(1)
+    expect(body.bots).toHaveLength(3)
     expect(body.bots[0]).toMatchObject({ id: 'reviewer', status: 'connected' })
     expect(res.body).not.toContain('secret')
   })
@@ -104,11 +114,11 @@ describe('POST /bots', () => {
     const { handler, bots, storedSecrets } = harness()
     const res = mockRes()
     await handler(mockReq('POST', '/dsh-agent-toolkit/api/bots/bots', {
-      id: 'scan-bot', name: '扫码', project: 'D:\\work\\ops',
-      feishu: { appId: 'cli_ffffffffffffffff', appSecretRef: 'project_bot_ffffffff' },
+      id: 'scan-bot2', name: '扫码', project: 'D:\\work\\ops',
+      feishu: { appId: 'cli_000000000000000b', appSecretRef: 'project_bot_ffffffff' },
     }), res)
     expect(res.status).toBe(200)
-    expect(bots.get('scan-bot')).toMatchObject({ feishu: { appSecretRef: 'project_bot_ffffffff' } })
+    expect(bots.get('scan-bot2')).toMatchObject({ feishu: { appSecretRef: 'project_bot_ffffffff' } })
     expect(storedSecrets).toEqual([])
   })
 
@@ -134,7 +144,7 @@ describe('POST /bots', () => {
     expect(bad.status).toBe(400)
 
     const dup = mockRes()
-    await handler(mockReq('POST', '/dsh-agent-toolkit/api/bots/bots', { id: 'ops', name: 'x', project: 'p', feishu: { appId: BOT.feishu.appId, appSecret: 's' } }), dup)
+    await handler(mockReq('POST', '/dsh-agent-toolkit/api/bots/bots', { id: 'ops', name: 'x', project: 'p', feishu: { appId: 'cli_a1b2c3d4e5f60718', appSecret: 's' } }), dup)
     expect(dup.status).toBe(409)
 
     const dupId = mockRes()
@@ -196,6 +206,77 @@ describe('PUT /bots', () => {
   })
 })
 
+describe('PUT /bots 渠道解绑与重绑', () => {
+  test('feishu: null 解绑：unbindBot + 删密钥 + 摘字段；不删绑定（绑定表不经 API 触碰）', async () => {
+    const { handler, bots, unbound, deletedSecrets, storedSecrets } = harness()
+    const res = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=reviewer', { feishu: null }), res)
+    expect(res.status).toBe(200)
+    const record = bots.get('reviewer')
+    expect(record).not.toHaveProperty('channel')
+    expect(record).not.toHaveProperty('feishu')
+    expect(record).toMatchObject({ id: 'reviewer', name: '评审' })
+    expect(unbound).toEqual(['reviewer'])
+    expect(deletedSecrets).toEqual(['project_bot_reviewer'])
+    expect(storedSecrets).toEqual([])
+  })
+
+  test('未绑定 bot 解绑（幂等）：不再删密钥、照常返回', async () => {
+    const { handler, deletedSecrets, unbound } = harness()
+    const res = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=loose', { feishu: null }), res)
+    expect(res.status).toBe(200)
+    expect(unbound).toEqual(['loose'])
+    expect(deletedSecrets).toEqual([])
+  })
+
+  test('重绑（appSecret 路径）：新密钥入库、写回 channel/feishu、reconcile；旧 ref ≠ 新 ref 清理旧凭据', async () => {
+    const { handler, bots, storedSecrets, deletedSecrets, reconciled } = harness()
+    const res = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=scan-bot', {
+      feishu: { appId: 'cli_000000000000000a', appSecret: 'new-secret' },
+    }), res)
+    expect(res.status).toBe(200)
+    expect(bots.get('scan-bot')).toMatchObject({
+      channel: 'feishu',
+      feishu: { appId: 'cli_000000000000000a', appSecretRef: 'project_bot_scan_bot' },
+    })
+    expect(storedSecrets).toEqual([{ key: 'scan-bot', secret: 'new-secret' }])
+    expect(deletedSecrets).toEqual(['project_bot_ffffffff'])
+    expect(reconciled).toEqual(['scan-bot'])
+  })
+
+  test('重绑（appSecretRef 扫码路径）：直接引用不再入库', async () => {
+    const { handler, bots, storedSecrets, deletedSecrets } = harness()
+    const res = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=scan-bot', {
+      feishu: { appId: 'cli_000000000000000a', appSecretRef: 'project_bot_newref' },
+    }), res)
+    expect(res.status).toBe(200)
+    expect(bots.get('scan-bot')).toMatchObject({ feishu: { appId: 'cli_000000000000000a', appSecretRef: 'project_bot_newref' } })
+    expect(storedSecrets).toEqual([])
+    expect(deletedSecrets).toEqual(['project_bot_ffffffff'])
+  })
+
+  test('重绑 appId 被其他 bot 占用 → 409（未绑定 bot 不占 appId）', async () => {
+    const { handler } = harness()
+    const res = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=scan-bot', {
+      feishu: { appId: 'cli_a1b2c3d4e5f60718', appSecret: 's' },
+    }), res)
+    expect(res.status).toBe(409)
+  })
+
+  test('重绑缺 appSecret 与 appSecretRef → 400', async () => {
+    const { handler } = harness()
+    const res = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=scan-bot', {
+      feishu: { appId: 'cli_000000000000000a' },
+    }), res)
+    expect(res.status).toBe(400)
+  })
+})
+
 describe('DELETE /bots', () => {
   test('stopBot → 删记录 → 删密钥', async () => {
     const { handler, bots, stopped, deletedSecrets } = harness()
@@ -205,6 +286,16 @@ describe('DELETE /bots', () => {
     expect(stopped).toEqual(['reviewer'])
     expect(bots.has('reviewer')).toBe(false)
     expect(deletedSecrets).toEqual(['project_bot_reviewer'])
+  })
+
+  test('DELETE 未绑定 bot：不删密钥、照常删除', async () => {
+    const { handler, bots, stopped, deletedSecrets } = harness()
+    const res = mockRes()
+    await handler(mockReq('DELETE', '/dsh-agent-toolkit/api/bots/bots?id=loose'), res)
+    expect(res.status).toBe(200)
+    expect(stopped).toEqual(['loose'])
+    expect(bots.has('loose')).toBe(false)
+    expect(deletedSecrets).toEqual([])
   })
 })
 
