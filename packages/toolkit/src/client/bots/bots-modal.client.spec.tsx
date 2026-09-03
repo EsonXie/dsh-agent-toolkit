@@ -20,6 +20,9 @@ const BOTS = {
       feishu: { appId: 'cli_000000000000000b', appSecretRef: 'r3' },
       project: 'D:\\work\\other', status: 'not-running', createdAt: 1, updatedAt: 1,
     },
+    {
+      id: 'loose', name: '未绑定机器人', project: 'D:\\work\\other', status: 'unbound', createdAt: 1, updatedAt: 1,
+    },
   ],
 }
 
@@ -43,8 +46,11 @@ test('列表按项目分组，显示渠道标记与运行状态', async () => {
   // 分组标题：两个项目
   expect(screen.getByText('D:\\work\\demo')).toBeTruthy()
   expect(screen.getByText('D:\\work\\other')).toBeTruthy()
-  // 渠道标记
+  // 渠道标记：仅已绑定 bot 显示（4 条里 3 条已绑定，未绑定那条无徽标）
   expect(screen.getAllByText('飞书').length).toBe(3)
+  // 未绑定态
+  expect(screen.getByText('未绑定机器人')).toBeTruthy()
+  expect(screen.getByText('未绑定')).toBeTruthy()
   // 状态
   expect(screen.getByText('已连接')).toBeTruthy()
   expect(screen.getByText('连接失败')).toBeTruthy()

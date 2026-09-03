@@ -29,6 +29,7 @@ const STATUS_LABEL: Record<string, string> = {
   idle: '空闲',
   failed: '连接失败',
   'not-running': '未运行',
+  unbound: '未绑定',
 }
 
 /** 连接状态 → StateDot 四色语义：正常绿 / 过渡蓝跑马 / 非故障停止琥珀 / 故障红。 */
@@ -39,6 +40,7 @@ const STATUS_DOT: Record<string, StateDotState> = {
   idle: 'warning',
   failed: 'error',
   'not-running': 'warning',
+  unbound: 'warning',
 }
 
 export function BotsModal({ open, onClose, useWorkspaces, onEdit, onCreate }: BotsModalProps): ReactNode {
@@ -77,7 +79,8 @@ function BotsModalBody({ useWorkspaces, onEdit, onCreate }: Omit<BotsModalProps,
                 <button key={bot.id} type="button" className={css.botRow}
                   onClick={() => { onEdit !== undefined ? onEdit(bot) : setView({ mode: 'edit', bot }) }}>
                   <span className={css.botName}>{bot.name}</span>
-                  <Pill className={css.channelBadge}>飞书</Pill>
+                  {/* 渠道徽标：仅已绑定（feishu 存在）的 bot 显示 */}
+                  {bot.feishu !== undefined && <Pill className={css.channelBadge}>飞书</Pill>}
                   <span className={css.status}>
                     <StateDot state={STATUS_DOT[bot.status] ?? 'warning'} size={8} />
                     <span>{STATUS_LABEL[bot.status] ?? bot.status}</span>
