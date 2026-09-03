@@ -53,6 +53,8 @@ function harness(overrides: Partial<ApiDeps> = {}) {
     storeSecret: async () => 'project_bot_ffffffff',
     timeoutMs: 60_000,
   })
+  let time = 1000
+  const now = () => time++
   const deps: ApiDeps = {
     bots: {
       get: (k: string) => bots.get(k),
@@ -77,7 +79,7 @@ function harness(overrides: Partial<ApiDeps> = {}) {
     },
     deleteSecret: async (ref) => { deletedSecrets.push(ref) },
     validateProject: () => true,
-    now: () => 1000,
+    now,
     ...overrides,
   }
   return { deps, bots, reconciled, stopped, unbound, deletedSecrets, storedSecrets, handler: createApiHandler(deps), registerApp }
@@ -182,6 +184,20 @@ describe('PUT /bots', () => {
     expect(record).not.toHaveProperty('persona')
     expect(record).not.toHaveProperty('tools')
     expect(record).toMatchObject({ id: 'reviewer', name: '评审', feishu: { appSecretRef: 'project_bot_reviewer' } })
+  })
+
+  test('PUT 刷新 updatedAt（同名更新也刷新；fake 单调递增）', async () => {
+    const { handler, bots } = harness()
+    expect(bots.get('reviewer')?.updatedAt).toBe(1)
+    const first = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=reviewer', { name: '评审2' }), first)
+    expect(first.status).toBe(200)
+    const record = bots.get('reviewer')!
+    expect(record.updatedAt).toBeGreaterThan(1)
+    const second = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=reviewer', { persona: '新' }), second)
+    expect(second.status).toBe(200)
+    expect(bots.get('reviewer')?.updatedAt).toBeGreaterThan(record.updatedAt)
   })
 
   test('agentRef：创建落表、更新覆盖、null 清除（回主 Agent）', async () => {

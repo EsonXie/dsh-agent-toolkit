@@ -209,6 +209,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       const merged: Record<string, unknown> = { ...existing }
       if (input.name !== undefined) merged.name = input.name
       merged.project = project
+      merged.updatedAt = deps.now()
       if (input.feishu === null) {
         delete merged.channel
         delete merged.feishu
