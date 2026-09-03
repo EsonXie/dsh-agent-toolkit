@@ -40,6 +40,8 @@ export interface BotsModuleConfig {
   processingReactionEmoji: string
   /** 回传飞书的错误摘要最大字符数。 */
   errorDetailMaxChars: number
+  /** 会话创建/恢复时注入「渠道 + 发起人 open_id」提示段（dsh-agent-toolkit:channel:sender）。 */
+  injectSender: boolean
 }
 
 /** setupBots 的宿主接线依赖（registry 供运行时委派/API 消费；prompt 无消费方，Task 13 定案不装配 persona）。 */

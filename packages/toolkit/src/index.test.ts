@@ -135,6 +135,7 @@ describe('Config 默认值', () => {
       registerAppTimeoutMs: 600_000,
       processingReactionEmoji: 'OneSecond',
       errorDetailMaxChars: 500,
+      injectSender: true,
     })
     expect(config.agentTeamPreset).toEqual({
       enabled: true,
@@ -143,6 +144,11 @@ describe('Config 默认值', () => {
       name: 'Agent 团队',
       description: 'Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色',
     })
+  })
+
+  test('feishu.injectSender=false 原样保留', () => {
+    const config = Config({ feishu: { injectSender: false } })
+    expect(config.feishu.injectSender).toBe(false)
   })
 })
 

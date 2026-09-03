@@ -85,6 +85,7 @@ export const Config: z<unknown, Config> = z.object({
     registerAppTimeoutMs: z.number().default(600_000),
     processingReactionEmoji: z.string().default('OneSecond'),
     errorDetailMaxChars: z.number().default(500),
+    injectSender: z.boolean().default(true),
   }).default({
     cardUpdateThrottleMs: 500,
     cardMaxBytes: 28_000,
@@ -92,6 +93,7 @@ export const Config: z<unknown, Config> = z.object({
     registerAppTimeoutMs: 600_000,
     processingReactionEmoji: 'OneSecond',
     errorDetailMaxChars: 500,
+    injectSender: true,
   }),
   // agent-team preset 自动生成：派生 shipped standard、禁用 subagent 工具族 4 行，
   // 写入首个 trust=user root（spec: docs/superpowers/specs/2026-09-02-agent-team-preset-design.md）。
