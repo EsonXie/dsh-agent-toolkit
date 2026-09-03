@@ -178,6 +178,7 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
       tunables,
       maxErrorDetailChars: config.errorDetailMaxChars,
       attachments: attachmentsOf,
+      injectSender: config.injectSender,
       resolveSecret: async (ref) => (await ctx.credentials.resolve(credentialRef(ref)))?.value,
       validateProject: (path) => existsSync(path),
       log,

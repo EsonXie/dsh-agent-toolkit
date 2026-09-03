@@ -126,6 +126,25 @@ test('未绑定 bot：reconcile 不启动渠道、不告警，statusOf 返回 un
   expect(runtime.statusOf('loose')).toBe('unbound')
 })
 
+test('injectSender: false：入站建会话 hooks 不含 sender 段', async () => {
+  const hookInputs: { hooks: unknown }[] = []
+  const agents = {
+    create: async (input: { sessionId: string; hooks: unknown }) => {
+      hookInputs.push({ hooks: input.hooks })
+      return { sessionId: input.sessionId, followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined }
+    },
+    resume: async () => undefined,
+  } as unknown as RuntimeDeps['agents']
+  const { runtime } = harness({ injectSender: false, agents })
+  runtime.inbound.onMessage({
+    botId: 'reviewer', chatId: 'oc_1', userId: 'ou_u1', messageId: 'om_1', text: '你好',
+    reply: { beginTurn: async () => undefined, update: async () => undefined, finalize: async () => undefined, notice: async () => undefined },
+    ackProcessing: async () => () => undefined,
+  })
+  await vi.waitFor(() => { expect(hookInputs).toHaveLength(1) })
+  expect(hookInputs[0].hooks).not.toHaveProperty('sections')
+})
+
 test('unbindBot 停渠道并取消在飞会话，但保留绑定表', async () => {
   const { runtime, closed, deps } = harness()
   await runtime.startAll()

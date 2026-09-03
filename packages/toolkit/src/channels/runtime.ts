@@ -25,6 +25,8 @@ export interface RuntimeDeps {
   maxErrorDetailChars: number
   /** 可选：宿主附件服务的惰性取用器（消息时解析；返回 undefined = 图片降级提示）。 */
   attachments?: () => AttachmentsPort | undefined
+  /** 发起人提示段开关（缺省 true；见 Config feishu.injectSender）。 */
+  injectSender?: boolean
   resolveSecret(ref: string): Promise<string | undefined>
   validateProject(path: string): boolean
   log: { warn(message: string): void; info(message: string): void }
@@ -41,7 +43,7 @@ export class BotRuntime {
 
   constructor(private readonly deps: RuntimeDeps) {
     const bindingStore = this.bindingStore()
-    this.router = new Router(deps.agents, bindingStore, this.sessions, deps.defaultModel, deps.workspace, (m) => deps.log.warn(m), deps.registry)
+    this.router = new Router(deps.agents, bindingStore, this.sessions, deps.defaultModel, deps.workspace, (m) => deps.log.warn(m), deps.registry, deps.injectSender ?? true)
     this.inbound = new Inbound({
       router: this.router,
       bots: deps.bots,
