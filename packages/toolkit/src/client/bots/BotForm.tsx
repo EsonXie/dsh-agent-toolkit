@@ -44,11 +44,12 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
   const [providersLoaded, setProvidersLoaded] = useState(false)
   const [models, setModels] = useState<{ id: string; name: string }[]>([])
   const [tab, setTab] = useState<BindTab>('scan')
-  const [appId, setAppId] = useState(bot?.feishu.appId ?? '')
+  const [appId, setAppId] = useState(bot?.feishu?.appId ?? '')
   const [appSecret, setAppSecret] = useState('')
   const [scan, setScan] = useState<ScanState>({ status: 'idle' })
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [confirmUnbind, setConfirmUnbind] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const pollTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
 
@@ -142,24 +143,26 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
     }
   }
 
-  // 创建模式进入第二步自动发起扫码：仅当尚未发起（idle）时触发，避免重复 beginScan。
+  // 创建模式与未绑定编辑态进入第二步自动发起扫码：仅当尚未发起（idle）时触发，避免重复 beginScan。
+  // 不用 `!editing || bot.feishu === undefined`：别名条件收窄在负分支会把 bot 收窄成 undefined，访问 .feishu 报错。
+  const bindable = bot === undefined || bot.feishu === undefined
   useEffect(() => {
-    if (step === 2 && !editing && scan.status === 'idle') {
+    if (step === 2 && bindable && scan.status === 'idle') {
       void beginScan()
     }
-  }, [step, scan.status, editing])
+  }, [step, scan.status, bindable])
 
   async function save(): Promise<void> {
     setError(null)
-    const feishu = editing
-      ? undefined
-      : tab === 'scan'
+    const feishu = bindable
+      ? tab === 'scan'
         ? scan.status === 'done'
           ? { appId: scan.appId, appSecretRef: scan.credentialRef }
           : undefined
         : appId.trim().length > 0 && appSecret.trim().length > 0
           ? { appId: appId.trim(), appSecret: appSecret.trim() }
           : undefined
+      : undefined
     if (!editing && feishu === undefined) {
       setError('请填写 App ID 与 App Secret，或先完成扫码创建')
       return
@@ -187,12 +190,32 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
             ? { agentRef }
             : {}),
         agentOptions,
+        // 编辑未绑定态填写/扫码完成则携带 feishu 重绑；其余路径 feishu 为 undefined，不携带（保持渠道不动）。
+        ...(feishu !== undefined ? { feishu } : {}),
       }
       if (editing) {
         await updateBot(bot.id, payload)
       } else {
         await createBot({ ...payload, feishu: feishu! })
       }
+      onSaved()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  /** 解绑渠道：两段确认后立即 PUT feishu:null（不经保存），成功回列表刷新。 */
+  async function unbind(): Promise<void> {
+    if (!confirmUnbind) {
+      setConfirmUnbind(true)
+      return
+    }
+    setError(null)
+    setSaving(true)
+    try {
+      await updateBot(bot!.id, { feishu: null })
       onSaved()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -260,7 +283,7 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
 
       {step === 2 && (
         <>
-          {!editing && (
+          {bindable && (
             <section className={css.scanSection}>
               <div role="tablist" className={css.tabs}>
                 <button type="button" role="tab" aria-selected={tab === 'scan'}
@@ -300,7 +323,16 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
               )}
             </section>
           )}
-          {editing && <p>当前应用：{bot.feishu.appId}（如需换绑请删除后重建）</p>}
+          {editing && bot.feishu !== undefined && (
+            <>
+              <p>当前应用：{bot.feishu.appId}</p>
+              <Button variant="outline" disabled={saving}
+                onClick={() => { void unbind() }}>
+                {confirmUnbind ? '确认解绑？' : '解绑'}
+              </Button>
+              <p className={css.hint}>解绑后密钥立即删除，历史会话保留；重新绑定同一应用可继续原会话。</p>
+            </>
+          )}
 
           {error !== null && <p role="alert" className={css.error}>{error}</p>}
           <div className={css.formActions}>

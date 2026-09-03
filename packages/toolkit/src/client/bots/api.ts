@@ -13,7 +13,8 @@ export interface BotInput {
   agentRef?: string | null
   tools?: string[]
   agentOptions?: { provider?: string; model?: string }
-  feishu?: { appId: string; appSecret?: string; appSecretRef?: string }
+  /** 渠道绑定：null = 解绑（服务端删密钥、保留会话绑定）；扫码路径传 appSecretRef。 */
+  feishu?: { appId: string; appSecret?: string; appSecretRef?: string } | null
 }
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {

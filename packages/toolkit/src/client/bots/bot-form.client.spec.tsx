@@ -249,3 +249,85 @@ test('手动填写 tab：展示所需权限提示文案', async () => {
   expect(screen.getByText(/cardkit:card:write/)).toBeTruthy()
   expect(screen.getByText(/im.message.receive_v1/)).toBeTruthy()
 })
+
+test('编辑绑定态：第 2 步显示当前应用与解绑（两段确认）；解绑 PUT feishu:null 并回列表', async () => {
+  const calls = stubFetch({
+    '/dsh-agent-toolkit/api/bots/providers': () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek' }] }),
+    '/dsh-agent-toolkit/api/bots/models?provider=deepseek': () => ({ models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }),
+    '/dsh-agent-toolkit/api/bots/bots': () => ({ bot: {} }),
+  })
+  const saved = vi.fn()
+  const bot = {
+    id: 'reviewer', name: '评审', channel: 'feishu' as const,
+    feishu: { appId: 'cli_a1b2c3d4e5f60718', appSecretRef: 'project_bot_reviewer' },
+    project: 'D:\\work\\demo',
+    agentOptions: { provider: 'deepseek', model: 'deepseek-chat' },
+    createdAt: 1, updatedAt: 1, status: 'connected',
+  }
+  render(<BotForm bot={bot} useWorkspaces={useWorkspaces} onSaved={saved} onCancel={() => undefined} />)
+
+  fireEvent.click(screen.getByRole('button', { name: '下一步' }))
+  expect(screen.getByText(/当前应用：cli_a1b2c3d4e5f60718/)).toBeTruthy()
+
+  // 第一段：只切确认态，不发请求
+  fireEvent.click(screen.getByRole('button', { name: '解绑' }))
+  expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(0)
+
+  // 第二段：确认后 PUT feishu:null → onSaved
+  fireEvent.click(screen.getByRole('button', { name: '确认解绑？' }))
+  await vi.waitFor(() => { expect(saved).toHaveBeenCalledOnce() })
+  const update = calls.find((c) => c.url.includes('id=reviewer') && c.method === 'PUT')
+  expect(update?.body).toMatchObject({ feishu: null })
+})
+
+test('编辑未绑定态：第 2 步显示绑定区块；手动填写后保存携带 feishu', async () => {
+  const calls = stubFetch({
+    '/dsh-agent-toolkit/api/bots/providers': () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek' }] }),
+    '/dsh-agent-toolkit/api/bots/models?provider=deepseek': () => ({ models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }),
+    '/dsh-agent-toolkit/api/bots/register-app': () => ({ id: 'reg_1' }),
+    '/dsh-agent-toolkit/api/bots/register-app/status': () => ({ state: { status: 'pending', url: 'https://example/qr', expireIn: 600 } }),
+    '/dsh-agent-toolkit/api/bots/bots': () => ({ bot: {} }),
+  })
+  const saved = vi.fn()
+  const bot = {
+    id: 'loose', name: '未绑定', project: 'D:\\work\\demo',
+    agentOptions: { provider: 'deepseek', model: 'deepseek-chat' },
+    createdAt: 1, updatedAt: 1, status: 'not-running',
+  }
+  render(<BotForm bot={bot} useWorkspaces={useWorkspaces} onSaved={saved} onCancel={() => undefined} />)
+
+  fireEvent.click(screen.getByRole('button', { name: '下一步' }))
+  // 绑定区块出现（与创建一致的 tab 结构）；自动扫码已发起，切手动填写
+  fireEvent.click(await screen.findByRole('tab', { name: '手动填写' }))
+  fireEvent.change(screen.getByLabelText('App ID'), { target: { value: 'cli_000000000000000a' } })
+  fireEvent.change(screen.getByLabelText('App Secret'), { target: { value: 'plain-secret' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+  await vi.waitFor(() => { expect(saved).toHaveBeenCalledOnce() })
+  const update = calls.find((c) => c.url.includes('id=loose') && c.method === 'PUT')
+  expect(update?.body).toMatchObject({ feishu: { appId: 'cli_000000000000000a', appSecret: 'plain-secret' } })
+})
+
+test('编辑未绑定态：不绑定也能保存（payload 不带 feishu，bot 维持未绑定）', async () => {
+  const calls = stubFetch({
+    '/dsh-agent-toolkit/api/bots/providers': () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek' }] }),
+    '/dsh-agent-toolkit/api/bots/models?provider=deepseek': () => ({ models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }),
+    '/dsh-agent-toolkit/api/bots/register-app': () => ({ id: 'reg_1' }),
+    '/dsh-agent-toolkit/api/bots/register-app/status': () => ({ state: { status: 'pending', url: 'https://example/qr', expireIn: 600 } }),
+    '/dsh-agent-toolkit/api/bots/bots': () => ({ bot: {} }),
+  })
+  const saved = vi.fn()
+  const bot = {
+    id: 'loose', name: '未绑定', project: 'D:\\work\\demo',
+    agentOptions: { provider: 'deepseek', model: 'deepseek-chat' },
+    createdAt: 1, updatedAt: 1, status: 'not-running',
+  }
+  render(<BotForm bot={bot} useWorkspaces={useWorkspaces} onSaved={saved} onCancel={() => undefined} />)
+
+  fireEvent.click(screen.getByRole('button', { name: '下一步' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+  await vi.waitFor(() => { expect(saved).toHaveBeenCalledOnce() })
+  const update = calls.find((c) => c.url.includes('id=loose') && c.method === 'PUT')
+  expect(update?.body).not.toHaveProperty('feishu')
+})
