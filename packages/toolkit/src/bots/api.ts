@@ -5,7 +5,7 @@ import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { z } from 'zod'
 import type { BotRuntime } from '../channels/runtime.ts'
 import type { RegisterAppService } from './register-app.ts'
-import { BOT_ID_RE, BotRecordSchema, FEISHU_APP_ID_RE, type BotRecord } from './store.ts'
+import { BOT_ID_RE, BotRecordSchema, CREDENTIAL_REF_RE, FEISHU_APP_ID_RE, type BotRecord } from './store.ts'
 
 /** 一个可选的 provider 路由（id = agentOptions.provider 的值）。 */
 export interface ProviderOption { id: string; name: string }
@@ -44,7 +44,7 @@ const CreateBodySchema = z.object({
     /** 手动填写路径：明文密钥（立即入 credentials，不落表）。 */
     appSecret: z.string().min(1).optional(),
     /** 扫码路径：registerApp 已入库，直接给引用。 */
-    appSecretRef: z.string().optional(),
+    appSecretRef: z.string().regex(CREDENTIAL_REF_RE).optional(),
   }),
 })
 
@@ -59,7 +59,7 @@ const UpdateBodySchema = z.object({
   feishu: z.object({
     appId: z.string().regex(FEISHU_APP_ID_RE),
     appSecret: z.string().min(1).optional(),
-    appSecretRef: z.string().min(1).optional(),
+    appSecretRef: z.string().regex(CREDENTIAL_REF_RE).optional(),
   }).refine((f) => f.appSecret !== undefined || f.appSecretRef !== undefined, { message: '缺少 appSecret 或 appSecretRef' })
     .nullable().optional(),
 })

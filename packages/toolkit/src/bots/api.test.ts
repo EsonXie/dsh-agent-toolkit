@@ -153,6 +153,17 @@ describe('POST /bots', () => {
     await handler(mockReq('POST', '/dsh-agent-toolkit/api/bots/bots', { id: 'reviewer', name: 'x', project: 'p', feishu: { appId: 'cli_000000000000000c', appSecret: 's' } }), dupId)
     expect(dupId.status).toBe(409)
   })
+
+  test('畸形 appSecretRef → 400（扫码引用须过 CREDENTIAL_REF_RE，POST 对齐 PUT）', async () => {
+    const { handler, storedSecrets } = harness()
+    const res = mockRes()
+    await handler(mockReq('POST', '/dsh-agent-toolkit/api/bots/bots', {
+      id: 'ops', name: '运维', project: 'D:\\work\\ops',
+      feishu: { appId: 'cli_000000000000000a', appSecretRef: 'bad ref with spaces' },
+    }), res)
+    expect(res.status).toBe(400)
+    expect(storedSecrets).toEqual([])
+  })
 })
 
 describe('PUT /bots', () => {
@@ -290,6 +301,18 @@ describe('PUT /bots 渠道解绑与重绑', () => {
       feishu: { appId: 'cli_000000000000000a' },
     }), res)
     expect(res.status).toBe(400)
+  })
+
+  test('重绑畸形 appSecretRef → 400：不删旧密钥、不入库（数据丢失回归钉）', async () => {
+    const { handler, deletedSecrets, storedSecrets, bots } = harness()
+    const res = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=scan-bot', {
+      feishu: { appId: 'cli_000000000000000a', appSecretRef: 'bad ref with spaces' },
+    }), res)
+    expect(res.status).toBe(400)
+    expect(deletedSecrets).toEqual([])
+    expect(storedSecrets).toEqual([])
+    expect(bots.get('scan-bot')).toMatchObject({ feishu: { appSecretRef: 'project_bot_ffffffff' } })
   })
 })
 
