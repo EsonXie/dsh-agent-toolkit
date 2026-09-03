@@ -18,6 +18,10 @@ const BOT: BotRecord = {
   project: 'D:\\work\\demo', createdAt: 0, updatedAt: 0,
 }
 
+const UNBOUND: BotRecord = {
+  id: 'loose', name: '未绑定', project: 'D:\\work\\demo', createdAt: 0, updatedAt: 0,
+}
+
 function fakeTable<V>(initial: Record<string, V> = {}) {
   const map = new Map<string, V>(Object.entries(initial))
   return {
@@ -111,4 +115,30 @@ test('stopAll 取消在飞会话并关闭全部渠道（幂等）', async () => 
   await runtime.stopAll()
   await runtime.stopAll()
   expect(closed).toEqual(['reviewer'])
+})
+
+test('未绑定 bot：reconcile 不启动渠道、不告警，statusOf 返回 unbound', async () => {
+  const { runtime, started, warns, deps } = harness()
+  await deps.bots.put('loose', UNBOUND)
+  await runtime.startAll()
+  expect(started).toEqual(['reviewer'])
+  expect(warns.filter((w) => w.includes('loose'))).toEqual([])
+  expect(runtime.statusOf('loose')).toBe('unbound')
+})
+
+test('unbindBot 停渠道并取消在飞会话，但保留绑定表', async () => {
+  const { runtime, closed, deps } = harness()
+  await runtime.startAll()
+  await deps.bindings.put('reviewer:oc_1', { sessionId: 's1' })
+  const cancelled: string[] = []
+  runtime.sessions.set('s1', {
+    botId: 'reviewer', chatId: 'oc_1', sessionId: 's1',
+    agent: { sessionId: 's1', followup: () => undefined, cancel: () => { cancelled.push('s1') }, whenIdle: async () => undefined },
+    reply: undefined, inflight: undefined, tail: Promise.resolve(), turn: undefined,
+  })
+  await runtime.unbindBot('reviewer')
+  expect(closed).toEqual(['reviewer'])
+  expect(cancelled).toEqual(['s1'])
+  expect(runtime.sessions.has('s1')).toBe(false)
+  expect(deps.bindings.get('reviewer:oc_1')).toEqual({ sessionId: 's1' })
 })

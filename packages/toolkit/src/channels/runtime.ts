@@ -30,7 +30,7 @@ export interface RuntimeDeps {
   log: { warn(message: string): void; info(message: string): void }
 }
 
-export type BotStatus = ChannelStatus | 'not-running'
+export type BotStatus = ChannelStatus | 'not-running' | 'unbound'
 
 export class BotRuntime {
   readonly sessions = new Map<string, SessionRuntime>()
@@ -56,11 +56,13 @@ export class BotRuntime {
     for (const botId of [...this.deps.bots.keys()]) await this.reconcile(botId)
   }
 
-  /** 按最新记录重建该 bot 的渠道（创建/更新后调用；记录已删则纯停止）。 */
+  /** 按最新记录重建该 bot 的渠道（创建/更新后调用；记录已删或未绑定则纯停止）。 */
   async reconcile(botId: string): Promise<void> {
     await this.stopChannel(botId)
     const record = this.deps.bots.get(botId)
     if (record === undefined) return
+    // 未绑定（channel/feishu 均缺省）的 bot：停渠道即止，不启动不告警。
+    if (record.feishu === undefined) return
     if (!this.deps.validateProject(record.project)) {
       this.deps.log.warn(`[project-bot] bot "${botId}" 的项目路径不可用：${record.project}`)
       return
@@ -100,7 +102,20 @@ export class BotRuntime {
     await this.bindingStore().deleteBot(botId)
   }
 
+  /** 解绑渠道：停渠道、取消在飞会话；绑定表与持久会话保留（重绑后 resume 接续）。 */
+  async unbindBot(botId: string): Promise<void> {
+    await this.stopChannel(botId)
+    for (const [sessionId, rt] of [...this.sessions]) {
+      if (rt.botId === botId) {
+        rt.agent.cancel()
+        this.sessions.delete(sessionId)
+      }
+    }
+  }
+
   statusOf(botId: string): BotStatus {
+    const record = this.deps.bots.get(botId)
+    if (record !== undefined && record.feishu === undefined) return 'unbound'
     return this.handles.get(botId)?.status() ?? 'not-running'
   }
 
