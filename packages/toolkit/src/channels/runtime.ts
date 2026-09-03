@@ -62,7 +62,7 @@ export class BotRuntime {
     const record = this.deps.bots.get(botId)
     if (record === undefined) return
     // 未绑定（channel/feishu 均缺省）的 bot：停渠道即止，不启动不告警。
-    if (record.feishu === undefined) return
+    if (record.feishu === undefined || record.channel === undefined) return
     if (!this.deps.validateProject(record.project)) {
       this.deps.log.warn(`[project-bot] bot "${botId}" 的项目路径不可用：${record.project}`)
       return
