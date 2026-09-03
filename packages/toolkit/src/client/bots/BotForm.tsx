@@ -295,6 +295,7 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
                     App Secret
                     <Input type="password" value={appSecret} onChange={(e) => { setAppSecret(e.target.value) }} aria-label="App Secret" className={css.input} />
                   </label>
+                    <p className={css.hint}>需自备应用并开通：机器人能力、im:message、im:message:send_as_bot、cardkit:card:write、contact:user.base:readonly，并订阅 im.message.receive_v1 事件（长连接方式）</p>
                 </>
               )}
             </section>

@@ -230,3 +230,20 @@ test('Agent 名册不可用：下拉只剩 main 选项，创建不携带 agentRe
   const create = calls.find((c) => c.url === '/dsh-agent-toolkit/api/bots/bots' && c.method === 'POST')
   expect(create?.body).not.toHaveProperty('agentRef')
 })
+
+test('手动填写 tab：展示所需权限提示文案', async () => {
+  stubFetch({
+    '/dsh-agent-toolkit/api/bots/providers': () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek' }] }),
+    '/dsh-agent-toolkit/api/bots/models?provider=deepseek': () => ({ models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }),
+    '/dsh-agent-toolkit/api/bots/bots': () => ({ bot: {} }),
+  })
+  render(<BotForm useWorkspaces={useWorkspaces} onSaved={() => undefined} onCancel={() => undefined} />)
+
+  fireEvent.change(screen.getByLabelText('名称'), { target: { value: '权限提示' } })
+  fireEvent.click(screen.getByRole('button', { name: '下一步' }))
+  fireEvent.click(screen.getByRole('tab', { name: '手动填写' }))
+
+  expect(await screen.findByText(/im:message/)).toBeTruthy()
+  expect(screen.getByText(/cardkit:card:write/)).toBeTruthy()
+  expect(screen.getByText(/im.message.receive_v1/)).toBeTruthy()
+})

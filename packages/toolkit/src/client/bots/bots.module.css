@@ -103,4 +103,10 @@
   line-height: 18px;
   color: var(--dsw-alias-state-error-primary);
 }
+.hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
 .formActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
