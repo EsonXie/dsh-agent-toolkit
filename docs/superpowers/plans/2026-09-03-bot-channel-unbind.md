@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-03-bot-channel-unbind-design.md`
 
+**基线:** 0.2.3-0.2.6（`a430fbe8`、`3adbe342`）已合入本 checkout。2026-09-03 复核确认与本计划**正交**（改动集中在入站图片消息、tool-scope、委派名册、扫码文案），spec 无需修订；仅 Task 2 的行号锚点与 Task 6 的测试基线数按新代码校正（runtime.ts 构造器多了 attachments 接线，后续成员整体下移 8 行；`feishu/index.ts:12`、`BotForm.tsx` :47/:263/:303 锚点未变）。
+
 ## Global Constraints
 
 - 所有命令从仓库根 `D:\work\github\dsh\dsh-agent-toolkit` 跑，聚焦单文件测试用 `pnpm exec vitest run <file>`（workdir `packages/toolkit`）
@@ -116,7 +118,7 @@ git commit -m "feat(toolkit): bot 记录支持未绑定态（channel/feishu 可�
 ### Task 2: Runtime 的 unbound 状态与 unbindBot
 
 **Files:**
-- Modify: `packages/toolkit/src/channels/runtime.ts`（`BotStatus` 联合类型 :30、`reconcile` :51-80、`statusOf` :94-96、新增 `unbindBot`）
+- Modify: `packages/toolkit/src/channels/runtime.ts`（`BotStatus` 联合类型 :33、`reconcile` :59-89、`statusOf` :103-105、新增 `unbindBot`（放 `stopBot` :91-101 旁））
 - Test: `packages/toolkit/src/channels/runtime.test.ts`
 
 **Interfaces:**
@@ -813,7 +815,7 @@ git commit -m "feat(toolkit): 编辑表单支持渠道解绑（两段确认）�
 - [ ] **Step 2: 全量测试**
 
 Run: `pnpm --filter dsh-agent-toolkit test`
-Expected: 全部 PASS（原 349 条 + 新增 14 条：Task 1 两条、Task 2 两条、Task 3 七条、Task 5 三条）
+Expected: 全部 PASS（基线 389 条 + 新增 14 条：Task 1 两条、Task 2 两条、Task 3 七条、Task 5 三条；389 为 0.2.6 合入后的静态 `test(` 计数，以 vitest 实际输出为准）
 
 - [ ] **Step 3: 类型检查**
 
