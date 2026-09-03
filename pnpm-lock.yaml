@@ -48,6 +48,9 @@ importers:
       '@deepseek-ai/dsh-agent-instructions':
         specifier: link:../../deepseek-harness/packages/context/agent-instructions
         version: link:../../deepseek-harness/packages/context/agent-instructions
+      '@deepseek-ai/dsh-attachment':
+        specifier: link:../../deepseek-harness/packages/attachment/attachment
+        version: link:../../deepseek-harness/packages/attachment/attachment
       '@deepseek-ai/dsh-client-locale':
         specifier: link:../../deepseek-harness/packages/client/locale
         version: link:../../deepseek-harness/packages/client/locale

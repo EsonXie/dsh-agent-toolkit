@@ -20,6 +20,13 @@ export interface ReplyHandle {
   notice(text: string): Promise<void>
 }
 
+/** 渠道图片下载产物（媒体类型为渠道侧判定的 MIME 子集；核心侧不感知宿主类型）。 */
+export interface InboundImage {
+  data: Uint8Array
+  mediaType: string
+  name?: string
+}
+
 /** 一条入站消息（渠道已解析成渠道无关形态）。 */
 export interface InboundMessage {
   botId: string
@@ -27,6 +34,8 @@ export interface InboundMessage {
   userId: string
   messageId: string
   text: string
+  /** 懒加载图片字节（无图片消息省略）。在核心侧的 in-flight 窗口内调用，失败走统一错误路径。 */
+  loadImages?: () => Promise<InboundImage[]>
   reply: ReplyHandle
   /** 给该用户消息加「处理中」表情回复；返回的 disposer 删除表情。失败返回 undefined。 */
   ackProcessing(): Promise<Disposer | undefined>

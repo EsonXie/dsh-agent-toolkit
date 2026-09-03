@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { AgentHandle } from '@deepseek-ai/dsh-agent'
 // type-only 导入激活各包对 cordis Context 的声明合并（inject 的服务属性）。
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -17,6 +18,7 @@ import { registerOptionalRoutes } from '../shared/webserver.ts'
 import { setupAgentScope } from '../channels/agent-setup.ts'
 import type { BotChannel, ChannelTunables } from '../channels/channel.ts'
 import { feishuChannel } from '../channels/feishu/index.ts'
+import type { AttachmentsPort } from '../channels/inbound.ts'
 import type { AgentPort, AgentsPort, WorkspacePort } from '../channels/ports.ts'
 import { BotRuntime } from '../channels/runtime.ts'
 import { createToolsScope } from '../channels/tool-scope.ts'
@@ -108,6 +110,30 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
     },
   }
 
+  // attachments 是可选服务：**消息到达时惰性解析**（宿主 read-image 同款"执行时再查"）。
+  // apply 期一次性捕获不可靠——attachment-local 的 fiber 可能尚未注册完服务，
+  // 启动期 ctx.get 拿到 undefined 会让图片消息永远走降级提示（2026-09-03 实测踩坑）。
+  interface AttachmentsStoreLike {
+    saveImages(inputs: readonly { data: Uint8Array; mediaType: string; name?: string }[]): Promise<readonly ImageAttachmentRef[]>
+  }
+  const attachmentsOf = (): AttachmentsPort | undefined => {
+    const store = ctx.get('attachments', false) as AttachmentsStoreLike | undefined
+    if (store === undefined) return undefined
+    return {
+      async saveImages(inputs) {
+        // 保存时再取一次（与可用性判断同刻）；mediaType 已由渠道按魔数判定为接受的
+        // 图片类型，store.saveImages 内部按解码字节再验证。
+        const current = ctx.get('attachments', false) as AttachmentsStoreLike | undefined
+        if (current === undefined) throw new Error('attachments 服务不可用')
+        return current.saveImages(inputs.map(({ data, mediaType, name }) => ({
+          data,
+          mediaType: mediaType as ImageMediaType,
+          ...(name !== undefined ? { name } : {}),
+        })))
+      },
+    }
+  }
+
   // 存储域：open 失败挂 rejection handler 防次生崩溃，调用方仍感知失败（token-usage 同款）。
   // 卸载顺序由 openDomainSafely 的 beforeClose 保证：先等启动链落定、排空在飞会话与出站链
   // （stopAll 内含卡片定格 drain），再关存储域——close 一旦开始就拒绝新入队的写。
@@ -149,6 +175,7 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
       channels,
       tunables,
       maxErrorDetailChars: config.errorDetailMaxChars,
+      attachments: attachmentsOf,
       resolveSecret: async (ref) => (await ctx.credentials.resolve(credentialRef(ref)))?.value,
       validateProject: (path) => existsSync(path),
       log,

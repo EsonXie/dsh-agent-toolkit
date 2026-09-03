@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { Disposer, InboundMessage, ReplyHandle } from './channel.ts'
-import { Inbound } from './inbound.ts'
+import { Inbound, type AttachmentsPort, type InboundDeps } from './inbound.ts'
 import type { AgentPort, AgentsPort, BindingStore, SessionRuntime } from './ports.ts'
 import { Router } from './router.ts'
 import type { AgentRegistry } from '../agents/registry.ts'
@@ -15,11 +16,11 @@ const BOT: BotRecord = {
 interface Recorded {
   notices: string[]
   acked: number
-  followups: { text: string; source: Record<string, unknown> }[]
+  followups: { text: string; source: Record<string, unknown>; content: unknown[] }[]
   cancels: number
 }
 
-function harness(opts: { createError?: unknown } = {}) {
+function harness(opts: { createError?: unknown; attachments?: () => AttachmentsPort | undefined } = {}) {
   const rec: Recorded = { notices: [], acked: 0, followups: [], cancels: 0 }
   const agents: AgentsPort = {
     create: async (input) => {
@@ -48,12 +49,14 @@ function harness(opts: { createError?: unknown } = {}) {
     router,
     bots: { get: (id) => (id === BOT.id ? BOT : undefined) },
     maxErrorDetailChars: 200,
+    ...(opts.attachments !== undefined ? { attachments: opts.attachments } : {}),
     onError: () => undefined,
   })
-  function msg(text: string, chatId = 'oc_1'): InboundMessage {
+  function msg(text: string, chatId = 'oc_1', loadImages?: InboundMessage['loadImages']): InboundMessage {
     return {
       botId: BOT.id, chatId, userId: 'ou_u1', messageId: `om_${Math.random()}`,
       text,
+      ...(loadImages !== undefined ? { loadImages } : {}),
       reply: fakeReply(rec),
       ackProcessing: async (): Promise<Disposer> => {
         rec.acked += 1
@@ -69,7 +72,7 @@ function fakeAgent(sessionId: string, rec: Recorded): AgentPort {
     sessionId,
     followup: (m) => {
       const message = m as { content: { type: string; text?: string }[]; source: Record<string, unknown> }
-      rec.followups.push({ text: message.content[0].text ?? '', source: message.source })
+      rec.followups.push({ text: message.content[0].text ?? '', source: message.source, content: message.content })
     },
     cancel: () => { rec.cancels += 1 },
     whenIdle: async () => undefined,
@@ -162,4 +165,64 @@ test('建会话失败：超长错误摘要截断到 maxErrorDetailChars', async 
   const notice = rec.notices.find((n) => n.includes('处理失败'))
   expect(notice!.length).toBeLessThanOrEqual('处理失败：'.length + 200 + 1)
   expect(notice!.endsWith('…')).toBe(true)
+})
+
+test('图片消息：懒下载 → 存附件 → 文本+image 内容块按序 followup', async () => {
+  const saved: unknown[] = []
+  const fakeRef = (id: string): ImageAttachmentRef => ({ attachmentId: id as ImageAttachmentRef['attachmentId'], mediaType: 'image/png', bytes: 1, width: 1, height: 1 })
+  const { rec, inbound, msg } = harness({
+    attachments: () => ({ saveImages: async (inputs) => {
+      saved.push(...inputs)
+      return inputs.map((_i, index) => fakeRef(`att_${index}`))
+    } }),
+  })
+  const loads: number[] = []
+  inbound.onMessage(msg('看这张图', 'oc_1', async () => {
+    loads.push(1)
+    return [{ data: new Uint8Array([1]), mediaType: 'image/png' }, { data: new Uint8Array([2]), mediaType: 'image/jpeg' }]
+  }))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  expect(loads).toEqual([1])
+  expect(saved).toHaveLength(2)
+  const content = rec.followups[0].content as { type: string; text?: string; attachment?: { attachmentId: string } }[]
+  expect(content.map((b) => b.type)).toEqual(['text', 'image', 'image'])
+  expect(content[0].text).toBe('看这张图')
+  expect(content[1].attachment!.attachmentId).toBe('att_0')
+  expect(content[2].attachment!.attachmentId).toBe('att_1')
+})
+
+test('attachments 服务缺席：文本照常处理，图片降级为提示', async () => {
+  const { rec, inbound, msg } = harness()
+  inbound.onMessage(msg('看这张图', 'oc_1', async () => [{ data: new Uint8Array([1]), mediaType: 'image/png' }]))
+  await vi.waitFor(() => {
+    expect(rec.followups).toHaveLength(1)
+    expect(rec.notices.some((n) => n.includes('图片'))).toBe(true)
+  })
+  const content = rec.followups[0].content as { type: string }[]
+  expect(content.map((b) => b.type)).toEqual(['text'])
+})
+
+test('纯图片（无文本）：仅 image 内容块也能建会话', async () => {
+  const { rec, inbound, msg } = harness({
+    attachments: () => ({
+      saveImages: async (inputs) => inputs.map((_i, index) => ({
+        attachmentId: `att_${index}` as ImageAttachmentRef['attachmentId'], mediaType: 'image/png', bytes: 1, width: 1, height: 1,
+      })),
+    }),
+  })
+  inbound.onMessage(msg('', 'oc_1', async () => [{ data: new Uint8Array([9]), mediaType: 'image/png' }]))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  const content = rec.followups[0].content as { type: string }[]
+  expect(content.map((b) => b.type)).toEqual(['image'])
+})
+
+test('懒下载失败：走失败路径并回复错误摘要', async () => {
+  const { rec, inbound, msg } = harness({
+    attachments: () => ({ saveImages: async () => [] }),
+  })
+  inbound.onMessage(msg('看这张图', 'oc_1', async () => { throw new Error('下载超时') }))
+  await vi.waitFor(() => {
+    expect(rec.notices.some((n) => n.includes('处理失败') && n.includes('下载超时'))).toBe(true)
+  })
+  expect(rec.followups).toHaveLength(0)
 })

@@ -1,6 +1,6 @@
 {
   "name": "dsh-agent-toolkit",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "DeepSeek Harness plugin: agent registry with layered prompts, parallel delegation, Feishu bots and token usage",
   "license": "MIT",
   "keywords": ["deepseek-harness", "dsh", "dsh-plugin", "agent-team", "feishu", "token-usage"],
@@ -54,6 +54,7 @@
     "@deepseek-ai/dsh-agent": "link:../../deepseek-harness/packages/core/agent",
     "@deepseek-ai/dsh-agent-default-model": "link:../../deepseek-harness/packages/core/agent-default-model",
     "@deepseek-ai/dsh-agent-instructions": "link:../../deepseek-harness/packages/context/agent-instructions",
+    "@deepseek-ai/dsh-attachment": "link:../../deepseek-harness/packages/attachment/attachment",
     "@deepseek-ai/dsh-client-locale": "link:../../deepseek-harness/packages/client/locale",
     "@deepseek-ai/dsh-client-runtime": "link:../../deepseek-harness/packages/client/runtime",
     "@deepseek-ai/dsh-client-ui-conversation": "link:../../deepseek-harness/packages/client/ui-conversation",

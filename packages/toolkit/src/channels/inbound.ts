@@ -1,16 +1,23 @@
-/** 入站：指令分流 → 路由 → 单 in-flight 准入 → 表情回复 → followup 投递。 */
+/** 入站：指令分流 → 路由 → 单 in-flight 准入 → 表情回复 → 图片落附件库 → followup 投递。 */
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { BotRecord } from '../bots/store.ts'
 import type { InboundMessage } from './channel.ts'
 import { parseDirective } from './directive.ts'
 import { truncateDetail } from './outbound.ts'
 import type { Router } from './router.ts'
 
+/** 图片附件库端口（宿主 ctx.attachments 的窄化；缺席时图片降级为提示）。 */
+export interface AttachmentsPort {
+  saveImages(inputs: readonly { data: Uint8Array; mediaType: string; name?: string }[]): Promise<readonly ImageAttachmentRef[]>
+}
+
 export interface InboundDeps {
   router: Router
   bots: { get(botId: string): BotRecord | undefined }
-  /** 回传渠道的错误摘要最大字符数（与出站同源配置）。 */
   maxErrorDetailChars: number
+  /** 可选：宿主附件服务的惰性取用器（消息时解析；apply 期服务注册未必就绪）。 */
+  attachments?: () => AttachmentsPort | undefined
   onError(message: string): void
 }
 
@@ -63,8 +70,24 @@ export class Inbound {
     rt.inflight = { ack: undefined }
     rt.inflight.ack = (await msg.ackProcessing().catch(() => undefined)) ?? undefined
     // source kind 用 'user'（与 ACP 同款）：dsh sessionTitle 服务只接纳 user 消息生成会话标题。
+    // 图片：in-flight 窗口内懒下载（不占飞书 WS 3 秒窗口）→ 落附件库 → image 内容块。
+    const imageRefs: ImageAttachmentRef[] = []
+    if (msg.loadImages !== undefined) {
+      const images = await msg.loadImages()
+      if (images.length > 0) {
+        const attachments = this.deps.attachments?.()
+        if (attachments === undefined) {
+          await msg.reply.notice('当前环境暂不支持图片消息（附件服务不可用），已按文字部分处理')
+        } else {
+          imageRefs.push(...await attachments.saveImages(images))
+        }
+      }
+    }
     const message = createUserMessage({
-      content: [{ type: 'text', text: msg.text }],
+      content: [
+        ...(msg.text.length > 0 ? [{ type: 'text' as const, text: msg.text }] : []),
+        ...imageRefs.map((ref) => ({ type: 'image' as const, attachment: ref })),
+      ],
       source: { kind: 'user' },
     })
     try {

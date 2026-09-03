@@ -7,6 +7,7 @@ import { Inbound } from './inbound.ts'
 import { Outbound } from './outbound.ts'
 import type { AgentsPort, BindingStore, DefaultModelAccessor, SessionRuntime, WorkspacePort } from './ports.ts'
 import { Router } from './router.ts'
+import type { AttachmentsPort } from './inbound.ts'
 
 export interface RuntimeDeps {
   bots: KvTable<string, BotRecord>
@@ -22,6 +23,8 @@ export interface RuntimeDeps {
   tunables: ChannelTunables
   /** 回传渠道的错误摘要最大字符数。 */
   maxErrorDetailChars: number
+  /** 可选：宿主附件服务的惰性取用器（消息时解析；返回 undefined = 图片降级提示）。 */
+  attachments?: () => AttachmentsPort | undefined
   resolveSecret(ref: string): Promise<string | undefined>
   validateProject(path: string): boolean
   log: { warn(message: string): void; info(message: string): void }
@@ -39,7 +42,13 @@ export class BotRuntime {
   constructor(private readonly deps: RuntimeDeps) {
     const bindingStore = this.bindingStore()
     this.router = new Router(deps.agents, bindingStore, this.sessions, deps.defaultModel, deps.workspace, (m) => deps.log.warn(m), deps.registry)
-    this.inbound = new Inbound({ router: this.router, bots: deps.bots, maxErrorDetailChars: deps.maxErrorDetailChars, onError: (m) => deps.log.warn(m) })
+    this.inbound = new Inbound({
+      router: this.router,
+      bots: deps.bots,
+      maxErrorDetailChars: deps.maxErrorDetailChars,
+      ...(deps.attachments !== undefined ? { attachments: deps.attachments } : {}),
+      onError: (m) => deps.log.warn(m),
+    })
     this.outbound = new Outbound(this.sessions, (m) => deps.log.warn(m), deps.maxErrorDetailChars)
   }
 
