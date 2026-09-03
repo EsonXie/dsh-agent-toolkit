@@ -224,6 +224,18 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
     }
   }
 
+  /** 离开第二步：解除解绑确认态，避免回到第二步后单次误触直接销毁凭据。 */
+  function back(): void {
+    setConfirmUnbind(false)
+    setError(null)
+    setStep(1)
+  }
+
+  function cancel(): void {
+    setConfirmUnbind(false)
+    onCancel()
+  }
+
   const showModelSelect = provider.trim().length > 0 && models.length > 0
 
   return (
@@ -275,7 +287,7 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
 
           {error !== null && <p role="alert" className={css.error}>{error}</p>}
           <div className={css.formActions}>
-            <Button variant="outline" onClick={onCancel}>取消</Button>
+            <Button variant="outline" onClick={cancel}>取消</Button>
             <Button variant="primary" onClick={nextStep}>下一步</Button>
           </div>
         </>
@@ -336,8 +348,8 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
 
           {error !== null && <p role="alert" className={css.error}>{error}</p>}
           <div className={css.formActions}>
-            <Button variant="outline" onClick={() => { setError(null); setStep(1) }}>上一步</Button>
-            <Button variant="outline" onClick={onCancel}>取消</Button>
+            <Button variant="outline" onClick={back}>上一步</Button>
+            <Button variant="outline" onClick={cancel}>取消</Button>
             <Button variant="primary" disabled={saving} onClick={() => { void save() }}>保存</Button>
           </div>
         </>

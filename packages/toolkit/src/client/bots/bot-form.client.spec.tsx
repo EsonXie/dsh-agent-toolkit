@@ -271,9 +271,17 @@ test('编辑绑定态：第 2 步显示当前应用与解绑（两段确认）�
 
   // 第一段：只切确认态，不发请求
   fireEvent.click(screen.getByRole('button', { name: '解绑' }))
+  expect(screen.getByRole('button', { name: '确认解绑？' })).toBeTruthy()
   expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(0)
 
-  // 第二段：确认后 PUT feishu:null → onSaved
+  // 上一步再下一步：确认态应复位，按钮回到「解绑」（防误触销毁凭据）
+  fireEvent.click(screen.getByRole('button', { name: '上一步' }))
+  fireEvent.click(screen.getByRole('button', { name: '下一步' }))
+  expect(screen.getByRole('button', { name: '解绑' })).toBeTruthy()
+  expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(0)
+
+  // 第二段：再次点「解绑」进入确认，确认后 PUT feishu:null → onSaved
+  fireEvent.click(screen.getByRole('button', { name: '解绑' }))
   fireEvent.click(screen.getByRole('button', { name: '确认解绑？' }))
   await vi.waitFor(() => { expect(saved).toHaveBeenCalledOnce() })
   const update = calls.find((c) => c.url.includes('id=reviewer') && c.method === 'PUT')
