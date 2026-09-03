@@ -277,7 +277,7 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
                     <>
                       <canvas ref={canvasRef} />
                       <p>等待扫码确认…</p>
-                      <p>（或用飞书打开链接：<a href={scan.url} target="_blank" rel="noopener noreferrer">{scan.url}</a>）</p>
+                      <p>（或用飞书打开：<a href={scan.url} target="_blank" rel="noopener noreferrer">点击链接</a>）</p>
                     </>
                   )}
                   {scan.status === 'done' && <p>已创建应用：{scan.appId}（密钥已安全保存）</p>}

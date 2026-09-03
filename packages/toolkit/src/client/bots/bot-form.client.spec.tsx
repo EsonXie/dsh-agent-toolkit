@@ -90,6 +90,8 @@ test('扫码创建：进入第二步自动发起扫码 → 轮询 → 完成后�
   fireEvent.click(screen.getByRole('button', { name: '下一步' }))
 
   expect(await screen.findByText('等待扫码确认…')).toBeTruthy()
+  const link = screen.getByRole('link', { name: '点击链接' })
+  expect(link).toHaveProperty('href', 'https://open.feishu.cn/page/launcher?user_code=ABCD-EFGH')
   await vi.waitFor(() => {
     expect(toCanvas).toHaveBeenCalledWith(
       expect.any(HTMLCanvasElement),
