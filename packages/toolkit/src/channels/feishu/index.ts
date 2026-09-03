@@ -15,6 +15,8 @@ export const feishuChannel: BotChannel = {
     const dedup = new MessageDedup()
 
     const dispatcher = new lark.EventDispatcher({}).register({
+      // 已读回执无动作；显式 no-op 消掉 EventDispatcher 的 "no ... handle" 告警噪音。
+      'im.message.message_read_v1': async () => undefined,
       // WS 事件须 3 秒内返回：解析同步完成，业务投递 fire-and-forget。
       'im.message.receive_v1': async (data: unknown) => {
         const parsed = parseMessageEvent(data)

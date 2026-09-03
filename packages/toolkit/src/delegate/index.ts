@@ -14,6 +14,24 @@ export { createDelegateTool } from './tool.ts'
 /** 团队名册段在 prompt 中的位置：紧随内置 subagent 段（116.5）之后。 */
 const TEAM_SECTION_ORDER = 116.6
 
+/**
+ * 团队名册段文本：仅当该 agent scope 的可见工具里确有委派工具时渲染，否则空
+ * （空段渲染时被丢弃）。工具白名单 restrict 只作用于 tools 视图，名册段必须
+ * 自行按 `tools.get(name, scope)` 联动，否则没勾委派的 bot 提示词仍会出现委派段落。
+ */
+export function teamSectionText(
+  toolName: string,
+  roles: readonly Pick<AgentRecord, 'id' | 'name' | 'description'>[],
+  toolVisible: boolean,
+): string {
+  if (!toolVisible) return ''
+  const rosterText = roles
+    .filter(r => r.id !== 'main')
+    .map(r => `${r.id}: ${r.description ?? r.name}`)
+    .join('\n')
+  return `你有一组可委派的成员：用 ${toolName} 把自包含的子任务委派给合适的成员，成员结果会作为工具返回值回到本对话。\n可用成员：\n${rosterText}`
+}
+
 export interface DelegateConfig {
   /** ctx.subagents provider 名（默认 'spawn'）。 */
   provider: string
@@ -86,10 +104,13 @@ export function setupDelegate(ctx: Context, config: DelegateConfig, registry: Ag
   ctx.systemPrompt.section({
     name: 'plugin:dsh-agent-toolkit:team',
     order: TEAM_SECTION_ORDER, // 紧随内置 subagent 段（116.5）之后，同归档 agent-team
-    text: () => {
-      const roles = registry.list().filter(r => r.id !== 'main')
-      const rosterText = roles.map(r => `${r.id}: ${r.description ?? r.name}`).join('\n')
-      return `你有一组可委派的成员：用 ${config.toolName} 把自包含的子任务委派给合适的成员，成员结果会作为工具返回值回到本对话。\n可用成员：\n${rosterText}`
-    },
+    text: (context) => teamSectionText(
+      config.toolName,
+      registry.list(),
+      // 该 agent scope 的可见工具里确有委派工具才渲染：被白名单 restrict 掉、或
+      // provider 未挂载（工具没注册）的会话不再出现委派段落（tools.get 对被
+      // restrict 掉的全局工具返回 absent）。
+      ctx.tools.get(config.toolName, context.scope) !== undefined,
+    ),
   })
 }

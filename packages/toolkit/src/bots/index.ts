@@ -19,6 +19,7 @@ import type { BotChannel, ChannelTunables } from '../channels/channel.ts'
 import { feishuChannel } from '../channels/feishu/index.ts'
 import type { AgentPort, AgentsPort, WorkspacePort } from '../channels/ports.ts'
 import { BotRuntime } from '../channels/runtime.ts'
+import { createToolsScope } from '../channels/tool-scope.ts'
 import { createApiHandler } from './api.ts'
 import { RegisterAppService } from './register-app.ts'
 import { projectBotDomain, type Binding, type BotRecord } from './store.ts'
@@ -60,7 +61,8 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
     return ref
   }
 
-  /** 创作期注入已迁至 agent-setup.ts（基础工具 scoped 挂载 + persona/tools），preset 机制整体移除。 */
+  /** 创作期注入已迁至 agent-setup.ts + tool-scope.ts（基础工具行 standing scope 挂载 + persona/tools），preset 机制整体移除。 */
+  const toolsScope = createToolsScope(ctx)
 
   const agentsPort: AgentsPort = {
     async create(input) {
@@ -68,7 +70,7 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
         sessionId: SessionId(input.sessionId),
         meta: { cwd: input.cwd },
         ...(input.agentOptions !== undefined ? { agentOptions: input.agentOptions } : {}),
-        setup: (agentCtx) => setupAgentScope(agentCtx, input.hooks),
+        setup: (agentCtx) => setupAgentScope(agentCtx, input.hooks, toolsScope),
       })
       return adaptAgent(handle)
     },
@@ -76,7 +78,7 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
       const handle: AgentHandle = await ctx.agents.resume({
         resumeSessionId: SessionId(input.sessionId),
         ...(input.agentOptions !== undefined ? { agentOptions: input.agentOptions } : {}),
-        setup: (agentCtx) => setupAgentScope(agentCtx, input.hooks),
+        setup: (agentCtx) => setupAgentScope(agentCtx, input.hooks, toolsScope),
       })
       return adaptAgent(handle)
     },
@@ -208,7 +210,11 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
     return () => dispose()
   })
 
-  // 卸载：中断扫码轮询；runtime drain（stopAll）与关存储域的顺序由 openDomainSafely 的 beforeClose 保证。
+  // 卸载：释放工具行 standing scope；中断扫码轮询；runtime drain（stopAll）与关存储域的
+  // 顺序由 openDomainSafely 的 beforeClose 保证。
+  ctx.effect(() => async () => {
+    await toolsScope.dispose()
+  })
   ctx.effect(() => async () => {
     registerAppService.dispose()
   })

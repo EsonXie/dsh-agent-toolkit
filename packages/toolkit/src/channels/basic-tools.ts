@@ -2,7 +2,9 @@
  *  源：archive/2026-08-26-merged-plugins/agent-team/presets/team/agent.cordis.yml 的基础工具行，
  *  逐行对照 deepseek-harness/apps/cli/config/agent-presets/standard/agent.cordis.yml 核对 id 与 config。
  *  shell 双行按平台互斥（win32 用 pwsh，其余用 bash），与两 preset 的 disabled 条件一致。
- *  这些行在 agent 创建期经 setupAgentScope scoped 挂载进各会话，不再依赖 preset 机制。 */
+ *  这些行由 tool-scope.ts 一次性挂进 bot 会话共用的 standing scope（祖先层），agent 经
+ *  setupAgentScope join 加入——宿主 tools.restrict() 只能过滤继承面，挂进 agentCtx own 层
+ *  的白名单会抛 unknown global tools（2026-09-03 事故）。 */
 
 export interface BasicTool {
   /** 插件包名（preset 行的 name 字段）。 */

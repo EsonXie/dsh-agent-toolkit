@@ -3,11 +3,14 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { BotRecord } from '../bots/store.ts'
 import type { InboundMessage } from './channel.ts'
 import { parseDirective } from './directive.ts'
+import { truncateDetail } from './outbound.ts'
 import type { Router } from './router.ts'
 
 export interface InboundDeps {
   router: Router
   bots: { get(botId: string): BotRecord | undefined }
+  /** 回传渠道的错误摘要最大字符数（与出站同源配置）。 */
+  maxErrorDetailChars: number
   onError(message: string): void
 }
 
@@ -16,8 +19,10 @@ export class Inbound {
 
   onMessage(msg: InboundMessage): void {
     void this.handle(msg).catch(async (error) => {
-      this.deps.onError(`[project-bot] 入站处理失败：${error instanceof Error ? error.message : String(error)}`)
-      await msg.reply.notice('处理失败，请稍后再试').catch(() => undefined)
+      // 摘要一并回传渠道：dsh web 终端不展示插件 warn，通用文案无法定位（2026-09-03 /new 事故）。
+      const detail = truncateDetail(error instanceof Error ? error.message : String(error), this.deps.maxErrorDetailChars)
+      this.deps.onError(`[project-bot] 入站处理失败：${detail}`)
+      await msg.reply.notice(`处理失败：${detail}`).catch(() => undefined)
     })
   }
 

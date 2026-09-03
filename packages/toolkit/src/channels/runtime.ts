@@ -39,7 +39,7 @@ export class BotRuntime {
   constructor(private readonly deps: RuntimeDeps) {
     const bindingStore = this.bindingStore()
     this.router = new Router(deps.agents, bindingStore, this.sessions, deps.defaultModel, deps.workspace, (m) => deps.log.warn(m), deps.registry)
-    this.inbound = new Inbound({ router: this.router, bots: deps.bots, onError: (m) => deps.log.warn(m) })
+    this.inbound = new Inbound({ router: this.router, bots: deps.bots, maxErrorDetailChars: deps.maxErrorDetailChars, onError: (m) => deps.log.warn(m) })
     this.outbound = new Outbound(this.sessions, (m) => deps.log.warn(m), deps.maxErrorDetailChars)
   }
 

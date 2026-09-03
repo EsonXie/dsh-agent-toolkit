@@ -45,6 +45,9 @@ importers:
       '@deepseek-ai/dsh-agent-default-model':
         specifier: link:../../deepseek-harness/packages/core/agent-default-model
         version: link:../../deepseek-harness/packages/core/agent-default-model
+      '@deepseek-ai/dsh-agent-instructions':
+        specifier: link:../../deepseek-harness/packages/context/agent-instructions
+        version: link:../../deepseek-harness/packages/context/agent-instructions
       '@deepseek-ai/dsh-client-locale':
         specifier: link:../../deepseek-harness/packages/client/locale
         version: link:../../deepseek-harness/packages/client/locale
@@ -84,6 +87,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: link:../../deepseek-harness/packages/llm/llm
         version: link:../../deepseek-harness/packages/llm/llm
+      '@deepseek-ai/dsh-persona':
+        specifier: link:../../deepseek-harness/packages/preset/persona
+        version: link:../../deepseek-harness/packages/preset/persona
       '@deepseek-ai/dsh-scope':
         specifier: link:../../deepseek-harness/packages/core/scope
         version: link:../../deepseek-harness/packages/core/scope
@@ -105,6 +111,18 @@ importers:
       '@deepseek-ai/dsh-token-meter':
         specifier: link:../../deepseek-harness/packages/llm/token-meter
         version: link:../../deepseek-harness/packages/llm/token-meter
+      '@deepseek-ai/dsh-tool-bash':
+        specifier: link:../../deepseek-harness/packages/shell/tool-bash
+        version: link:../../deepseek-harness/packages/shell/tool-bash
+      '@deepseek-ai/dsh-tool-fs':
+        specifier: link:../../deepseek-harness/packages/fs/tool-fs
+        version: link:../../deepseek-harness/packages/fs/tool-fs
+      '@deepseek-ai/dsh-tool-fs-search':
+        specifier: link:../../deepseek-harness/packages/fs/tool-fs-search
+        version: link:../../deepseek-harness/packages/fs/tool-fs-search
+      '@deepseek-ai/dsh-tool-pwsh':
+        specifier: link:../../deepseek-harness/packages/shell/tool-pwsh
+        version: link:../../deepseek-harness/packages/shell/tool-pwsh
       '@deepseek-ai/dsh-tools':
         specifier: link:../../deepseek-harness/packages/core/tools
         version: link:../../deepseek-harness/packages/core/tools

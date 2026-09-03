@@ -19,10 +19,13 @@ interface Recorded {
   cancels: number
 }
 
-function harness() {
+function harness(opts: { createError?: unknown } = {}) {
   const rec: Recorded = { notices: [], acked: 0, followups: [], cancels: 0 }
   const agents: AgentsPort = {
-    create: async (input) => fakeAgent(input.sessionId, rec),
+    create: async (input) => {
+      if (opts.createError !== undefined) throw opts.createError
+      return fakeAgent(input.sessionId, rec)
+    },
     resume: async (input) => fakeAgent(input.sessionId, rec),
   }
   const map = new Map<string, string>()
@@ -44,6 +47,7 @@ function harness() {
   const inbound = new Inbound({
     router,
     bots: { get: (id) => (id === BOT.id ? BOT : undefined) },
+    maxErrorDetailChars: 200,
     onError: () => undefined,
   })
   function msg(text: string, chatId = 'oc_1'): InboundMessage {
@@ -141,4 +145,21 @@ test('未知 botId 的消息直接丢弃', async () => {
   await new Promise((r) => setTimeout(r, 20))
   expect(rec.followups).toHaveLength(0)
   expect(rec.notices).toHaveLength(0)
+})
+
+test('建会话失败：回复携带错误摘要（不再只有通用文案）', async () => {
+  const { rec, inbound, msg } = harness({ createError: new Error("Cannot find package '@deepseek-ai/dsh-persona'") })
+  inbound.onMessage(msg('/new'))
+  await vi.waitFor(() => {
+    expect(rec.notices.some((n) => n.includes('处理失败') && n.includes("Cannot find package '@deepseek-ai/dsh-persona'"))).toBe(true)
+  })
+})
+
+test('建会话失败：超长错误摘要截断到 maxErrorDetailChars', async () => {
+  const { rec, inbound, msg } = harness({ createError: new Error('x'.repeat(500)) })
+  inbound.onMessage(msg('/new'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('处理失败'))).toBe(true) })
+  const notice = rec.notices.find((n) => n.includes('处理失败'))
+  expect(notice!.length).toBeLessThanOrEqual('处理失败：'.length + 200 + 1)
+  expect(notice!.endsWith('…')).toBe(true)
 })
