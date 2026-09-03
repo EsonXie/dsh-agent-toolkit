@@ -27,6 +27,7 @@
       registerAppTimeoutMs: 600000
       processingReactionEmoji: OneSecond
       errorDetailMaxChars: 500
+      injectSender: true
     agentTeamPreset:
       enabled: true
       id: agent-team
@@ -57,6 +58,7 @@
 | `feishu.registerAppTimeoutMs` | number | `600000` | 扫码一键创建应用的轮询超时（毫秒，默认 10 分钟） |
 | `feishu.processingReactionEmoji` | string | `OneSecond` | 「处理中」表情回复的 emoji_type |
 | `feishu.errorDetailMaxChars` | number | `500` | 回传飞书的错误摘要最大字符数 |
+| `feishu.injectSender` | boolean | `true` | 会话创建时注入「渠道 + 发起人 open_id」提示段（`dsh-agent-toolkit:channel:sender`），供 Agent 写多维表格人员字段等场景使用 |
 
 ## `agentTeamPreset.*` 字段
 
