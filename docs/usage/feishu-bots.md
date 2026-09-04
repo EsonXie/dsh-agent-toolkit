@@ -12,13 +12,14 @@
 
 **第 1 步：基本信息**
 
-![创建向导第 1 步：名称、绑定项目、绑定 Agent](images/bots-form.png)
+![创建向导第 1 步：名称、绑定项目、绑定 Agent、Provider 与模型（绑 main 时）](images/bots-form.png)
 
 | 字段 | 说明 |
 |---|---|
 | 名称 | 1-64 字符，仅用于展示 |
 | 绑定项目 | 从工作区列表选择。bot 收到的消息会在该项目目录下建会话执行，**一个 bot 绑定一个项目** |
-| 绑定 Agent | `main` 或注册表中的角色。bot 会话使用该 Agent 的 persona / 模型 / 工具白名单——绑角色用角色配置的模型（未配置则用宿主默认模型），绑 `main` 用宿主默认模型 |
+| 绑定 Agent | `main` 或注册表中的角色。绑角色：会话使用角色的 persona / 模型 / 工具白名单（角色未配模型回退宿主默认模型）；绑 `main`：使用下方自配的 Provider/模型 |
+| Provider / 模型 | 仅绑定 `main` 时显示且必填。bot 会话固定使用该模型，不随宿主默认模型切换 |
 
 **第 2 步：飞书渠道绑定**（两个 tab）
 
@@ -27,7 +28,7 @@
 - **扫码一键创建**（推荐）：进入第 2 步自动发起。插件通过飞书开放平台 OAuth 2.0 Device Authorization Grant 生成二维码，用飞书 App 扫码授权后自动创建自建应用，App ID 与凭据引用直接入库——**App Secret 存入宿主 credentials 服务，不落数据表**。轮询超时默认 10 分钟（`feishu.registerAppTimeoutMs`）。
 - **手动填写**：填已有自建应用的 App ID（`cli_` 开头 + 16 位十六进制）和 App Secret（立即入 credentials）。
 
-编辑已有 bot 可改名称/项目/Agent；第 2 步支持渠道**解绑**与**重新绑定**：
+编辑已有 bot 可改名称/项目/Agent/模型（模型仅绑 `main` 时可改；改绑角色会清除已配置的模型）；第 2 步支持渠道**解绑**与**重新绑定**：
 
 - **解绑**：点击「解绑」并二次确认后立即生效——渠道断开、密钥凭据删除，bot 的名称/项目/Agent 等配置与历史会话**全部保留**，列表状态变为「未绑定」。
 - **重新绑定**：未绑定的 bot 在编辑向导第 2 步按创建时相同的方式（扫码一键创建 / 手动填写）绑定新应用；重新绑定**同一应用**时，原群聊会继续此前的会话上下文。
@@ -93,3 +94,5 @@ Agent 工作时，回复以飞书卡片实时更新：
 | `/dsh-agent-toolkit/api/bots/register-app` | POST | 发起一轮扫码注册 |
 | `/dsh-agent-toolkit/api/bots/register-app/status?id=` | GET | 轮询扫码状态 |
 | `/dsh-agent-toolkit/api/bots/tools` | GET | 全局工具列表 |
+| `/dsh-agent-toolkit/api/bots/providers` | GET | provider 列表 |
+| `/dsh-agent-toolkit/api/bots/models?provider=` | GET | 模型列表 |
