@@ -6,7 +6,7 @@ import {
   Button, Input,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  createBot, fetchAgents, fetchModels, fetchProviders, pollRegisterApp, startRegisterApp, updateBot,
+  createBot, fetchAgents, pollRegisterApp, startRegisterApp, updateBot,
   type BotListItem,
 } from './api.ts'
 import type { UseWorkspaces } from './BotsModal.tsx'
@@ -38,11 +38,6 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
   const [project, setProject] = useState(bot?.project ?? workspaces[0]?.path ?? '')
   const [agentRef, setAgentRef] = useState(bot?.agentRef ?? 'main')
   const [agents, setAgents] = useState<{ id: string; name: string; description?: string }[]>([])
-  const [provider, setProvider] = useState(bot?.agentOptions?.provider ?? '')
-  const [model, setModel] = useState(bot?.agentOptions?.model ?? '')
-  const [providers, setProviders] = useState<{ id: string; name: string }[]>([])
-  const [providersLoaded, setProvidersLoaded] = useState(false)
-  const [models, setModels] = useState<{ id: string; name: string }[]>([])
   const [tab, setTab] = useState<BindTab>('scan')
   const [appId, setAppId] = useState(bot?.feishu?.appId ?? '')
   const [appSecret, setAppSecret] = useState('')
@@ -53,7 +48,6 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const pollTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
 
-  // 第一步渲染时各取一次 providers；初始选中第一项（编辑模式若 bot 的 provider 在清单内则保留）；models 随 provider 变更重取，失败静默降级为手填。
   // agents：缺省选中「主 Agent（main）」；名册不可用（fetch 失败）时下拉只剩 main 项、提交不携带 agentRef（服务端回退 main）。
   useEffect(() => {
     let stale = false
@@ -67,39 +61,6 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
     }).catch(() => undefined)
     return () => { stale = true }
   }, [])
-
-  useEffect(() => {
-    let stale = false
-    fetchProviders().then((ps) => {
-      if (stale) return
-      setProviders(ps)
-      setProvidersLoaded(true)
-      setProvider((current) => {
-        if (editing && current !== '' && ps.some((p) => p.id === current)) return current
-        return ps[0]?.id ?? ''
-      })
-    }).catch(() => { if (!stale) setProvidersLoaded(true) })
-    return () => { stale = true }
-  }, [editing])
-
-  useEffect(() => {
-    let stale = false
-    if (provider.trim().length === 0) {
-      setModels([])
-      return () => { stale = true }
-    }
-    fetchModels(provider.trim())
-      .then((ms) => {
-        if (stale) return
-        setModels(ms)
-        setModel((current) => {
-          if (editing && current !== '' && ms.some((m) => m.id === current)) return current
-          return ms[0]?.id ?? current
-        })
-      })
-      .catch(() => { if (!stale) setModels([]) })
-    return () => { stale = true }
-  }, [provider, editing])
 
   useEffect(() => () => { if (pollTimer.current !== undefined) clearInterval(pollTimer.current) }, [])
 
@@ -167,17 +128,6 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
       setError('请填写 App ID 与 App Secret，或先完成扫码创建')
       return
     }
-    const providerValue = provider.trim()
-    const modelValue = model.trim()
-    if (providerValue.length === 0) {
-      setError('请选择 Provider')
-      return
-    }
-    if (modelValue.length === 0) {
-      setError('请选择或填写模型')
-      return
-    }
-    const agentOptions = { provider: providerValue, model: modelValue }
     setSaving(true)
     try {
       const payload = {
@@ -189,7 +139,6 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
           : agentRef !== 'main'
             ? { agentRef }
             : {}),
-        agentOptions,
         // 编辑未绑定态填写/扫码完成则携带 feishu 重绑；其余路径 feishu 为 undefined，不携带（保持渠道不动）。
         ...(feishu !== undefined ? { feishu } : {}),
       }
@@ -236,8 +185,6 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
     onCancel()
   }
 
-  const showModelSelect = provider.trim().length > 0 && models.length > 0
-
   return (
     <div>
       <div className={css.steps} aria-label="创建步骤">
@@ -266,25 +213,6 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
               {agents.filter((a) => a.id !== 'main').map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </label>
-          <label className={css.field}>
-            Provider
-            <select className={css.select} value={provider} aria-label="Provider" disabled={providers.length === 0}
-              onChange={(e) => { setProvider(e.target.value); setModel(''); setModels([]) }}>
-              {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </label>
-          {providersLoaded && providers.length === 0 && <p role="alert" className={css.error}>未发现可用 Provider</p>}
-          <label className={css.field}>
-            模型
-            {showModelSelect ? (
-              <select className={css.select} value={model} aria-label="模型" onChange={(e) => { setModel(e.target.value) }}>
-                {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            ) : (
-              <Input value={model} onChange={(e) => { setModel(e.target.value) }} aria-label="模型" className={css.input} />
-            )}
-          </label>
-
           {error !== null && <p role="alert" className={css.error}>{error}</p>}
           <div className={css.formActions}>
             <Button variant="outline" onClick={cancel}>取消</Button>
