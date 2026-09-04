@@ -9,7 +9,6 @@ const validBot: BotRecord = {
   project: 'D:\\work\\demo',
   persona: '你是评审助手',
   tools: ['bash', 'fs_read'],
-  agentOptions: { provider: 'deepseek', model: 'deepseek-v4' },
   createdAt: 1,
   updatedAt: 1,
 }
@@ -62,6 +61,13 @@ describe('BotRecordSchema', () => {
     const parsed = BotRecordSchema.safeParse(legacy)
     expect(parsed.success).toBe(true)
     expect(parsed.success ? parsed.data : {}).not.toHaveProperty('preset')
+  })
+
+  test('agentOptions 字段移除后：旧数据携带 agentOptions 仍可加载（未知键剥离，不拒绝）', () => {
+    const legacy = { ...validBot, agentOptions: { provider: 'deepseek', model: 'deepseek-v4' } } as Record<string, unknown>
+    const parsed = BotRecordSchema.safeParse(legacy)
+    expect(parsed.success).toBe(true)
+    expect(parsed.success ? parsed.data : {}).not.toHaveProperty('agentOptions')
   })
 
   test('未绑定记录：channel 与 feishu 双缺省通过', () => {

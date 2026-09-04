@@ -19,7 +19,7 @@ export class Router {
     private readonly bindings: BindingStore,
     /** sessionId → runtime（进程内活跃会话表，与 bindings 持久表互补）。 */
     private readonly sessions: Map<string, SessionRuntime>,
-    /** 存量 bot 无 agentOptions 时回退宿主默认模型。 */
+    /** main 形态会话与未配置模型的角色的模型来源（宿主默认模型）。 */
     private readonly defaultModel: DefaultModelAccessor,
     /** 会话归入 bot 项目 workspace（与原生 UI session.create 同款挂载）。 */
     private readonly workspace: WorkspacePort,
@@ -59,11 +59,6 @@ export class Router {
     }
   }
 
-  /** 有 agentOptions 原样透传；无则回退宿主默认模型（存量 bot 不抛 no provider/model）。 */
-  private resolveOptions(bot: BotRecord): { provider?: string; model?: string } {
-    return bot.agentOptions ?? this.defaultModel()
-  }
-
   /** injectSender 开启时向 hooks.sections 末尾追加 sender 段（主/角色形态通用）。 */
   private withSenderSection(hooks: AgentHooks, bot: BotRecord, userId: string): AgentHooks {
     if (!this.injectSender) return hooks
@@ -73,7 +68,7 @@ export class Router {
 
   /**
    * 按 bot.agentRef 解析会话组装（agentOptions + 创作期 hooks）：
-   * - 缺省/指向 main → 主 Agent 形态：bot 自带 persona/tools + 默认模型回退；
+   * - 缺省/指向 main → 主 Agent 形态：bot 自带 persona/tools + 宿主默认模型；
    * - 指向角色 → 角色形态：persona 单 section + tools.restrict + role.model；
    * - 指向不存在角色 → warn 并降级为主 Agent 形态。
    */
@@ -84,13 +79,13 @@ export class Router {
       if (role === undefined && ref !== 'main') {
         this.onWarn(`[project-bot] bot "${bot.id}" 的 agentRef "${ref}" 不存在，降级绑定主 Agent`)
       }
-      return { agentOptions: this.resolveOptions(bot), hooks: this.withSenderSection(hooksOf(bot), bot, userId) }
+      return { agentOptions: this.defaultModel(), hooks: this.withSenderSection(hooksOf(bot), bot, userId) }
     }
     const sections = role.persona === undefined || role.persona.trim().length === 0
       ? []
       : [{ name: 'dsh-agent-toolkit:agent:persona', order: 0, text: role.persona }]
     return {
-      agentOptions: role.model ?? this.resolveOptions(bot),
+      agentOptions: role.model ?? this.defaultModel(),
       hooks: this.withSenderSection({
         ...(sections.length > 0 ? { sections } : {}),
         ...(role.tools !== undefined ? { tools: role.tools.allow } : {}),

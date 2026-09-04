@@ -29,10 +29,6 @@ export const BotRecordSchema = z.object({
   agentRef: z.string().min(1).optional(),
   /** 可用工具白名单（缺省 = 不限制）；空数组无意义，直接拒绝。 */
   tools: z.array(z.string().min(1)).min(1).optional(),
-  agentOptions: z.object({
-    provider: z.string().min(1).optional(),
-    model: z.string().min(1).optional(),
-  }).optional(),
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
 }).refine(

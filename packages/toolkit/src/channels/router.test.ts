@@ -105,21 +105,14 @@ describe('Router.ensure', () => {
     expect(rt.sessionId).toBe('sess-old')
   })
 
-  test('bot 无 agentOptions：create 回退宿主默认模型（{provider, model}）', async () => {
+  test('create 会话以宿主默认模型创建（{provider, model}）', async () => {
     const { router, created, defaultModel } = setup()
     await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
     expect(defaultModel).toHaveBeenCalledOnce()
     expect(created[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-v4' })
   })
 
-  test('bot 有 agentOptions：原样透传，不触发默认模型回退', async () => {
-    const { router, created, defaultModel } = setup()
-    await router.ensure(fakeBot({ agentOptions: { provider: 'openai', model: 'gpt-4o' } }), 'oc_1', reply, 'ou_u1')
-    expect(defaultModel).not.toHaveBeenCalled()
-    expect(created[0].input.agentOptions).toEqual({ provider: 'openai', model: 'gpt-4o' })
-  })
-
-  test('resume 恢复路径：无 agentOptions 同样回退默认模型', async () => {
+  test('resume 恢复路径：同样取宿主默认模型', async () => {
     const { router, bindings, resumed, defaultModel } = setup()
     await bindings.set('reviewer', 'oc_1', 'sess-old')
     await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
@@ -182,7 +175,7 @@ test('Router.lookup 按绑定反查 runtime', async () => {
 })
 
 describe('Router.ensure agentRef 绑定', () => {
-  test('agentRef 指向 main：不注册角色 section、不 restrict，agentOptions 走默认模型回退', async () => {
+  test('agentRef 指向 main：不注册角色 section、不 restrict，模型取宿主默认', async () => {
     const { router, created, defaultModel } = setup(undefined, fakeRegistry([MAIN_ROLE]).registry)
     await router.ensure(fakeBot({ agentRef: 'main' }), 'oc_1', reply, 'ou_u1')
     expect(defaultModel).toHaveBeenCalledOnce()
@@ -201,6 +194,20 @@ describe('Router.ensure agentRef 绑定', () => {
         SENDER,
       ],
       tools: ['bash', 'fs_read'],
+    })
+  })
+
+  test('agentRef 指向角色且角色未配 model：回退宿主默认模型', async () => {
+    const NO_MODEL_ROLE: AgentRecord = { id: 'scout', name: '侦察', persona: '负责侦察。' }
+    const { router, created, defaultModel } = setup(undefined, fakeRegistry([MAIN_ROLE, NO_MODEL_ROLE]).registry)
+    await router.ensure(fakeBot({ agentRef: 'scout' }), 'oc_1', reply, 'ou_u1')
+    expect(defaultModel).toHaveBeenCalledOnce()
+    expect(created[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-v4' })
+    expect(created[0].input.hooks).toEqual({
+      sections: [
+        { name: 'dsh-agent-toolkit:agent:persona', order: 0, text: '负责侦察。' },
+        SENDER,
+      ],
     })
   })
 

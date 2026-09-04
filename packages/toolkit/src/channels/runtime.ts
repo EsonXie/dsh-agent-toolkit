@@ -15,7 +15,7 @@ export interface RuntimeDeps {
   agents: AgentsPort
   /** Agent 注册表（agentRef → main/角色），Router 会话创建时决定 persona/工具/模型装配。 */
   registry: AgentRegistry
-  /** 存量 bot 无 agentOptions 时回退宿主默认模型。 */
+  /** main 形态会话与未配置模型的角色的模型来源（宿主默认模型）。 */
   defaultModel: DefaultModelAccessor
   /** 会话归入 bot 项目 workspace。 */
   workspace: WorkspacePort
