@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { BotsModal } from './BotsModal.tsx'
 
@@ -60,14 +60,13 @@ test('删除两段确认：首点仅切确认态；再点 DELETE 并刷新列表
   expect(await screen.findByText('评审机器人')).toBeTruthy()
 
   // 首段：只切确认态，不发 DELETE
-  within(rowOf('评审机器人')).getByRole('button', { name: '删除' }).click()
-  await act(async () => {})
+  fireEvent.click(within(rowOf('评审机器人')).getByRole('button', { name: '删除' }))
   expect(within(rowOf('评审机器人')).getByRole('button', { name: '确认删除？' })).toBeTruthy()
   expect(deletes).toBe(0)
 
   // 第二段：确认 → DELETE → reload（GET 计数 +1）
   const getsBefore = gets
-  within(rowOf('评审机器人')).getByRole('button', { name: '确认删除？' }).click()
+  fireEvent.click(within(rowOf('评审机器人')).getByRole('button', { name: '确认删除？' }))
   await vi.waitFor(() => { expect(deletes).toBe(1) })
   await vi.waitFor(() => { expect(gets).toBe(getsBefore + 1) })
 })
@@ -75,11 +74,9 @@ test('删除两段确认：首点仅切确认态；再点 DELETE 并刷新列表
 test('删除确认态转移：点其它行的删除按钮，原行复位', async () => {
   render(<BotsModal open onClose={() => undefined} useWorkspaces={useWorkspaces} />)
   expect(await screen.findByText('评审机器人')).toBeTruthy()
-  within(rowOf('评审机器人')).getByRole('button', { name: '删除' }).click()
-  await act(async () => {})
+  fireEvent.click(within(rowOf('评审机器人')).getByRole('button', { name: '删除' }))
   expect(within(rowOf('评审机器人')).getByRole('button', { name: '确认删除？' })).toBeTruthy()
-  within(rowOf('运维机器人')).getByRole('button', { name: '删除' }).click()
-  await act(async () => {})
+  fireEvent.click(within(rowOf('运维机器人')).getByRole('button', { name: '删除' }))
   expect(within(rowOf('评审机器人')).getByRole('button', { name: '删除' })).toBeTruthy()
   expect(within(rowOf('运维机器人')).getByRole('button', { name: '确认删除？' })).toBeTruthy()
 })
@@ -91,9 +88,8 @@ test('删除失败：DELETE 500 → role=alert 错误行', async () => {
   }))
   render(<BotsModal open onClose={() => undefined} useWorkspaces={useWorkspaces} />)
   expect(await screen.findByText('评审机器人')).toBeTruthy()
-  within(rowOf('评审机器人')).getByRole('button', { name: '删除' }).click()
-  await act(async () => {})
-  within(rowOf('评审机器人')).getByRole('button', { name: '确认删除？' }).click()
+  fireEvent.click(within(rowOf('评审机器人')).getByRole('button', { name: '删除' }))
+  fireEvent.click(within(rowOf('评审机器人')).getByRole('button', { name: '确认删除？' }))
   expect((await screen.findByRole('alert')).textContent).toContain('删除失败')
 })
 
