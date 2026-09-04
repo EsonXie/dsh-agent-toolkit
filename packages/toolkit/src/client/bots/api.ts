@@ -12,6 +12,8 @@ export interface BotInput {
   /** 绑定的 Agent（'main' 或注册表角色 id）；null 清回主 Agent。 */
   agentRef?: string | null
   tools?: string[]
+  /** 绑 main 时自配模型（必填）；null = 清除（编辑模式绑角色时提交）。 */
+  agentOptions?: { provider?: string; model?: string } | null
   /** 渠道绑定：null = 解绑（服务端删密钥、保留会话绑定）；扫码路径传 appSecretRef。 */
   feishu?: { appId: string; appSecret?: string; appSecretRef?: string } | null
 }
@@ -32,11 +34,20 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
 
 export const fetchBots = () => request<{ bots: BotListItem[] }>('/dsh-agent-toolkit/api/bots/bots').then((r) => r.bots)
 
+export interface ProviderOption { id: string; name: string }
+export interface ModelOption { id: string; name: string }
+
+export const fetchProviders = () =>
+  request<{ providers: ProviderOption[] }>('/dsh-agent-toolkit/api/bots/providers').then((r) => r.providers)
+
 /** Agent 下拉选项（Task 14 的 GET /dsh-agent-toolkit/api/agents 返回 AgentRecord[]，此处取子集）。 */
 export interface AgentOption { id: string; name: string; description?: string }
 
 export const fetchAgents = () =>
   request<AgentOption[]>('/dsh-agent-toolkit/api/agents')
+
+export const fetchModels = (provider: string) =>
+  request<{ models: ModelOption[] }>(`/dsh-agent-toolkit/api/bots/models?provider=${encodeURIComponent(provider)}`).then((r) => r.models)
 
 export function createBot(input: BotInput): Promise<unknown> {
   return request('/dsh-agent-toolkit/api/bots/bots', { method: 'POST', body: JSON.stringify(input) })
