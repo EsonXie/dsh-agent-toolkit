@@ -9,14 +9,36 @@
   padding: 8px 10px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
+  margin-bottom: 4px;
+}
+.botRow:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.botMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: none;
   background: transparent;
   cursor: pointer;
   font: inherit;
   color: inherit;
-  margin-bottom: 4px;
   text-align: left;
 }
-.botRow:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.botDelete {
+  flex: none;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.botDelete:hover { color: var(--dsw-alias-state-error-primary); }
 .botName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .channelBadge { flex: none; }
 .status {

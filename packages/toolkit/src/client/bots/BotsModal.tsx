@@ -4,7 +4,7 @@ import {
   Button, Modal, Pill, StateDot, type StateDotState,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useLoadState } from '../shared/load-state.ts'
-import { fetchBots, type BotListItem } from './api.ts'
+import { deleteBot, fetchBots, type BotListItem } from './api.ts'
 import { BotForm } from './BotForm.tsx'
 import css from './bots.module.css'
 
@@ -56,6 +56,29 @@ function BotsModalBody({ useWorkspaces, onEdit, onCreate }: Omit<BotsModalProps,
   /** 打开即拉取（body 随 open 全新挂载，天然复位）；保存后 reload 重拉。 */
   const { state, reload } = useLoadState<BotListItem[]>(() => fetchBots(), [])
 
+  /** 两段确认：记录待删行 id；点其它行转移，执行后清空。 */
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  async function remove(bot: BotListItem): Promise<void> {
+    if (confirmDeleteId !== bot.id) {
+      setConfirmDeleteId(bot.id)
+      setDeleteError(null)
+      return
+    }
+    setDeletingId(bot.id)
+    try {
+      await deleteBot(bot.id)
+      setConfirmDeleteId(null)
+      reload()
+    } catch (e) {
+      setDeleteError(`删除失败：${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   const groups = new Map<string, BotListItem[]>()
   if (state.kind === 'ok') {
     for (const bot of state.data) {
@@ -76,21 +99,28 @@ function BotsModalBody({ useWorkspaces, onEdit, onCreate }: Omit<BotsModalProps,
             <section key={project} className={css.group}>
               <h3 className={css.groupTitle}>{project}</h3>
               {bots.map((bot) => (
-                <button key={bot.id} type="button" className={css.botRow}
-                  onClick={() => { onEdit !== undefined ? onEdit(bot) : setView({ mode: 'edit', bot }) }}>
-                  <span className={css.botName}>{bot.name}</span>
-                  {/* 渠道徽标：仅已绑定（feishu 存在）的 bot 显示 */}
-                  {bot.feishu !== undefined && <Pill className={css.channelBadge}>飞书</Pill>}
-                  <span className={css.status}>
-                    <StateDot state={STATUS_DOT[bot.status] ?? 'warning'} size={8} />
-                    <span>{STATUS_LABEL[bot.status] ?? bot.status}</span>
-                  </span>
-                </button>
+                <div key={bot.id} className={css.botRow}>
+                  <button type="button" className={css.botMain}
+                    onClick={() => { setConfirmDeleteId(null); onEdit !== undefined ? onEdit(bot) : setView({ mode: 'edit', bot }) }}>
+                    <span className={css.botName}>{bot.name}</span>
+                    {/* 渠道徽标：仅已绑定（feishu 存在）的 bot 显示 */}
+                    {bot.feishu !== undefined && <Pill className={css.channelBadge}>飞书</Pill>}
+                    <span className={css.status}>
+                      <StateDot state={STATUS_DOT[bot.status] ?? 'warning'} size={8} />
+                      <span>{STATUS_LABEL[bot.status] ?? bot.status}</span>
+                    </span>
+                  </button>
+                  <button type="button" className={css.botDelete} disabled={deletingId !== null}
+                    onClick={() => { void remove(bot) }}>
+                    {confirmDeleteId === bot.id ? '确认删除？' : '删除'}
+                  </button>
+                </div>
               ))}
             </section>
           ))}
+          {deleteError !== null && <p role="alert" className={css.error}>{deleteError}</p>}
           <Button variant="primary" className={css.createButton}
-            onClick={() => { onCreate !== undefined ? onCreate() : setView({ mode: 'create' }) }}>
+            onClick={() => { setConfirmDeleteId(null); onCreate !== undefined ? onCreate() : setView({ mode: 'create' }) }}>
             新建机器人
           </Button>
         </>

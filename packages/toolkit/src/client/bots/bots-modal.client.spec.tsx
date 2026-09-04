@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { BotsModal } from './BotsModal.tsx'
 
@@ -37,6 +37,65 @@ afterEach(() => {
 })
 
 const useWorkspaces = <S,>(selector: (s: { items: unknown[] }) => S): S => selector({ items: [] })
+
+function rowOf(name: string): HTMLElement {
+  const main = screen.getByText(name).closest('button')
+  if (main === null) throw new Error(`row not found: ${name}`)
+  return main.parentElement as HTMLElement
+}
+
+test('删除两段确认：首点仅切确认态；再点 DELETE 并刷新列表', async () => {
+  let deletes = 0
+  let gets = 0
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    if ((init?.method ?? 'GET') === 'DELETE' && url.includes('id=reviewer')) {
+      deletes += 1
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    if (url.endsWith('/bots')) gets += 1
+    return new Response(JSON.stringify(BOTS), { status: 200, headers: { 'content-type': 'application/json' } })
+  }))
+  render(<BotsModal open onClose={() => undefined} useWorkspaces={useWorkspaces} />)
+  expect(await screen.findByText('评审机器人')).toBeTruthy()
+
+  // 首段：只切确认态，不发 DELETE
+  within(rowOf('评审机器人')).getByRole('button', { name: '删除' }).click()
+  await act(async () => {})
+  expect(within(rowOf('评审机器人')).getByRole('button', { name: '确认删除？' })).toBeTruthy()
+  expect(deletes).toBe(0)
+
+  // 第二段：确认 → DELETE → reload（GET 计数 +1）
+  const getsBefore = gets
+  within(rowOf('评审机器人')).getByRole('button', { name: '确认删除？' }).click()
+  await vi.waitFor(() => { expect(deletes).toBe(1) })
+  await vi.waitFor(() => { expect(gets).toBe(getsBefore + 1) })
+})
+
+test('删除确认态转移：点其它行的删除按钮，原行复位', async () => {
+  render(<BotsModal open onClose={() => undefined} useWorkspaces={useWorkspaces} />)
+  expect(await screen.findByText('评审机器人')).toBeTruthy()
+  within(rowOf('评审机器人')).getByRole('button', { name: '删除' }).click()
+  await act(async () => {})
+  expect(within(rowOf('评审机器人')).getByRole('button', { name: '确认删除？' })).toBeTruthy()
+  within(rowOf('运维机器人')).getByRole('button', { name: '删除' }).click()
+  await act(async () => {})
+  expect(within(rowOf('评审机器人')).getByRole('button', { name: '删除' })).toBeTruthy()
+  expect(within(rowOf('运维机器人')).getByRole('button', { name: '确认删除？' })).toBeTruthy()
+})
+
+test('删除失败：DELETE 500 → role=alert 错误行', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if ((init?.method ?? 'GET') === 'DELETE') return new Response('boom', { status: 500 })
+    return new Response(JSON.stringify(BOTS), { status: 200, headers: { 'content-type': 'application/json' } })
+  }))
+  render(<BotsModal open onClose={() => undefined} useWorkspaces={useWorkspaces} />)
+  expect(await screen.findByText('评审机器人')).toBeTruthy()
+  within(rowOf('评审机器人')).getByRole('button', { name: '删除' }).click()
+  await act(async () => {})
+  within(rowOf('评审机器人')).getByRole('button', { name: '确认删除？' }).click()
+  expect((await screen.findByRole('alert')).textContent).toContain('删除失败')
+})
 
 test('列表按项目分组，显示渠道标记与运行状态', async () => {
   render(<BotsModal open onClose={() => undefined} useWorkspaces={useWorkspaces} onEdit={() => undefined} />)
