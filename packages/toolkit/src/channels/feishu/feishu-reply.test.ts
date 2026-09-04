@@ -20,6 +20,7 @@ function fakeApi() {
     addReaction: async (...args) => { calls.push({ op: 'addReaction', args }); return 'reaction_1' },
     removeReaction: async (...args) => { calls.push({ op: 'removeReaction', args }) },
     downloadImage: async (...args) => { calls.push({ op: 'downloadImage', args }); return { data: new Uint8Array(), mediaType: 'image/png' } },
+    getBotOpenId: async () => 'ou_bot_self',
   }
   return { api, calls }
 }

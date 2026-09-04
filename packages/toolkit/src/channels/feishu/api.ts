@@ -14,6 +14,8 @@ export interface FeishuApi {
   removeReaction(messageId: string, reactionId: string): Promise<void>
   /** 下载消息内图片资源（im/v1 resources，type=image）；媒体类型按魔数判定、响应头兜底。 */
   downloadImage(messageId: string, fileKey: string): Promise<InboundImage>
+  /** 本机器人的 open_id（bot/v3/info）；群消息 @ 身份校验用。 */
+  getBotOpenId(): Promise<string>
 }
 
 /** 附件服务接受的图片媒体类型（与宿主 attachment v1 一致）。 */
@@ -113,6 +115,18 @@ export function createFeishuApi(client: lark.Client): FeishuApi {
         throw new Error(`图片资源格式不受支持（file_key=${fileKey}，content-type=${String(res.headers?.['content-type'] ?? '未知')}）`)
       }
       return { data, mediaType }
+    },
+    async getBotOpenId() {
+      // bot/v3/info 无 SDK 类型化方法，走通用 request；响应顶层挂 bot（非 data.bot）。
+      const res = await client.request<{ code?: number; msg?: string; bot?: { open_id?: unknown } }>({
+        method: 'GET',
+        url: 'https://open.feishu.cn/open-apis/bot/v3/info',
+      })
+      const openId = res.bot?.open_id
+      if (typeof openId !== 'string' || openId.length === 0) {
+        throw new Error(`获取机器人信息失败：code=${res.code} msg=${res.msg}`)
+      }
+      return openId
     },
   }
 }

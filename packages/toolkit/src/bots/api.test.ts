@@ -433,6 +433,25 @@ test('未知路径 404；已知路径错误方法 405', async () => {
   expect(res405.status).toBe(405)
 })
 
+describe('createFeishuApi.getBotOpenId', () => {
+  test('返回 bot/v3/info 的 open_id；请求方法与路径正确', async () => {
+    const calls: { method?: string; url?: string }[] = []
+    const client = {
+      request: async (opts: { method?: string; url?: string }) => {
+        calls.push(opts)
+        return { code: 0, msg: 'success', bot: { open_id: 'ou_bot_self' } }
+      },
+    } as unknown as Client
+    await expect(createFeishuApi(client).getBotOpenId()).resolves.toBe('ou_bot_self')
+    expect(calls).toEqual([{ method: 'GET', url: 'https://open.feishu.cn/open-apis/bot/v3/info' }])
+  })
+
+  test('响应缺 open_id → 抛错带 code/msg 上下文', async () => {
+    const client = { request: async () => ({ code: 99991663, msg: 'app access token invalid' }) } as unknown as Client
+    await expect(createFeishuApi(client).getBotOpenId()).rejects.toThrow('code=99991663')
+  })
+})
+
 describe('createFeishuApi.setCardStreaming', () => {
   function fakeClient() {
     const calls: { settings: string; sequence: number }[] = []

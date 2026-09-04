@@ -19,7 +19,7 @@ interface RawEvent {
     chat_type?: unknown
     message_type?: unknown
     content?: unknown
-    mentions?: readonly { mentioned_type?: unknown }[]
+    mentions?: readonly { mentioned_type?: unknown; id?: { open_id?: unknown } }[]
   }
 }
 
@@ -60,8 +60,10 @@ function parsePostContent(content: string): { text: string; imageKeys: string[] 
  * SDK handler 收到的 data 即事件体（README 示例 `data.message` 直接解构）；
  * 兼容包一层 { event } 的形态。过滤：机器人消息、非 text/post/image 类型、
  * 群内未 @机器人、无文本且无图片。
+ * 群消息 @ 校验身份：mention 的 open_id 必须等于本机器人（应用若持全部群消息权限，
+ * 会收到 @ 其他机器人的消息，不能误触发）。
  */
-export function parseMessageEvent(data: unknown): ParsedMessage | null {
+export function parseMessageEvent(data: unknown, botOpenId: string): ParsedMessage | null {
   const wrapped = data as { event?: RawEvent } & RawEvent
   const event: RawEvent = wrapped.event ?? wrapped
   if (event.sender?.sender_type !== 'user') return null
@@ -72,7 +74,8 @@ export function parseMessageEvent(data: unknown): ParsedMessage | null {
   if (typeof msg.content !== 'string') return null
   if (typeof msg.message_id !== 'string' || typeof msg.chat_id !== 'string') return null
   if (msg.chat_type !== 'p2p' && msg.chat_type !== 'group') return null
-  if (msg.chat_type === 'group' && !(msg.mentions ?? []).some((m) => m.mentioned_type === 'bot')) return null
+  if (msg.chat_type === 'group'
+    && !(msg.mentions ?? []).some((m) => m.mentioned_type === 'bot' && m.id?.open_id === botOpenId)) return null
 
   let text = ''
   let imageKeys: string[] = []

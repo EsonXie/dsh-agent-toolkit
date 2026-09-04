@@ -13,6 +13,8 @@ export const feishuChannel: BotChannel = {
     const { appId } = bot.record.feishu!
     const client = new lark.Client({ appId, appSecret: bot.secret })
     const api = createFeishuApi(client)
+    // 群消息 @ 身份校验依赖本机器人 open_id；取不到则启动失败（reconcile 记录原因），不降级放行。
+    const botOpenId = await api.getBotOpenId()
     const dedup = new MessageDedup()
 
     const dispatcher = new lark.EventDispatcher({}).register({
@@ -20,7 +22,7 @@ export const feishuChannel: BotChannel = {
       'im.message.message_read_v1': async () => undefined,
       // WS 事件须 3 秒内返回：解析同步完成，业务投递 fire-and-forget（含图片懒下载）。
       'im.message.receive_v1': async (data: unknown) => {
-        const parsed = parseMessageEvent(data)
+        const parsed = parseMessageEvent(data, botOpenId)
         if (parsed === null || !dedup.check(parsed.messageId)) return
         const reply = new FeishuReplyHandle(api, parsed.chatId, tunables, log)
         const loadImages = parsed.imageKeys.length > 0
