@@ -38,7 +38,7 @@ export interface AgentsPort {
   }): Promise<AgentPort>
 }
 
-/** main 形态会话与未配置模型的角色的模型来源（取 {provider, model}）。 */
+/** main 形态会话（bot 未自配 agentOptions 时）与未配置模型的角色的模型来源（取 {provider, model}）。 */
 export type DefaultModelAccessor = () => { provider: string; model: string }
 
 /** 会话归属：把 session 挂到 cwd 对应 workspace（宿主侧幂等；无则自动建）。 */

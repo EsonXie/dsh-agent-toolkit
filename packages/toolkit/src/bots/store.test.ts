@@ -9,6 +9,7 @@ const validBot: BotRecord = {
   project: 'D:\\work\\demo',
   persona: '你是评审助手',
   tools: ['bash', 'fs_read'],
+  agentOptions: { provider: 'deepseek', model: 'deepseek-v4' },
   createdAt: 1,
   updatedAt: 1,
 }
@@ -63,9 +64,11 @@ describe('BotRecordSchema', () => {
     expect(parsed.success ? parsed.data : {}).not.toHaveProperty('preset')
   })
 
-  test('agentOptions 字段移除后：旧数据携带 agentOptions 仍可加载（未知键剥离，不拒绝）', () => {
-    const legacy = { ...validBot, agentOptions: { provider: 'deepseek', model: 'deepseek-v4' } } as Record<string, unknown>
-    const parsed = BotRecordSchema.safeParse(legacy)
+  test('agentOptions 恢复为合法可选字段：携带解析后保留；缺省正常解析', () => {
+    expect(BotRecordSchema.parse(validBot).agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-v4' })
+    const minimal = { ...validBot } as Record<string, unknown>
+    delete minimal.agentOptions
+    const parsed = BotRecordSchema.safeParse(minimal)
     expect(parsed.success).toBe(true)
     expect(parsed.success ? parsed.data : {}).not.toHaveProperty('agentOptions')
   })

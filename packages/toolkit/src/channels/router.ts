@@ -19,7 +19,7 @@ export class Router {
     private readonly bindings: BindingStore,
     /** sessionId → runtime（进程内活跃会话表，与 bindings 持久表互补）。 */
     private readonly sessions: Map<string, SessionRuntime>,
-    /** main 形态会话与未配置模型的角色的模型来源（宿主默认模型）。 */
+    /** main 形态会话（bot 未自配 agentOptions 时）与未配置模型的角色的模型来源（宿主默认模型）。 */
     private readonly defaultModel: DefaultModelAccessor,
     /** 会话归入 bot 项目 workspace（与原生 UI session.create 同款挂载）。 */
     private readonly workspace: WorkspacePort,
@@ -68,7 +68,7 @@ export class Router {
 
   /**
    * 按 bot.agentRef 解析会话组装（agentOptions + 创作期 hooks）：
-   * - 缺省/指向 main → 主 Agent 形态：bot 自带 persona/tools + 宿主默认模型；
+   * - 缺省/指向 main → 主 Agent 形态：bot 自带 persona/tools + 模型（自配 agentOptions 优先，缺省回退宿主默认模型）；
    * - 指向角色 → 角色形态：persona 单 section + tools.restrict + role.model；
    * - 指向不存在角色 → warn 并降级为主 Agent 形态。
    */
@@ -79,7 +79,7 @@ export class Router {
       if (role === undefined && ref !== 'main') {
         this.onWarn(`[project-bot] bot "${bot.id}" 的 agentRef "${ref}" 不存在，降级绑定主 Agent`)
       }
-      return { agentOptions: this.defaultModel(), hooks: this.withSenderSection(hooksOf(bot), bot, userId) }
+      return { agentOptions: bot.agentOptions ?? this.defaultModel(), hooks: this.withSenderSection(hooksOf(bot), bot, userId) }
     }
     const sections = role.persona === undefined || role.persona.trim().length === 0
       ? []

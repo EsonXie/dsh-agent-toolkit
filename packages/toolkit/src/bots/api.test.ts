@@ -71,6 +71,8 @@ function harness(overrides: Partial<ApiDeps> = {}) {
     } as unknown as ApiDeps['runtime'],
     registerApp,
     listTools: () => ['bash', 'fs_read', 'fs_write'],
+    listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
+    listModels: async () => [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }],
     storeSecret: async (key, secret) => {
       storedSecrets.push({ key, secret })
       return `project_bot_${key.replace(/[^A-Za-z0-9_]/g, '_')}`
@@ -152,7 +154,7 @@ describe('POST /bots', () => {
     expect(dupId.status).toBe(409)
   })
 
-  test('请求体携带 agentOptions 被忽略（bot 模型改由绑定 Agent 决定，不落表）', async () => {
+  test('请求体携带 agentOptions 正常落表（绑 main 的 bot 自配模型）', async () => {
     const { handler, bots } = harness()
     const res = mockRes()
     await handler(mockReq('POST', '/dsh-agent-toolkit/api/bots/bots', {
@@ -161,7 +163,7 @@ describe('POST /bots', () => {
       feishu: { appId: 'cli_000000000000000a', appSecret: 'plain-secret' },
     }), res)
     expect(res.status).toBe(200)
-    expect(bots.get('ops')).not.toHaveProperty('agentOptions')
+    expect(bots.get('ops')).toMatchObject({ agentOptions: { provider: 'deepseek', model: 'deepseek-chat' } })
   })
 
   test('畸形 appSecretRef → 400（扫码引用须过 CREDENTIAL_REF_RE，POST 对齐 PUT）', async () => {
@@ -240,6 +242,28 @@ describe('PUT /bots', () => {
     await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=ops', { agentRef: null }), clear)
     expect(clear.status).toBe(200)
     expect(bots.get('ops')).not.toHaveProperty('agentRef')
+  })
+
+  test('agentOptions：创建落表、更新覆盖、null 清除（绑角色时表单清除残留模型配置）', async () => {
+    const { handler, bots } = harness()
+    const create = mockRes()
+    await handler(mockReq('POST', '/dsh-agent-toolkit/api/bots/bots', {
+      id: 'ops', name: '运维', project: 'D:\\work\\ops',
+      agentOptions: { provider: 'deepseek', model: 'deepseek-chat' },
+      feishu: { appId: 'cli_000000000000000a', appSecret: 'plain-secret' },
+    }), create)
+    expect(create.status).toBe(200)
+    expect(bots.get('ops')).toMatchObject({ agentOptions: { provider: 'deepseek', model: 'deepseek-chat' } })
+
+    const update = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=ops', { agentOptions: { provider: 'openai', model: 'gpt-x' } }), update)
+    expect(update.status).toBe(200)
+    expect(bots.get('ops')).toMatchObject({ agentOptions: { provider: 'openai', model: 'gpt-x' } })
+
+    const clear = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=ops', { agentOptions: null }), clear)
+    expect(clear.status).toBe(200)
+    expect(bots.get('ops')).not.toHaveProperty('agentOptions')
   })
 })
 
@@ -371,6 +395,32 @@ test('GET /tools 返回已注册工具名', async () => {
   const res = mockRes()
   await handler(mockReq('GET', '/dsh-agent-toolkit/api/bots/tools'), res)
   expect(JSON.parse(res.body)).toEqual({ tools: ['bash', 'fs_read', 'fs_write'] })
+})
+
+describe('GET /providers 与 GET /models', () => {
+  test('/providers 返回 provider 列表', async () => {
+    const { handler } = harness()
+    const res = mockRes()
+    await handler(mockReq('GET', '/dsh-agent-toolkit/api/bots/providers'), res)
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ providers: [{ id: 'deepseek', name: 'DeepSeek' }] })
+  })
+
+  test('/models 按 provider 返回模型列表', async () => {
+    const { handler } = harness()
+    const res = mockRes()
+    await handler(mockReq('GET', '/dsh-agent-toolkit/api/bots/models?provider=deepseek'), res)
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] })
+  })
+
+  test('listModels 失败 → 200 空数组降级（不报错）', async () => {
+    const { handler } = harness({ listModels: async () => { throw new Error('network down') } })
+    const res = mockRes()
+    await handler(mockReq('GET', '/dsh-agent-toolkit/api/bots/models?provider=deepseek'), res)
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ models: [] })
+  })
 })
 
 test('未知路径 404；已知路径错误方法 405', async () => {

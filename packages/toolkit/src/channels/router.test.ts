@@ -120,6 +120,13 @@ describe('Router.ensure', () => {
     expect(resumed[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-v4' })
   })
 
+  test('bot 有 agentOptions：原样透传（绑 main 的 bot 自配模型优先于宿主默认）', async () => {
+    const { router, created, defaultModel } = setup()
+    await router.ensure(fakeBot({ agentOptions: { provider: 'acme', model: 'acme-x' } }), 'oc_1', reply, 'ou_u1')
+    expect(defaultModel).not.toHaveBeenCalled()
+    expect(created[0].input.agentOptions).toEqual({ provider: 'acme', model: 'acme-x' })
+  })
+
   test('create 后 attach 到 bot 项目 workspace（原生 UI 同款挂载）', async () => {
     const { router, workspace } = setup()
     const rt = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
@@ -195,6 +202,13 @@ describe('Router.ensure agentRef 绑定', () => {
       ],
       tools: ['bash', 'fs_read'],
     })
+  })
+
+  test('agentRef 指向角色：记录残留的 agentOptions 不读（角色模型优先）', async () => {
+    const { router, created, defaultModel } = setup(undefined, fakeRegistry([MAIN_ROLE, REVIEWER_ROLE]).registry)
+    await router.ensure(fakeBot({ agentRef: 'reviewer', agentOptions: { provider: 'acme', model: 'acme-x' } }), 'oc_1', reply, 'ou_u1')
+    expect(defaultModel).not.toHaveBeenCalled()
+    expect(created[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-reasoner' })
   })
 
   test('agentRef 指向角色且角色未配 model：回退宿主默认模型', async () => {

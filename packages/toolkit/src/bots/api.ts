@@ -7,11 +7,19 @@ import type { BotRuntime } from '../channels/runtime.ts'
 import type { RegisterAppService } from './register-app.ts'
 import { BOT_ID_RE, BotRecordSchema, CREDENTIAL_REF_RE, FEISHU_APP_ID_RE, type BotRecord } from './store.ts'
 
+/** 一个可选的 provider 路由（id = agentOptions.provider 的值）。 */
+export interface ProviderOption { id: string; name: string }
+/** 一个可选的模型条目（id = agentOptions.model 的值）。 */
+export interface ModelOption { id: string; name: string }
+
 export interface ApiDeps {
   bots: KvTable<string, BotRecord>
   runtime: BotRuntime
   registerApp: RegisterAppService
   listTools(): string[]
+  listProviders(): ProviderOption[]
+  /** 失败由调用方（路由）兜底为空数组，不抛错。 */
+  listModels(provider: string): Promise<ModelOption[]>
   /** 密钥入 credentials，返回 CredentialRef 字符串。 */
   storeSecret(key: string, secret: string): Promise<string>
   deleteSecret(ref: string): Promise<void>
@@ -30,6 +38,7 @@ const CreateBodySchema = z.object({
   /** 绑定的 Agent（'main' 或注册表角色 id；缺省 = main）。 */
   agentRef: z.string().min(1).optional(),
   tools: z.array(z.string().min(1)).min(1).optional(),
+  agentOptions: z.object({ provider: z.string().min(1).optional(), model: z.string().min(1).optional() }).optional(),
   feishu: z.object({
     appId: z.string().regex(FEISHU_APP_ID_RE),
     /** 手动填写路径：明文密钥（立即入 credentials，不落表）。 */
@@ -45,6 +54,7 @@ const UpdateBodySchema = z.object({
   persona: z.string().max(8000).nullable().optional(),
   agentRef: z.string().min(1).nullable().optional(),
   tools: z.array(z.string().min(1)).min(1).nullable().optional(),
+  agentOptions: z.object({ provider: z.string().min(1).optional(), model: z.string().min(1).optional() }).nullable().optional(),
   /** 重绑：明文新密钥（立即入 credentials）或扫码引用（已入库）；null = 解绑渠道（删密钥、保留会话绑定）。 */
   feishu: z.object({
     appId: z.string().regex(FEISHU_APP_ID_RE),
@@ -143,6 +153,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         ...(input.persona !== undefined ? { persona: input.persona } : {}),
         ...(input.agentRef !== undefined ? { agentRef: input.agentRef } : {}),
         ...(input.tools !== undefined ? { tools: input.tools } : {}),
+        ...(input.agentOptions !== undefined ? { agentOptions: input.agentOptions } : {}),
         createdAt: deps.now(), updatedAt: deps.now(),
       } satisfies BotRecord)
       await deps.bots.put(record.id, record)
@@ -212,6 +223,8 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else if (input.agentRef !== undefined) merged.agentRef = input.agentRef
       if (input.tools === null) delete merged.tools
       else if (input.tools !== undefined) merged.tools = input.tools
+      if (input.agentOptions === null) delete merged.agentOptions
+      else if (input.agentOptions !== undefined) merged.agentOptions = input.agentOptions
       const record = BotRecordSchema.parse(merged)
       await deps.bots.put(id, record)
       await deps.runtime.reconcile(id)
@@ -254,7 +267,24 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return
     }
 
-    if (['/bots', '/register-app', '/register-app/status', '/tools'].includes(sub)) {
+    if (sub === '/providers' && method === 'GET') {
+      json(res, 200, { providers: deps.listProviders() })
+      return
+    }
+
+    if (sub === '/models' && method === 'GET') {
+      // 模型列举可能走网络（adapter 探测），失败静默降级为空数组。
+      let models: ModelOption[] = []
+      try {
+        models = await deps.listModels(url.searchParams.get('provider') ?? '')
+      } catch {
+        models = []
+      }
+      json(res, 200, { models })
+      return
+    }
+
+    if (['/bots', '/register-app', '/register-app/status', '/tools', '/providers', '/models'].includes(sub)) {
       json(res, 405, { error: 'method not allowed' })
       return
     }

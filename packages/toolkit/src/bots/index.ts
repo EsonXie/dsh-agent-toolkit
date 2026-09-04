@@ -10,6 +10,7 @@ import type { AgentHandle } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type { AgentRegistry } from '../agents/registry.ts'
 import { openDomainSafely } from '../shared/storage.ts'
@@ -214,6 +215,8 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
         runtime,
         registerApp: registerAppService,
         listTools: () => ctx.tools.schemas().map((s) => s.name),
+        listProviders: () => ctx.llm.listProviders().map(({ id, name }) => ({ id, name })),
+        listModels: (provider) => ctx.llm.listModels(provider).then((models) => models.map(({ id, name }) => ({ id, name }))),
         storeSecret,
         deleteSecret: async (ref) => ctx.credentials.unset(credentialRef(ref)),
         validateProject: (path) => existsSync(path),
