@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { AgentRecordSchema, agentToolkitDomain, migrateAgentRecord } from './store.ts'
+import { AgentRecordSchema, agentToolkitDomain, isTeamVisible, migrateAgentRecord } from './store.ts'
 
 const VALID = {
   id: 'explorer',
@@ -58,6 +58,21 @@ describe('AgentRecordSchema', () => {
   test('接受 persona 字段与遗留 promptLayers（迁移输入）', () => {
     expect(AgentRecordSchema.safeParse({ id: 'x', name: 'X', persona: 'P' }).success).toBe(true)
     expect(AgentRecordSchema.safeParse({ id: 'x', name: 'X', promptLayers: [{ name: 'persona', order: 0, text: 'P' }] }).success).toBe(true)
+  })
+
+  test('接受 visibleInTeam 可选布尔（省略/true/false 均合法，非布尔拒绝）', () => {
+    expect(AgentRecordSchema.safeParse({ id: 'x', name: 'X' }).success).toBe(true)
+    expect(AgentRecordSchema.safeParse({ id: 'x', name: 'X', visibleInTeam: true }).success).toBe(true)
+    expect(AgentRecordSchema.safeParse({ id: 'x', name: 'X', visibleInTeam: false }).success).toBe(true)
+    expect(AgentRecordSchema.safeParse({ id: 'x', name: 'X', visibleInTeam: 'yes' }).success).toBe(false)
+  })
+})
+
+describe('isTeamVisible', () => {
+  test('缺省与 true 可见，仅显式 false 隐藏', () => {
+    expect(isTeamVisible({})).toBe(true)
+    expect(isTeamVisible({ visibleInTeam: true })).toBe(true)
+    expect(isTeamVisible({ visibleInTeam: false })).toBe(false)
   })
 })
 

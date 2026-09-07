@@ -17,6 +17,8 @@ export interface AgentRecord {
   model?: { provider: string; model: string }
   tools?: { allow: string[] } // 仅白名单；空数组拒绝（min(1) 语义）
   builtin?: boolean
+  /** 团队可见性：省略/true = 出现在 Agent 团队名册并可被委派；false = 隐藏。bot 绑定不受此字段影响。 */
+  visibleInTeam?: boolean
 }
 
 export const LayerConfigSchema = z.object({
@@ -34,6 +36,7 @@ export const AgentRecordSchema: z.ZodType<AgentRecord> = z.object({
   model: z.object({ provider: z.string(), model: z.string() }).optional(),
   tools: z.object({ allow: z.array(z.string()).min(1) }).optional(),
   builtin: z.boolean().optional(),
+  visibleInTeam: z.boolean().optional(),
 })
 
 /** domain 名/表名受 UNIT_NAME_RE 约束（^[a-z][a-z0-9_]*$），不允许连字符。 */
@@ -63,4 +66,9 @@ export function migrateAgentRecord(record: AgentRecord): AgentRecord {
     .join('\n\n')
   const persona = rest.persona ?? joined
   return persona.length > 0 ? { ...rest, persona } : rest
+}
+
+/** 团队可见性判定：缺省（undefined）与 true 均可见；仅显式 false 隐藏。 */
+export function isTeamVisible(role: Pick<AgentRecord, 'visibleInTeam'>): boolean {
+  return role.visibleInTeam !== false
 }
