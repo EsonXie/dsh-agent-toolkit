@@ -96,19 +96,22 @@ export const Config: z<unknown, Config> = z.object({
     injectSender: true,
   }),
   // agent-team preset 自动生成：派生 shipped standard、禁用 subagent 工具族 4 行，
-  // 写入首个 trust=user root（spec: docs/superpowers/specs/2026-09-02-agent-team-preset-design.md）。
+  // 写入首个 trust=user root；另生成 bot 会话最小 preset（botsId，委派子会话 composeFrom 认父的前提）
+  // （spec: docs/superpowers/specs/2026-09-02-agent-team-preset-design.md）。
   agentTeamPreset: z.object({
     enabled: z.boolean().default(true),
     id: z.string().default('agent-team'),
     source: z.string().default('standard'),
     name: z.string().default('Agent 团队'),
     description: z.string().default('Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色'),
+    botsId: z.string().default('agent-bot'),
   }).default({
     enabled: true,
     id: 'agent-team',
     source: 'standard',
     name: 'Agent 团队',
     description: 'Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色',
+    botsId: 'agent-bot',
   }),
 }) as z<unknown, Config>
 
