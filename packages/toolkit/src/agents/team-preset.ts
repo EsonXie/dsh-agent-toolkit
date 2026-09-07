@@ -176,19 +176,24 @@ export async function setupAgentTeamPreset(ctx: Context, config: AgentTeamPreset
     }
   }
 
-  // agent-bot：bot 会话挂载的最小组合，内容来自 BASIC_TOOLS，不依赖源 preset 读取。
-  if (!PRESET_ID.test(config.botsId)) {
-    warn(`dsh-agent-toolkit: agentTeamPreset.botsId "${config.botsId}" 不是合法 preset id，跳过 agent-bot 生成`)
+  // botsId 与 id 相同：agent-bot 块会覆盖 agent-team 的 composition + preset.yml，直接跳过（agent-team 照常生成）。
+  if (config.id === config.botsId) {
+    warn(`dsh-agent-toolkit: agentTeamPreset.id 与 agentTeamPreset.botsId 相同（均为 "${config.id}"），跳过 agent-bot 生成`)
   } else {
-    try {
-      await writeGeneratedPreset(
-        presetDir(config.botsId),
-        GENERATED_HEADER + botPresetComposition(),
-        { name: BOT_PRESET_NAME, description: BOT_PRESET_DESCRIPTION },
-        warn,
-      )
-    } catch (error) {
-      warn(`dsh-agent-toolkit: 写入 agent-bot preset 失败：${error instanceof Error ? error.message : String(error)}`)
+    // agent-bot：bot 会话挂载的最小组合，内容来自 BASIC_TOOLS，不依赖源 preset 读取。
+    if (!PRESET_ID.test(config.botsId)) {
+      warn(`dsh-agent-toolkit: agentTeamPreset.botsId "${config.botsId}" 不是合法 preset id，跳过 agent-bot 生成`)
+    } else {
+      try {
+        await writeGeneratedPreset(
+          presetDir(config.botsId),
+          GENERATED_HEADER + botPresetComposition(),
+          { name: BOT_PRESET_NAME, description: BOT_PRESET_DESCRIPTION },
+          warn,
+        )
+      } catch (error) {
+        warn(`dsh-agent-toolkit: 写入 agent-bot preset 失败：${error instanceof Error ? error.message : String(error)}`)
+      }
     }
   }
 }

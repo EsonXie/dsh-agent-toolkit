@@ -230,6 +230,15 @@ describe('setupAgentTeamPreset', () => {
     await expect(readFile(join(userRoot, 'evil'), 'utf8')).rejects.toThrow()
   })
 
+  test('botsId 与 id 相同：warn（含两个配置名）并跳过 agent-bot，agent-team composition 不被 bot 覆盖', async () => {
+    const { ctx, warn } = makeCtx(makeAgentPresets())
+    await setupAgentTeamPreset(ctx, { ...CONFIG, botsId: 'agent-team' })
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/agent-team.*agent-team|agent-team.*相同|相同.*agent-team/))
+    const composition = await readFile(join(targetDir(), 'agent.cordis.yml'), 'utf8')
+    expect(composition.match(/disabled: true/g)).toHaveLength(4)
+    expect(composition).not.toContain('tool-fs')
+  })
+
   test('agent-bot 同名用户目录保护：不覆盖，agent-team 照常生成', async () => {
     await mkdir(botDir(), { recursive: true })
     await writeFile(join(botDir(), 'keep.txt'), 'user data', 'utf8')

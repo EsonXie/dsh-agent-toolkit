@@ -81,6 +81,7 @@ describe('createScopeJoiner 真实组合守护', () => {
     await createScopeJoiner(ctx, 'nonexistent', fallback, vi.fn()).join(parentScope.ctx)
     const childScope = createScope(ctx, { fake: 'child-fb' })
     expect(ctx.agentPresets.composeFrom(childScope.ctx, parentScope.ctx)).toBeUndefined()
+    expect(ctx.tools.get('bot-fixture', scopeOf(childScope.ctx)!)).toBeUndefined()
     await fallback.dispose()
   })
 })
