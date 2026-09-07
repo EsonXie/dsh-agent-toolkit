@@ -73,6 +73,7 @@ function AgentsModalBody({ onEdit, onCreate, onDelete }: Omit<AgentsModalProps, 
               {agent.name}
             </span>
             {agent.builtin === true && <Pill className={css.builtinBadge}>内置</Pill>}
+            {agent.visibleInTeam === false && <Pill className={css.builtinBadge}>团队不可见</Pill>}
             {agent.description !== undefined && <span className={css.agentDesc}>{agent.description}</span>}
           </button>
         ))}

@@ -249,3 +249,12 @@ test('编辑团队不可见角色：checkbox 回显为不勾选；勾选后保�
     expect(put?.body).not.toHaveProperty('visibleInTeam')
   })
 })
+
+test('列表渲染：团队不可见角色带「团队不可见」徽标，可见角色不带', async () => {
+  const withHidden = [...AGENTS, { id: 'ghost', name: '幕后', visibleInTeam: false }]
+  stubFetch({ ...routes(), '/dsh-agent-toolkit/api/agents': () => withHidden })
+  render(<AgentsModal open onClose={() => undefined} />)
+
+  expect(await screen.findByText('幕后')).toBeTruthy()
+  expect(screen.getAllByText('团队不可见')).toHaveLength(1)
+})
