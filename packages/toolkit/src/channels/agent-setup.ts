@@ -1,10 +1,10 @@
-/** agent 创建/恢复的作用域组合：加入基础工具行 standing scope → persona/tools 创作期注入。 */
+/** agent 创建/恢复的作用域组合：加入作用域组合（preset 或基础工具 standing scope 回退）→ persona/tools 创作期注入。 */
 import type { Context } from '@deepseek-ai/cordis'
 // type-only 激活 dsh-system-prompt / dsh-tools 对 cordis Context 的声明合并（agentCtx.systemPrompt / agentCtx.tools）。
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { AgentHooks } from './ports.ts'
-import type { ToolsScope } from './tool-scope.ts'
+import type { ScopeJoiner } from './scope-joiner.ts'
 
 /** bot 会话角色 persona 的 scoped 段名：与全局 persona 层同名，scoped 注册即 shadow 覆盖主 Agent persona。 */
 export const TOOLKIT_PERSONA_SECTION = 'prompt-stack:persona'
@@ -19,9 +19,9 @@ export const TOOLKIT_PERSONA_SECTION = 'prompt-stack:persona'
 export async function setupAgentScope(
   agentCtx: Context,
   hooks: AgentHooks,
-  toolsScope: ToolsScope,
+  joiner: ScopeJoiner,
 ): Promise<void> {
-  await toolsScope.join(agentCtx)
+  await joiner.join(agentCtx)
   if (hooks.persona !== undefined) {
     agentCtx.systemPrompt.section({ name: TOOLKIT_PERSONA_SECTION, order: 10, text: hooks.persona })
   }

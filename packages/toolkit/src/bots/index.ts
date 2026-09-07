@@ -21,6 +21,7 @@ import { feishuChannel } from '../channels/feishu/index.ts'
 import type { AttachmentsPort } from '../channels/inbound.ts'
 import type { AgentPort, AgentsPort, WorkspacePort } from '../channels/ports.ts'
 import { BotRuntime } from '../channels/runtime.ts'
+import { createScopeJoiner, type ScopeJoiner } from '../channels/scope-joiner.ts'
 import { createToolsScope } from '../channels/tool-scope.ts'
 import { createApiHandler } from './api.ts'
 import { RegisterAppService } from './register-app.ts'
@@ -47,6 +48,8 @@ export interface BotsModuleConfig {
 /** setupBots 的宿主接线依赖（registry 供运行时委派/API 消费；prompt 无消费方，Task 13 定案不装配 persona）。 */
 export interface BotsDeps {
   registry: AgentRegistry
+  /** bot 会话挂载的 preset id（agentTeamPreset 开启时下达；undefined = 直接 toolsScope）。 */
+  botPresetId?: string
 }
 
 export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps): void {
@@ -65,8 +68,13 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
     return ref
   }
 
-  /** 创作期注入已迁至 agent-setup.ts + tool-scope.ts（基础工具行 standing scope 挂载 + persona/tools），preset 机制整体移除。 */
+  /** 创作期注入已迁至 agent-setup.ts + tool-scope.ts（基础工具行 standing scope 挂载 + persona/tools）。
+   *  preset 优先 joiner（agent-bot 组合）：mount 成功后委派子会话 composeFrom 认父（spec: docs/superpowers/specs/2026-09-07-bot-delegation-preset-mount-design.md）。 */
   const toolsScope = createToolsScope(ctx)
+  // preset 优先：mount 成功后委派子会话 composeFrom 认父；未下达 id 时维持 toolsScope 直挂。
+  const scopeJoiner: ScopeJoiner = deps.botPresetId !== undefined
+    ? createScopeJoiner(ctx, deps.botPresetId, toolsScope, log.warn)
+    : toolsScope
 
   const agentsPort: AgentsPort = {
     async create(input) {
@@ -74,7 +82,7 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
         sessionId: SessionId(input.sessionId),
         meta: { cwd: input.cwd },
         ...(input.agentOptions !== undefined ? { agentOptions: input.agentOptions } : {}),
-        setup: (agentCtx) => setupAgentScope(agentCtx, input.hooks, toolsScope),
+        setup: (agentCtx) => setupAgentScope(agentCtx, input.hooks, scopeJoiner),
       })
       return adaptAgent(handle)
     },
@@ -82,7 +90,7 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
       const handle: AgentHandle = await ctx.agents.resume({
         resumeSessionId: SessionId(input.sessionId),
         ...(input.agentOptions !== undefined ? { agentOptions: input.agentOptions } : {}),
-        setup: (agentCtx) => setupAgentScope(agentCtx, input.hooks, toolsScope),
+        setup: (agentCtx) => setupAgentScope(agentCtx, input.hooks, scopeJoiner),
       })
       return adaptAgent(handle)
     },

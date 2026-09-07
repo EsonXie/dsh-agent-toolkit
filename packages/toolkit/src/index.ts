@@ -167,6 +167,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   // agentPresets 为可选服务（rc2 旧宿主缺席时内部静默跳过），不进 inject。
   await setupAgentTeamPreset(ctx, config.agentTeamPreset)
-  if (config.modules.feishu) setupBots(ctx, config.feishu, { registry })
+  if (config.modules.feishu) setupBots(ctx, config.feishu, { registry, botPresetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.botsId : undefined })
   if (config.modules.usage) setupUsage(ctx, { timezone: config.timezone }, name)
 }
