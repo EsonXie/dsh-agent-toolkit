@@ -67,7 +67,9 @@ export async function createRegistry(
     } catch {
       extra = undefined
     }
-    if (extra !== undefined) {
+    // 空差集（= 回退常量减常量，如 agentPresets 缺席/枚举失败回退后差集为空）不置标记：
+    // 置上会永久跳过重试；下次启动重试为空差集是无害幂等 no-op。
+    if (extra !== undefined && extra.length > 0) {
       for (const [id, record] of agents.entries()) {
         if (record.builtin === true || record.tools === undefined) continue
         const missing = extra.filter((n) => !record.tools!.allow.includes(n))

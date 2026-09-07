@@ -73,7 +73,7 @@ test('新建角色→保存：Persona 单文本 + 工具默认全勾（preset+�
   fireEvent.change(screen.getByLabelText('ID'), { target: { value: 'ops' } })
   fireEvent.change(screen.getByLabelText('名称'), { target: { value: '运维' } })
   fireEvent.change(screen.getByLabelText('提示词'), { target: { value: '你是运维。' } })
-  // 新建模式默认全勾 native + global（fetchTools 返回 ToolsCatalog 后异步填入）
+  // 新建模式默认全勾 preset + global（fetchTools 返回 ToolsCatalog 后异步填入）
   expect((screen.getByLabelText('自定义白名单') as HTMLInputElement).checked).toBe(true)
   await vi.waitFor(() => {
     expect((screen.getByLabelText('工具 bash') as HTMLInputElement).checked).toBe(true)

@@ -1,5 +1,5 @@
 /** 动态名册：standing 面枚举（去 global、减 run_code、排序）；agentPresets 缺席/失败回退常量。*/
-import { describe, expect, test, vi } from 'vitest'
+import { describe, expect, test } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { createToolCatalog } from './tool-catalog.ts'
 import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'

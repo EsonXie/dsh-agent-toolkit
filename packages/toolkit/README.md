@@ -52,7 +52,7 @@ dsh plugin --profile <profile 名> add dsh-agent-toolkit
 
 ### Agent 注册表
 
-侧边栏底栏「Agent 管理」打开面板，创建/编辑/删除角色。每个角色有 id、名称、描述、persona 提示词、可选模型覆盖、可选工具白名单（原生工具 + 全局工具，仅白名单语义）。首次激活时把 `$DSH_HOME/agent-team/roles/*.yml` 一次性导入。
+侧边栏底栏「Agent 管理」打开面板，创建/编辑/删除角色。每个角色有 id、名称、描述、persona 提示词、可选模型覆盖、可选工具白名单（团队 preset 工具 + 全局工具，仅白名单语义）。首次激活时把 `$DSH_HOME/agent-team/roles/*.yml` 一次性导入。
 
 ![Agent 注册表面板](https://raw.githubusercontent.com/EsonXie/dsh-agent-toolkit/master/docs/usage/images/agents-modal.png)
 

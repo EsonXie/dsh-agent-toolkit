@@ -250,6 +250,21 @@ test('createRegistry：枚举失败 → 跳过迁移且不置标记（下次启�
   expect(registry2.get('dev')?.tools?.allow).toEqual(['read', 'todo_write'])
 })
 
+test('createRegistry：preset 面等于原生常量（回退路径）→ 差集为空不置标记；面恢复含额外名 → 迁移并置标记', async () => {
+  const domain = new FakeDomain(agentToolkitDomain)
+  const tables = tablesOf(domain)
+  await tables.meta.put(TOOLS_NATIVE_MIGRATED_KEY, { value: '1' }) // 隔离原生并入的干扰
+  await agentsOf(domain).put('dev', { id: 'dev', name: 'Dev', tools: { allow: ['read'] } })
+  // 回退常量本身：差集 = 常量 − 常量 = 空 → 跳过迁移且不置标记（下次启动重试）
+  const registry = await createRegistry(vi.fn(), tables, async () => [...NATIVE_TOOL_NAMES])
+  expect(registry.get('dev')?.tools?.allow).toEqual(['read'])
+  expect(tables.meta.get('tools_preset_catalog_migrated')).toBeUndefined()
+  // 面恢复含额外名 → 差集并入 + 置标记
+  const registry2 = await createRegistry(vi.fn(), tables, async () => [...NATIVE_TOOL_NAMES, 'todo_write'])
+  expect(registry2.get('dev')?.tools?.allow).toEqual(['read', 'todo_write'])
+  expect(tables.meta.get('tools_preset_catalog_migrated')).toEqual({ value: '1' })
+})
+
 test('createRegistry：不传 listPresetTools（两参调用）→ 跳过迁移且不置标记', async () => {
   const domain = new FakeDomain(agentToolkitDomain)
   await agentsOf(domain).put('dev', { id: 'dev', name: 'Dev', tools: { allow: ['read'] } })
