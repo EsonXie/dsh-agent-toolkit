@@ -1,7 +1,7 @@
 /** delegate 模块：注册表驱动的 team_delegate 委派工具 + 函数式团队提示段。 */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
-import type { AgentRecord } from '../agents/store.ts'
+import { isTeamVisible, type AgentRecord } from '../agents/store.ts'
 import type { AgentRegistry } from '../agents/registry.ts'
 import { buildAgentPersona } from '../prompt/persona.ts'
 import type { Rule } from '../prompt/types.ts'
@@ -21,12 +21,12 @@ const TEAM_SECTION_ORDER = 116.6
  */
 export function teamSectionText(
   toolName: string,
-  roles: readonly Pick<AgentRecord, 'id' | 'name' | 'description'>[],
+  roles: readonly Pick<AgentRecord, 'id' | 'name' | 'description' | 'visibleInTeam'>[],
   toolVisible: boolean,
 ): string {
   if (!toolVisible) return ''
   const rosterText = roles
-    .filter(r => r.id !== 'main')
+    .filter(r => r.id !== 'main' && isTeamVisible(r))
     .map(r => `${r.id}: ${r.description ?? r.name}`)
     .join('\n')
   return `你有一组可委派的成员：用 ${toolName} 把自包含的子任务委派给合适的成员，成员结果会作为工具返回值回到本对话。\n可用成员：\n${rosterText}`
