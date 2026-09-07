@@ -2,12 +2,12 @@
 import { expect, test } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { buildCreateAgentGuidance, setupCreateAgentCommand, type CreateAgentGuidanceInput } from './create-command.ts'
-import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 import type { AgentRegistry } from './registry.ts'
 
 const BASE_INPUT: CreateAgentGuidanceInput = {
   requirement: '',
   agentIds: ['main', 'explorer', 'general'],
+  presetTools: ['pwsh', 'read', 'write', 'edit', 'read_image', 'glob', 'grep', 'todo_write', 'web_search'],
   globalTools: ['ask_user_question', 'team_delegate'],
   origin: 'http://127.0.0.1:3080',
 }
@@ -18,7 +18,8 @@ test('无参：含工作流/现有 id/工具清单/落库四节，无「用户�
   expect(text).toContain('不超过 5 次')
   expect(text).not.toContain('用户初始需求')
   expect(text).toContain('main, explorer, general')
-  for (const name of NATIVE_TOOL_NAMES) expect(text).toContain(name)
+  for (const name of BASE_INPUT.presetTools) expect(text).toContain(name)
+  expect(text).toContain('团队 preset 工具：')
   expect(text).toContain('ask_user_question, team_delegate')
   expect(text).toContain('PUT http://127.0.0.1:3080/dsh-agent-toolkit/api/agents/<id>')
   expect(text).toContain('GET http://127.0.0.1:3080/dsh-agent-toolkit/api/agents')
@@ -47,7 +48,7 @@ test('无 origin（headless）：输出降级文案，不含 PUT 指令', () => 
 /** 捕获 commands.register 定义与 followup 投递的最小面。 */
 interface CapturedCommand {
   name: string
-  handler: (invocation: { rawInput: string; agent: { followup(message: unknown): void } }) => { kind: string; text?: string }
+  handler: (invocation: { rawInput: string; agent: { followup(message: unknown): void } }) => { kind: string; text?: string } | Promise<{ kind: string; text?: string }>
 }
 
 function makeCommandCtx(webServer: { port: number } | undefined): { ctx: Context; captured: CapturedCommand[] } {
@@ -80,12 +81,12 @@ function makeFakeAgent(): { agent: { followup(message: unknown): void }; deliver
 
 // 命令结果（command/done）是 log-only、不进模型：引导文本必须经 agent.followup
 // 投递为 user 消息驱动主 Agent，命令卡只回执一句短文案。
-test('webServer 在场：followup 投递含回环 origin 与动态清单的引导文本，回执为短文案', () => {
+test('webServer 在场：followup 投递含回环 origin 与动态清单的引导文本，回执为短文案', async () => {
   const { ctx, captured } = makeCommandCtx({ port: 3080 })
-  setupCreateAgentCommand(ctx, { registry: fakeRegistry, listTools: () => ['team_delegate'] })
+  setupCreateAgentCommand(ctx, { registry: fakeRegistry, listTools: () => ['team_delegate'], listPresetTools: async () => [] })
   expect(captured.map((c) => c.name)).toEqual(['create-agent'])
   const { agent, delivered } = makeFakeAgent()
-  const result = captured[0]!.handler({ rawInput: '', agent })
+  const result = await captured[0]!.handler({ rawInput: '', agent })
   expect(result.kind).toBe('success')
   expect(delivered).toHaveLength(1)
   expect(delivered[0]).toContain('http://127.0.0.1:3080')
@@ -94,19 +95,19 @@ test('webServer 在场：followup 投递含回环 origin 与动态清单的引�
   expect(result.text).not.toContain('## 工作流')
 })
 
-test('webServer 缺席（headless）：followup 投递降级文案', () => {
+test('webServer 缺席（headless）：followup 投递降级文案', async () => {
   const { ctx, captured } = makeCommandCtx(undefined)
-  setupCreateAgentCommand(ctx, { registry: fakeRegistry, listTools: () => [] })
+  setupCreateAgentCommand(ctx, { registry: fakeRegistry, listTools: () => [], listPresetTools: async () => [] })
   const { agent, delivered } = makeFakeAgent()
-  const result = captured[0]!.handler({ rawInput: '', agent })
+  const result = await captured[0]!.handler({ rawInput: '', agent })
   expect(result.kind).toBe('success')
   expect(delivered[0]).toContain('无法自动落库')
 })
 
-test('rawInput 带需求：trim 后进入「用户初始需求」节', () => {
+test('rawInput 带需求：trim 后进入「用户初始需求」节', async () => {
   const { ctx, captured } = makeCommandCtx({ port: 3080 })
-  setupCreateAgentCommand(ctx, { registry: fakeRegistry, listTools: () => [] })
+  setupCreateAgentCommand(ctx, { registry: fakeRegistry, listTools: () => [], listPresetTools: async () => [] })
   const { agent, delivered } = makeFakeAgent()
-  captured[0]!.handler({ rawInput: '  做一个翻译 Agent  ', agent })
+  await captured[0]!.handler({ rawInput: '  做一个翻译 Agent  ', agent })
   expect(delivered[0]).toContain('「做一个翻译 Agent」')
 })

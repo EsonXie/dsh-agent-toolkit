@@ -157,7 +157,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     listModels: (provider) => ctx.llm.listModels(provider).then((models) => models.map(({ id, name }) => ({ id, name }))),
   })
   // /create-agent 命令恒启用（引导主 Agent 访谈并复用面板 API 落库，不新增工具/API）。
-  setupCreateAgentCommand(ctx, { registry, listTools: toolCatalog.listGlobalTools })
+  setupCreateAgentCommand(ctx, { registry, listTools: toolCatalog.listGlobalTools, listPresetTools: toolCatalog.listPresetTools })
   setupPromptLayersApi(ctx, {
     source: layerSource,
     rules: config.rules,

@@ -5,7 +5,6 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 import type { AgentRegistry } from './registry.ts'
 
 /** buildCreateAgentGuidance 的输入。 */
@@ -14,6 +13,8 @@ export interface CreateAgentGuidanceInput {
   requirement: string
   /** 现有 Agent id 列表（含 main），不可复用。 */
   agentIds: string[]
+  /** 团队 preset 工具名（动态名册）。 */
+  presetTools: string[]
   /** 顶层注册表全局工具名。 */
   globalTools: string[]
   /** web 宿主回环 origin（如 http://127.0.0.1:3080）；undefined = headless/CLI 降级。 */
@@ -44,9 +45,9 @@ export function buildCreateAgentGuidance(input: CreateAgentGuidanceInput): strin
     'id 规则：小写字母开头，仅含小写字母/数字/连字符（[a-z0-9-]），最长 32 字符。',
     '',
     '## 可用工具清单',
-    `原生工具：${NATIVE_TOOL_NAMES.join(', ')}`,
+    `团队 preset 工具：${input.presetTools.join(', ')}`,
     `全局工具：${input.globalTools.join(', ')}`,
-    '省略 tools 字段表示不限制（Agent 可使用全部工具）。一旦给出白名单，该 Agent 只有列出的工具可用：通常应保留原生工具，否则失去读文件/搜索/执行命令等基本能力（最终取舍按需求判断，如只读角色可去掉 write/edit）。',
+    '省略 tools 字段表示不限制（Agent 可使用全部工具）。一旦给出白名单，该 Agent 只有列出的工具可用：通常应保留 read/glob/grep/shell 等基础工具，否则失去读文件/搜索/执行命令等基本能力（最终取舍按需求判断，如只读角色可去掉 write/edit）。',
   )
   if (input.origin === undefined) {
     lines.push(
@@ -76,6 +77,7 @@ export function buildCreateAgentGuidance(input: CreateAgentGuidanceInput): strin
 export interface CreateAgentCommandDeps {
   registry: AgentRegistry
   listTools(): string[]
+  listPresetTools(): Promise<string[]>
 }
 
 /**
@@ -90,12 +92,13 @@ export function setupCreateAgentCommand(ctx: Context, deps: CreateAgentCommandDe
     name: 'create-agent',
     description: '交互式创建 Agent 团队成员：访谈澄清需求 → 推荐配置 → 确认后经面板 API 落库',
     input: { hint: '初始需求描述，可空' },
-    handler: ({ rawInput, agent }: { rawInput: string; agent: { followup(message: unknown): void } }) => {
+    handler: async ({ rawInput, agent }: { rawInput: string; agent: { followup(message: unknown): void } }) => {
       const webServer = ctx.get('webServer') as { port: number } | undefined
       const origin = webServer === undefined ? undefined : `http://127.0.0.1:${webServer.port}`
       const text = buildCreateAgentGuidance({
         requirement: rawInput.trim(),
         agentIds: deps.registry.list().map((agent) => agent.id),
+        presetTools: await deps.listPresetTools(),
         globalTools: deps.listTools(),
         origin,
       })
