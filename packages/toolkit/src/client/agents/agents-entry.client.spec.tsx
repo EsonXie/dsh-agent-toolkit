@@ -21,7 +21,7 @@ beforeEach(() => {
     const url = String(input)
     const payload = url === '/dsh-agent-toolkit/api/agents'
       ? AGENTS
-      : url === '/dsh-agent-toolkit/api/tools' ? { native: ['bash'], global: [] } : url === '/dsh-agent-toolkit/api/providers' ? [] : []
+      : url === '/dsh-agent-toolkit/api/tools' ? { preset: ['bash'], global: [] } : url === '/dsh-agent-toolkit/api/providers' ? [] : []
     return new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } })
   }))
 })

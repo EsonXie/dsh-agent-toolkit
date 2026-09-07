@@ -35,7 +35,7 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
   )
   // 团队可见性：省略/true = 可见（checkbox 勾选）；false = 隐藏。保存时勾选省略字段、不勾选写 false。
   const [visibleInTeam, setVisibleInTeam] = useState(agent?.visibleInTeam !== false)
-  const [catalog, setCatalog] = useState<ToolsCatalog>({ native: [], global: [] })
+  const [catalog, setCatalog] = useState<ToolsCatalog>({ preset: [], global: [] })
   const [catalogLoaded, setCatalogLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -48,8 +48,8 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
       if (stale) return
       setCatalog(c)
       setCatalogLoaded(true)
-      // 新建模式默认全勾（原生 + 扩展）；编辑模式以记录 allow 为准
-      if (creating) setTools([...c.native, ...c.global])
+      // 新建模式默认全勾（preset + 全局）；编辑模式以记录 allow 为准
+      if (creating) setTools([...c.preset, ...c.global])
     }).catch(() => undefined)
     return () => { stale = true }
   }, [])
@@ -183,13 +183,13 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
             自定义白名单
           </label>
         </div>
-        {catalog.native.length === 0 && catalog.global.length === 0 ? (
+        {catalog.preset.length === 0 && catalog.global.length === 0 ? (
           <p className={css.hint}>暂无可用工具</p>
         ) : (
           <fieldset className={css.toolGroupSet} disabled={toolsMode !== 'custom'}>
-            <p className={css.toolGroupTitle}>原生工具</p>
+            <p className={css.toolGroupTitle}>团队 preset 工具</p>
             <div className={css.toolGrid}>
-              {catalog.native.map((t) => (
+              {catalog.preset.map((t) => (
                 <label key={t} className={css.toolCheck}>
                   <input type="checkbox" checked={tools.includes(t)} aria-label={`工具 ${t}`} disabled={toolsMode !== 'custom'}
                     onChange={(e) => { toggleTool(t, e.target.checked) }} />
@@ -199,7 +199,7 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
             </div>
             {catalog.global.length > 0 && (
               <>
-                <p className={css.toolGroupTitle}>扩展工具</p>
+                <p className={css.toolGroupTitle}>全局工具</p>
                 <div className={css.toolGrid}>
                   {catalog.global.map((t) => (
                     <label key={t} className={css.toolCheck}>

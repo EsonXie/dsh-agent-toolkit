@@ -36,7 +36,7 @@ function routes() {
     '/dsh-agent-toolkit/api/agents': () => AGENTS,
     '/dsh-agent-toolkit/api/providers/deepseek/models': () => [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }],
     '/dsh-agent-toolkit/api/providers': () => PROVIDERS,
-    '/dsh-agent-toolkit/api/tools': () => ({ native: ['bash', 'read'], global: ['write'] }),
+    '/dsh-agent-toolkit/api/tools': () => ({ preset: ['bash', 'read'], global: ['write'] }),
   }
 }
 
@@ -64,7 +64,7 @@ test('列表渲染：main 不进列表、内置徽标与描述摘要、底部新
   expect(calls[0]).toMatchObject({ url: '/dsh-agent-toolkit/api/agents', method: 'GET' })
 })
 
-test('新建角色→保存：Persona 单文本 + 工具默认全勾（原生+扩展）→ PUT /agents/:id 携带记录', async () => {
+test('新建角色→保存：Persona 单文本 + 工具默认全勾（preset+全局）→ PUT /agents/:id 携带记录', async () => {
   const calls = stubFetch(routes())
   render(<AgentsModal open onClose={() => undefined} />)
   await screen.findByText('Explorer')
