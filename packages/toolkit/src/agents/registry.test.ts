@@ -217,3 +217,42 @@ test('createRegistry：已配 tools 的存量 explorer 不被只读迁移改动'
   const registry = await createRegistry(vi.fn(), tables)
   expect(registry.get('explorer')?.tools?.allow).toEqual(['read'])
 })
+
+test('createRegistry：存量自定义白名单一次性并入 preset 面减 native 的差集；builtin 不 widen', async () => {
+  const domain = new FakeDomain(agentToolkitDomain)
+  const tables = tablesOf(domain)
+  await tables.meta.put(TOOLS_NATIVE_MIGRATED_KEY, { value: '1' }) // 隔离原生并入的干扰
+  await agentsOf(domain).put('dev', { id: 'dev', name: 'Dev', tools: { allow: ['read'] } })
+  await agentsOf(domain).put('explorer', { id: 'explorer', name: 'Explorer', builtin: true, tools: { allow: ['read'] } })
+  const presetSurface = [...NATIVE_TOOL_NAMES, 'todo_write', 'web_search']
+  const registry = await createRegistry(vi.fn(), tables, async () => presetSurface)
+  // 差集（todo_write/web_search）并入普通角色；write/edit 属 native，不回收改
+  expect(registry.get('dev')?.tools?.allow).toEqual(['read', 'todo_write', 'web_search'])
+  // builtin explorer 的只读白名单是插件设计，不 widen
+  expect(registry.get('explorer')?.tools?.allow).toEqual(['read'])
+  expect(tables.meta.get('tools_preset_catalog_migrated')).toEqual({ value: '1' })
+  // 标记已置：用户后续编辑（去掉并入项）不会再被并入
+  await registry.upsert({ id: 'dev', name: 'Dev', tools: { allow: ['read'] } })
+  const registry2 = await createRegistry(vi.fn(), tables, async () => presetSurface)
+  expect(registry2.get('dev')?.tools?.allow).toEqual(['read'])
+})
+
+test('createRegistry：枚举失败 → 跳过迁移且不置标记（下次启动重试）', async () => {
+  const domain = new FakeDomain(agentToolkitDomain)
+  const tables = tablesOf(domain)
+  await tables.meta.put(TOOLS_NATIVE_MIGRATED_KEY, { value: '1' }) // 隔离原生并入的干扰
+  await agentsOf(domain).put('dev', { id: 'dev', name: 'Dev', tools: { allow: ['read'] } })
+  const registry = await createRegistry(vi.fn(), tables, async () => { throw new Error('preset broken') })
+  expect(registry.get('dev')?.tools?.allow).toEqual(['read'])
+  expect(tables.meta.get('tools_preset_catalog_migrated')).toBeUndefined()
+  // 下次启动枚举恢复 → 迁移执行
+  const registry2 = await createRegistry(vi.fn(), tables, async () => ['read', 'todo_write'])
+  expect(registry2.get('dev')?.tools?.allow).toEqual(['read', 'todo_write'])
+})
+
+test('createRegistry：不传 listPresetTools（两参调用）→ 跳过迁移且不置标记', async () => {
+  const domain = new FakeDomain(agentToolkitDomain)
+  await agentsOf(domain).put('dev', { id: 'dev', name: 'Dev', tools: { allow: ['read'] } })
+  await createRegistry(vi.fn(), tablesOf(domain))
+  expect(tablesOf(domain).meta.get('tools_preset_catalog_migrated')).toBeUndefined()
+})

@@ -23,6 +23,9 @@ export const TOOLS_NATIVE_MIGRATED_KEY = 'tools_native_migrated'
 /** explorer 只读白名单一次性并入的 meta 表标记键。 */
 export const EXPLORER_READONLY_MIGRATED_KEY = 'explorer_readonly_migrated'
 
+/** tools.allow 一次性并入「preset 面 − 原生常量」差集的 meta 表标记键。 */
+export const TOOLS_PRESET_MIGRATED_KEY = 'tools_preset_catalog_migrated'
+
 /**
  * 打开 dsh_agent_toolkit 域 → 首启 YAML 导入 → 旧记录迁移（promptLayers/原生并入/explorer 只读）→
  * 缺 main/explorer/general 时种入内置 → 构建内存缓存。域由 apply 统一 open（storage-domain 同名单开），此处只消费表句柄。
@@ -30,6 +33,8 @@ export const EXPLORER_READONLY_MIGRATED_KEY = 'explorer_readonly_migrated'
 export async function createRegistry(
   warn: (msg: string) => void,
   tables: { agents: KvTable<string, AgentRecord>; meta: KvTable<string, { value: string }> },
+  /** 动态 preset 工具面（tool-catalog.ts）；缺席 = 跳过 preset 并入迁移（不置标记）。 */
+  listPresetTools?: () => Promise<string[]>,
 ): Promise<AgentRegistry> {
   const { agents, meta } = tables
 
@@ -49,6 +54,28 @@ export async function createRegistry(
     if (next !== record) await agents.put(id, next)
   }
   if (!nativeMigrated) await meta.put(TOOLS_NATIVE_MIGRATED_KEY, { value: '1' })
+
+  // preset 并入：UI 从未提供 preset 工具名，存量自定义白名单缺它们非用户本意。
+  // 并入集 = preset 面 − NATIVE_TOOL_NAMES（native 名一直在 UI 可勾，用户不勾是有意排除，
+  // 不回收改）；builtin 记录跳过（explorer 只读白名单是插件设计，不 widen）。
+  // 枚举失败/服务缺席：跳过且不置标记，下次启动重试。
+  if (meta.get(TOOLS_PRESET_MIGRATED_KEY) === undefined && listPresetTools !== undefined) {
+    let extra: string[] | undefined
+    try {
+      const surface = await listPresetTools()
+      extra = surface.filter((n) => !NATIVE_TOOL_NAMES.includes(n))
+    } catch {
+      extra = undefined
+    }
+    if (extra !== undefined) {
+      for (const [id, record] of agents.entries()) {
+        if (record.builtin === true || record.tools === undefined) continue
+        const missing = extra.filter((n) => !record.tools!.allow.includes(n))
+        if (missing.length > 0) await agents.put(id, { ...record, tools: { allow: [...record.tools!.allow, ...missing] } })
+      }
+      await meta.put(TOOLS_PRESET_MIGRATED_KEY, { value: '1' })
+    }
+  }
 
   // explorer 只读白名单一次性迁移：deny 语义取消后 explorer 失去硬约束，此处补派生白名单恢复。
   // 先于 seedBuiltins 执行：新装环境的 explorer 由种入直接携带白名单，不经过本迁移与原生并入。
