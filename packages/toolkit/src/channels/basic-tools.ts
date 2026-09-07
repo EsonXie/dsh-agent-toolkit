@@ -32,10 +32,10 @@ export const BASIC_TOOLS: BasicTool[] = [
   },
 ]
 
-/** 原生工具名（白名单 UI 与存量迁移用）：与 BASIC_TOOLS 挂载插件注册的工具名一一对应。
- *  名字来源（摘自 deepseek-harness 源码）：dsh-tool-pwsh/dsh-tool-bash → 'pwsh'/'bash'（平台互斥）；
- *  dsh-tool-fs → 'read'/'write'/'edit'/'read_image'；dsh-tool-fs-search → 'glob'/'grep'。
- *  这些工具 scoped 挂载在 agentCtx，不出现在顶层 ctx.tools.schemas()，故需显式常量。 */
+/** 内置工具名常量（兜底名单）：agentPresets 缺席或 standing 枚举失败时，Agents 面板名册
+ *  与存量迁移回退到这份常量。语义已降级为"兜底"，不再承诺是完整原生工具面——完整面 =
+ *  团队 preset 动态枚举（agents/tool-catalog.ts）。explorer 只读白名单仍从本常量派生
+ *  （刻意的最小集，不追求完整）。 */
 export const NATIVE_TOOL_NAMES: readonly string[] = [
   process.platform === 'win32' ? 'pwsh' : 'bash',
   'read',

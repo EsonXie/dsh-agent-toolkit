@@ -17,7 +17,9 @@ Agent 注册表管理一组可复用的 Agent 角色：每个角色有自己的�
 | 描述 | 可选。会出现在委派工具的团队名册中，帮助主 Agent 选择委派对象 |
 | Persona | 角色人设与职责提示词。这是角色唯一可自定义的提示层（其余层由分层提示词机制统一管理，见 [prompt-layers.md](prompt-layers.md)） |
 | 模型 | Provider + 模型两个级联下拉，可「跟随默认」。设置后该角色被委派/被 bot 引用时使用指定模型 |
-| 工具白名单 | 「不限制（继承会话全部工具）/ 自定义白名单」radio 二选一 + checkbox 列表，分「原生工具」（pwsh/bash、read/write/edit/read_image、glob/grep）和「扩展工具」（顶层全局工具）两组。仅白名单语义：勾选的才可用，**没有 deny**。新建模式默认自定义 + 全勾；自定义下全不勾不可保存（改选不限制请用 radio） |
+| 工具白名单 | 「不限制（继承会话全部工具）/ 自定义白名单」radio 二选一 + checkbox 列表，分「团队 preset 工具」（动态枚举 agent-team preset 真实挂载的工具面）和「全局工具」（顶层全局工具）两组。仅白名单语义：勾选的才可用，**没有 deny**。新建模式默认自定义 + 全勾；自定义下全不勾不可保存（改选不限制请用 radio） |
+
+bot 会话加载角色白名单时与会话可见面求交，不可见名记 warn 忽略（不再抛错）。
 
 ![编辑器：模型选择与工具白名单（explorer 回显默认只读白名单）](images/agents-tools.png)
 
@@ -64,6 +66,7 @@ tools:
 - 存储域 `dsh_agent_toolkit`，表 `agents`（角色记录）+ `meta`（一次性标记）。
 - 旧版 `promptLayers` 多分层字段在读取时自动按 order 拼接进 `persona` 并剥离（幂等迁移）。
 - 旧角色的 `tools.allow` 会一次性并入原生工具名（`meta` 表 `tools_native_migrated` 标记，幂等）。
+- 存量自定义白名单会一次性并入「preset 面 − 内置常量」差集（`meta` 表 `tools_preset_catalog_migrated` 标记，幂等；内置角色不 widen，枚举失败下次启动重试）。
 - 未配置工具的存量 `explorer` 会一次性补默认只读白名单（`meta` 表 `explorer_readonly_migrated` 标记，幂等）；已自行配置过工具的不受影响。
 
 ## 相关 HTTP API
@@ -76,4 +79,4 @@ tools:
 | `/dsh-agent-toolkit/api/agents/:id` | PUT / DELETE | 全量 upsert / 删除 |
 | `/dsh-agent-toolkit/api/providers` | GET | provider 列表（级联下拉用） |
 | `/dsh-agent-toolkit/api/providers/:p/models` | GET | 模型列表（探测失败降级为空数组） |
-| `/dsh-agent-toolkit/api/tools` | GET | `{native, global}` 工具名册 |
+| `/dsh-agent-toolkit/api/tools` | GET | `{preset, global}` 工具名册 |
