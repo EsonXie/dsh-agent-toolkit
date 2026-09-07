@@ -132,6 +132,30 @@ describe('PUT /agents/:id', () => {
     expect(store.has('ignored')).toBe(false)
   })
 
+  test('upsert：透传 visibleInTeam 可选字段（false 保留、true 保留、省略不出现）', async () => {
+    const { handler, store } = harness()
+    const res = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/agents/scout', {
+      id: 'scout', name: '侦察', visibleInTeam: false,
+    }), res)
+    expect(res.status).toBe(200)
+    expect(store.get('scout')?.visibleInTeam).toBe(false)
+
+    const res2 = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/agents/scout', {
+      id: 'scout', name: '侦察', visibleInTeam: true,
+    }), res2)
+    expect(res2.status).toBe(200)
+    expect(store.get('scout')?.visibleInTeam).toBe(true)
+
+    const res3 = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/agents/scout', {
+      id: 'scout', name: '侦察',
+    }), res3)
+    expect(res3.status).toBe(200)
+    expect(store.get('scout')).not.toHaveProperty('visibleInTeam')
+  })
+
   test('非法记录 → 400（空 name / 非法 id / 空 tools.allow）', async () => {
     const { handler } = harness()
     const badName = mockRes()
