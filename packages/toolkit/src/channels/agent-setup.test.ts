@@ -3,14 +3,19 @@ import type { Context } from '@deepseek-ai/cordis'
 import { setupAgentScope } from './agent-setup.ts'
 import type { ToolsScope } from './tool-scope.ts'
 
-/** fake agentCtx：记录 section / restrict 调用序列。 */
-function fakeAgentCtx() {
+/** fake agentCtx：记录 section / restrict 调用序列；schemas 返回注入的可见面。 */
+function fakeAgentCtx(visibleNames: readonly string[] = ['bash', 'read', 'write', 'edit', 'read_image', 'glob', 'grep']) {
   const calls: string[] = []
+  const warns: string[] = []
   const ctx = {
     systemPrompt: { section: (input: { name: string; order?: number; text?: string }) => { calls.push(`section:${input.name}:${input.order}:${input.text ?? '-'}`) } },
-    tools: { restrict: (input: { allow: readonly string[] }) => { calls.push(`restrict:${input.allow.join(',')}`) } },
+    tools: {
+      restrict: (input: { allow: readonly string[] }) => { calls.push(`restrict:${input.allow.join(',')}`) },
+      schemas: () => visibleNames.map((name) => ({ name, description: '', parameters: {} })),
+    },
+    logger: { warn: (msg: string) => { warns.push(msg) } },
   }
-  return { ctx: ctx as unknown as Context, calls }
+  return { ctx: ctx as unknown as Context, calls, warns }
 }
 
 /** fake standing scope：join 记入同一 calls 序列，断言其先于 restrict。 */
@@ -67,5 +72,27 @@ describe('setupAgentScope', () => {
       tools: ['bash'],
     }, fakeToolsScope(calls))
     expect(calls).toEqual(['join', 'section:dsh-agent-toolkit:agent:base:10:b', 'restrict:bash'])
+  })
+
+  test('白名单含不可见工具：warn-drop 后 restrict 有效子集', async () => {
+    const { ctx, calls, warns } = fakeAgentCtx(['bash', 'read'])
+    await setupAgentScope(ctx, { tools: ['bash', 'web_search', 'read'] }, fakeToolsScope(calls))
+    expect(calls).toEqual(['join', 'restrict:bash,read'])
+    expect(warns).toHaveLength(1)
+    expect(warns[0]).toContain('web_search')
+  })
+
+  test('白名单含 run_code：作为不可见名 warn-drop（restrict 拒收保留名）', async () => {
+    const { ctx, calls, warns } = fakeAgentCtx(['bash', 'run_code'])
+    await setupAgentScope(ctx, { tools: ['bash', 'run_code'] }, fakeToolsScope(calls))
+    expect(calls).toEqual(['join', 'restrict:bash'])
+    expect(warns[0]).toContain('run_code')
+  })
+
+  test('白名单求交后为空：抛错（防静默零工具会话）', async () => {
+    const { ctx, calls } = fakeAgentCtx(['bash'])
+    await expect(setupAgentScope(ctx, { tools: ['web_search'] }, fakeToolsScope(calls)))
+      .rejects.toThrow('求交后为空')
+    expect(calls).toEqual(['join']) // 不 restrict
   })
 })
