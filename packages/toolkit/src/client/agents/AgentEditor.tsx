@@ -33,6 +33,8 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
   const [toolsMode, setToolsMode] = useState<'unrestricted' | 'custom'>(
     agent === undefined || agent.tools !== undefined ? 'custom' : 'unrestricted',
   )
+  // 团队可见性：省略/true = 可见（checkbox 勾选）；false = 隐藏。保存时勾选省略字段、不勾选写 false。
+  const [visibleInTeam, setVisibleInTeam] = useState(agent?.visibleInTeam !== false)
   const [catalog, setCatalog] = useState<ToolsCatalog>({ native: [], global: [] })
   const [catalogLoaded, setCatalogLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -83,6 +85,7 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
       ...(persona.trim() ? { persona: persona.trim() } : {}),
       ...(provider.trim().length > 0 && model.trim().length > 0 ? { model: { provider: provider.trim(), model: model.trim() } } : {}),
       ...(toolsMode === 'custom' && tools.length > 0 ? { tools: { allow: tools } } : {}),
+      ...(visibleInTeam ? {} : { visibleInTeam: false }),
     }
     setSaving(true)
     try {
@@ -129,6 +132,11 @@ export function AgentEditor({ agent, onSaved, onDeleted, onCancel }: AgentEditor
         <label className={css.field}>
           描述
           <textarea className={css.textarea} value={description} onChange={(e) => { setDescription(e.target.value) }} aria-label="描述" rows={2} />
+        </label>
+        <label className={css.toolCheck}>
+          <input type="checkbox" checked={visibleInTeam} aria-label="在 Agent 团队中可见"
+            onChange={(e) => { setVisibleInTeam(e.target.checked) }} />
+          在 Agent 团队中可见
         </label>
       </section>
 

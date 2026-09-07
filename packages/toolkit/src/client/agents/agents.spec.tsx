@@ -210,3 +210,42 @@ test('自定义白名单全不勾 → 保存禁用并提示', async () => {
   expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(true)
   expect(screen.getByText('自定义白名单至少勾选一个工具，或改选不限制')).toBeTruthy()
 })
+
+test('编辑角色：「在 Agent 团队中可见」默认勾选，取消勾选后保存携带 visibleInTeam: false', async () => {
+  const calls = stubFetch(routes())
+  render(<AgentsModal open onClose={() => undefined} />)
+  await screen.findByText('Explorer')
+
+  fireEvent.click(screen.getByText('侦察'))
+  const checkbox = screen.getByLabelText('在 Agent 团队中可见') as HTMLInputElement
+  expect(checkbox.checked).toBe(true)
+  fireEvent.click(checkbox)
+  expect(checkbox.checked).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+  await vi.waitFor(() => {
+    const put = calls.find((c) => c.url === '/dsh-agent-toolkit/api/agents/scout' && c.method === 'PUT')
+    expect(put).toBeTruthy()
+    expect(put?.body).toMatchObject({ id: 'scout', visibleInTeam: false })
+  })
+})
+
+test('编辑团队不可见角色：checkbox 回显为不勾选；勾选后保存省略 visibleInTeam 字段', async () => {
+  const hiddenAgents = [...AGENTS, { id: 'ghost', name: '幕后', visibleInTeam: false }]
+  const calls = stubFetch({ ...routes(), '/dsh-agent-toolkit/api/agents': () => hiddenAgents })
+  render(<AgentsModal open onClose={() => undefined} />)
+  await screen.findByText('Explorer')
+
+  fireEvent.click(screen.getByText('幕后'))
+  const checkbox = screen.getByLabelText('在 Agent 团队中可见') as HTMLInputElement
+  expect(checkbox.checked).toBe(false)
+  fireEvent.click(checkbox)
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+  await vi.waitFor(() => {
+    const put = calls.find((c) => c.url === '/dsh-agent-toolkit/api/agents/ghost' && c.method === 'PUT')
+    expect(put).toBeTruthy()
+    expect(put?.body).toMatchObject({ id: 'ghost' })
+    expect(put?.body).not.toHaveProperty('visibleInTeam')
+  })
+})
