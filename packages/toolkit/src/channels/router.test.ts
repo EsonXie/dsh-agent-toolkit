@@ -241,6 +241,21 @@ describe('Router.ensure agentRef 绑定', () => {
     })
   })
 
+  test('agentRef 指向团队不可见角色：bot 绑定照常（角色形态 section/tools/agentOptions）', async () => {
+    const hidden: AgentRecord = { ...REVIEWER_ROLE, visibleInTeam: false }
+    const { router, created, defaultModel } = setup(undefined, fakeRegistry([MAIN_ROLE, hidden]).registry)
+    await router.ensure(fakeBot({ agentRef: 'reviewer' }), 'oc_1', reply, 'ou_u1')
+    expect(defaultModel).not.toHaveBeenCalled()
+    expect(created[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-reasoner' })
+    expect(created[0].input.hooks).toEqual({
+      sections: [
+        { name: 'dsh-agent-toolkit:agent:persona', order: 0, text: '你是团队的评审成员。\n只审查 diff，不修改代码。' },
+        SENDER,
+      ],
+      tools: ['bash', 'fs_read'],
+    })
+  })
+
   test('agentRef 指向不存在角色：warn 并降级 main（默认模型 + hooksOf，不注册 section）', async () => {
     const { router, created, onWarn } = setup(undefined, fakeRegistry([MAIN_ROLE]).registry)
     await router.ensure(fakeBot({ agentRef: 'ghost' }), 'oc_1', reply, 'ou_u1')
