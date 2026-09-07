@@ -4,7 +4,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import type { AgentRecord } from '../agents/store.ts'
+import { isTeamVisible, type AgentRecord } from '../agents/store.ts'
 import type { ActiveRoutes, DelegateRoute } from './active.ts'
 
 /** createDelegateTool 的外部依赖。 */
@@ -139,8 +139,8 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
     async execute(args, exec) {
       const parent: Agent | undefined = exec.agent
       if (!parent) throw new Error('team_delegate 需要调用方 agent（exec.agent 为空）')
-      // 主 Agent 不可委派：查找与错误清单都排除 main。
-      const roster = deps.roster().filter(r => r.id !== 'main')
+      // 主 Agent 与团队不可见角色不可委派：查找与错误清单都排除。
+      const roster = deps.roster().filter(r => r.id !== 'main' && isTeamVisible(r))
       const role = roster.find(r => r.id === args.role)
       if (!role) {
         throw new Error(`未知角色 "${args.role}"。可用角色：${roster.map(r => r.id).join(', ')}`)

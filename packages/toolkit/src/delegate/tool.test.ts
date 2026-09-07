@@ -128,6 +128,28 @@ test('不能委派给 main（查找排除 main）', async () => {
   expect(captured).toHaveLength(0)
 })
 
+test('团队不可见角色不可委派：报错且不出现在可用清单，不发起委派', async () => {
+  const captured: Captured[] = []
+  const roster: AgentRecord[] = [
+    ...ROSTER,
+    { id: 'hidden', name: 'Hidden', visibleInTeam: false },
+  ]
+  const deps: DelegateToolDeps = { ...depsWith(okRun([]), captured), roster: () => roster }
+  const tool = createDelegateTool('team_delegate', deps)
+  await expect(callTool(tool, { role: 'hidden', description: 'x', prompt: 'y' }))
+    .rejects.toThrowError(/未知角色 "hidden"。可用角色：reviewer, scout, worker/)
+  expect(captured).toHaveLength(0)
+})
+
+test('显式 visibleInTeam: true 的角色照常可委派', async () => {
+  const captured: Captured[] = []
+  const roster: AgentRecord[] = [{ id: 'shown', name: 'Shown', visibleInTeam: true }]
+  const deps: DelegateToolDeps = { ...depsWith(okRun([]), captured), roster: () => roster }
+  const tool = createDelegateTool('team_delegate', deps)
+  await callTool(tool, { role: 'shown', description: '执行', prompt: '任务' })
+  expect(captured).toHaveLength(1)
+})
+
 test('成员异常终止（max-tokens）报错并附部分产出', async () => {
   const run: SubagentRun = {
     id: 'child-2' as unknown as SubagentRun['id'],
