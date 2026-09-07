@@ -5,7 +5,6 @@ import { json, readJsonBody } from '../shared/http.ts'
 import { registerOptionalRoutes } from '../shared/webserver.ts'
 import { AgentRecordSchema } from './store.ts'
 import type { AgentRegistry } from './registry.ts'
-import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 
 /** 一个可选的 provider 路由（id = agentOptions.provider 的值）。 */
 export interface ProviderOption { id: string; name: string }
@@ -15,6 +14,8 @@ export interface ModelOption { id: string; name: string }
 export interface AgentsApiDeps {
   registry: AgentRegistry
   listTools(): string[]
+  /** 团队 preset 工具面（tool-catalog 动态枚举，含回退）。 */
+  listPresetTools(): Promise<string[]>
   listProviders(): ProviderOption[]
   /** 失败由调用方（路由）兜底为空数组，不抛错。 */
   listModels(provider: string): Promise<ModelOption[]>
@@ -32,8 +33,8 @@ export function createAgentsApiHandler(deps: AgentsApiDeps): (req: IncomingMessa
     }
 
     if (sub === '/tools' && method === 'GET') {
-      // 分组名册：native = BASIC_TOOLS scoped 挂载的原生工具名（常量），global = 顶层注册表全局工具。
-      json(res, 200, { native: [...NATIVE_TOOL_NAMES], global: deps.listTools() })
+      // 分组名册：preset = agent-team standing 面动态枚举（缺席回退常量），global = 顶层注册表。
+      json(res, 200, { preset: await deps.listPresetTools(), global: deps.listTools() })
       return
     }
 

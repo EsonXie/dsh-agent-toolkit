@@ -4,7 +4,6 @@ import { describe, expect, test } from 'vitest'
 import { createAgentsApiHandler, type AgentsApiDeps } from './api.ts'
 import { AgentRecordSchema, type AgentRecord } from './store.ts'
 import type { AgentRegistry } from './registry.ts'
-import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 
 function mockReq(method: string, url: string, body?: unknown): IncomingMessage {
   const req = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]) as unknown as IncomingMessage
@@ -74,6 +73,7 @@ function harness(overrides: Partial<AgentsApiDeps> = {}) {
   const deps: AgentsApiDeps = {
     registry,
     listTools: () => ['bash', 'read', 'write'],
+    listPresetTools: async () => ['pwsh', 'read', 'todo_write', 'web_search'],
     listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
     listModels: async (provider) => [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }],
     ...overrides,
@@ -258,13 +258,13 @@ describe('GET /providers 与 GET /providers/:provider/models', () => {
   })
 })
 
-test('GET /tools 返回分组工具名册（native 常量 + global 全局注册）', async () => {
+test('GET /tools 返回分组工具名册（preset 动态面 + global 全局注册）', async () => {
   const { handler } = harness()
   const res = mockRes()
   await handler(mockReq('GET', '/dsh-agent-toolkit/api/tools'), res)
   expect(res.status).toBe(200)
   expect(JSON.parse(res.body)).toEqual({
-    native: [...NATIVE_TOOL_NAMES],
+    preset: ['pwsh', 'read', 'todo_write', 'web_search'],
     global: ['bash', 'read', 'write'],
   })
 })

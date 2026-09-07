@@ -3,6 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import z from '@deepseek-ai/schemastery'
 import { createRegistry } from './agents/registry.ts'
+import { createToolCatalog } from './agents/tool-catalog.ts'
 import { agentToolkitDomain, type AgentRecord } from './agents/store.ts'
 import { openDomainSafely } from './shared/storage.ts'
 import { DEFAULT_LAYERS, DEFAULT_RULES } from './prompt/defaults.ts'
@@ -124,7 +125,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     meta: domain.table('meta') as KvTable<string, { value: string }>,
     promptLayers: domain.table('prompt_layers') as KvTable<string, PromptLayersRow>,
   }
-  const registry = await createRegistry(warn, { agents: tables.agents, meta: tables.meta })
+  // agent-team / agent-bot preset 生成必须先于 createRegistry：preset 并入迁移要枚举
+  // agent-team 面（standingKeyFor 按 composition 文件挂载，首启时尚未生成会枚举失败跳过）。
+  // agentPresets 为可选服务（rc2 旧宿主缺席时内部静默跳过），不进 inject。
+  await setupAgentTeamPreset(ctx, config.agentTeamPreset)
+  const toolCatalog = createToolCatalog(ctx, config.agentTeamPreset.id)
+  const registry = await createRegistry(warn, { agents: tables.agents, meta: tables.meta }, toolCatalog.listPresetTools)
   const layerSource = await openLayerSource({ promptLayers: tables.promptLayers, meta: tables.meta }, config.layers)
   setupPrompt(ctx, { source: layerSource, rules: config.rules })
   const routesDomain = await openDomainSafely(ctx, delegationRoutesDomain, warn)
@@ -143,15 +149,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   setupDelegateApi(ctx, { active: activeRoutes, routes: routesTable })
   // agents/providers/tools RPC 为核心恒启用（Agents 面板总是挂载，端点缺失即「加载失败」），
   // 不随 modules.feishu 门控；仅 bots 分支受 feishu 开关控制。
-  const listTools = (): string[] => ctx.tools.schemas().map((s) => s.name)
   setupAgentsApi(ctx, {
     registry,
-    listTools,
+    listTools: toolCatalog.listGlobalTools,
+    listPresetTools: toolCatalog.listPresetTools,
     listProviders: () => ctx.llm.listProviders().map(({ id, name }) => ({ id, name })),
     listModels: (provider) => ctx.llm.listModels(provider).then((models) => models.map(({ id, name }) => ({ id, name }))),
   })
   // /create-agent 命令恒启用（引导主 Agent 访谈并复用面板 API 落库，不新增工具/API）。
-  setupCreateAgentCommand(ctx, { registry, listTools })
+  setupCreateAgentCommand(ctx, { registry, listTools: toolCatalog.listGlobalTools })
   setupPromptLayersApi(ctx, {
     source: layerSource,
     rules: config.rules,
@@ -165,8 +171,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       }
     },
   })
-  // agentPresets 为可选服务（rc2 旧宿主缺席时内部静默跳过），不进 inject。
-  await setupAgentTeamPreset(ctx, config.agentTeamPreset)
   if (config.modules.feishu) setupBots(ctx, config.feishu, { registry, botPresetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.botsId : undefined })
   if (config.modules.usage) setupUsage(ctx, { timezone: config.timezone }, name)
 }
