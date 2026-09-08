@@ -38,7 +38,12 @@ function depsWith(
   run: SubagentRun,
   captured: Captured[],
   buildPersona: (role: AgentRecord) => string = fakePersona,
-  extras: { active?: ActiveRoutes; recordRoute?: (id: string, route: DelegateRoute) => Promise<void> } = {},
+  extras: {
+    active?: ActiveRoutes
+    recordRoute?: (id: string, route: DelegateRoute) => Promise<void>
+    visibleSurface?: (agent: Agent) => string[]
+    warn?: (msg: string) => void
+  } = {},
 ): DelegateToolDeps {
   return {
     roster: () => ROSTER,
@@ -47,6 +52,9 @@ function depsWith(
     startRun: async (provider, request) => { captured.push({ provider, request }); return run },
     active: extras.active ?? createActiveRoutes(),
     recordRoute: extras.recordRoute ?? (async () => {}),
+    // 默认可见面含 scout 白名单两名（read/search），既有透传断言不受影响。
+    visibleSurface: extras.visibleSurface ?? (() => ['read', 'search', 'write', 'bash']),
+    warn: extras.warn ?? (() => {}),
   }
 }
 
@@ -96,7 +104,7 @@ test('persona 默认假实现保留契约语义（含不能再次委派）', asy
   expect(captured[0].request.persona).toContain('不能再次委派')
 })
 
-test('角色配了 tools.allow：透传为 toolFilter（数组拷贝，不共享引用）', async () => {
+test('角色配了 tools.allow：与可见面求交后传 toolFilter（数组拷贝，不共享引用）', async () => {
   const captured: Captured[] = []
   const tool = createDelegateTool('team_delegate', depsWith(okRun([]), captured))
   await callTool(tool, { role: 'scout', description: '探索', prompt: '任务' })
@@ -264,6 +272,8 @@ test('角色 model 字段含空串：视为未配置，路由回退父 options',
     startRun: async () => okRun([]),
     active: createActiveRoutes(),
     recordRoute: async (id, route) => { recorded.push({ id, route }) },
+    visibleSurface: () => ['read', 'search', 'write', 'bash'],
+    warn: () => {},
   })
   const a = await callTool(tool, { role: 'both-empty', description: 'a', prompt: '任务' }) as Record<string, unknown>
   const b = await callTool(tool, { role: 'provider-empty', description: 'b', prompt: '任务' }) as Record<string, unknown>
@@ -310,4 +320,43 @@ test('settle 抛错路径：在途条目仍被 finally 删除；持久行已写�
   await expect(callTool(tool, { role: 'reviewer', description: 'x', prompt: 'y' })).rejects.toThrow()
   expect(active.get('parent-session-1', 'reviewer')).toBeUndefined()
   expect(recorded).toEqual(['child-err'])
+})
+
+test('白名单与父会话可见面求交：未知名 warn-drop 后传有效子集', async () => {
+  const captured: Captured[] = []
+  const warns: string[] = []
+  const tool = createDelegateTool('team_delegate', depsWith(okRun([]), captured, fakePersona, {
+    visibleSurface: () => ['read'],
+    warn: (msg) => { warns.push(msg) },
+  }))
+  await callTool(tool, { role: 'scout', description: '探索', prompt: '任务' }) // scout allow = ['read', 'search']
+  expect(captured[0].request.toolFilter).toEqual({ allow: ['read'] })
+  expect(warns).toHaveLength(1)
+  expect(warns[0]).toContain('search')
+})
+
+test('白名单含 run_code：即便可见面误含保留名也 warn-drop（宿主 restrict 拒收）', async () => {
+  const captured: Captured[] = []
+  const warns: string[] = []
+  const roster: AgentRecord[] = [{ id: 'coder', name: 'Coder', tools: { allow: ['read', 'run_code'] } }]
+  const deps: DelegateToolDeps = {
+    ...depsWith(okRun([]), captured),
+    roster: () => roster,
+    visibleSurface: () => ['read', 'run_code'],
+    warn: (msg) => { warns.push(msg) },
+  }
+  const tool = createDelegateTool('team_delegate', deps)
+  await callTool(tool, { role: 'coder', description: '执行', prompt: '任务' })
+  expect(captured[0].request.toolFilter).toEqual({ allow: ['read'] })
+  expect(warns[0]).toContain('run_code')
+})
+
+test('白名单求交后为空：抛错且不发起委派（防静默零工具子会话）', async () => {
+  const captured: Captured[] = []
+  const tool = createDelegateTool('team_delegate', depsWith(okRun([]), captured, fakePersona, {
+    visibleSurface: () => ['write'],
+  }))
+  await expect(callTool(tool, { role: 'scout', description: 'x', prompt: 'y' }))
+    .rejects.toThrowError(/求交后为空/)
+  expect(captured).toHaveLength(0)
 })

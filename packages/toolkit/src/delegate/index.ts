@@ -1,5 +1,6 @@
 /** delegate 模块：注册表驱动的 team_delegate 委派工具 + 函数式团队提示段。 */
 import type { Context } from '@deepseek-ai/cordis'
+import { scopeOf } from '@deepseek-ai/dsh-scope'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import { isTeamVisible, type AgentRecord } from '../agents/store.ts'
 import type { AgentRegistry } from '../agents/registry.ts'
@@ -75,6 +76,11 @@ export function setupDelegate(ctx: Context, config: DelegateConfig, registry: Ag
         startRun: (pr, request) => ctx.subagents.start(pr, request),
         active: channels.active,
         recordRoute: channels.recordRoute,
+        // 父会话真实可见面：scoped schemas = global + 祖先层，与 bot 路径同款手段
+        // （scopeOf 对未 scoped ctx 返回 undefined，schemas 接受 undefined 为顶层视图——
+        // channels/agent-setup.ts:41 先例）。
+        visibleSurface: (agent) => agent.ctx.tools.schemas(scopeOf(agent.ctx)).map((s) => s.name),
+        warn: (msg) => { ctx.logger.warn(msg) },
       }))
     }
   }

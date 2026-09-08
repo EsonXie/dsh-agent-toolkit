@@ -2,7 +2,7 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import type { SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { isTeamVisible, type AgentRecord } from '../agents/store.ts'
 import type { ActiveRoutes, DelegateRoute } from './active.ts'
@@ -21,6 +21,10 @@ export interface DelegateToolDeps {
   readonly active: ActiveRoutes
   /** 持久路由写入（子会话头部 chip 数据源）；实现方保证不抛错语义由调用处 catch 兜底。 */
   readonly recordRoute: (childSessionId: string, route: DelegateRoute) => Promise<void>
+  /** 父会话真实可见工具面（生产走 scopeOf(agent.ctx) + scoped schemas；测试注入 fake）。 */
+  readonly visibleSurface: (agent: Agent) => string[]
+  /** 未知名 warn-drop 日志（生产 ctx.logger.warn）。 */
+  readonly warn: (msg: string) => void
 }
 
 /** 非 completed 的 stopReason 意味着成员未干净完成。 */
@@ -146,6 +150,23 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
         throw new Error(`未知角色 "${args.role}"。可用角色：${roster.map(r => r.id).join(', ')}`)
       }
       const persona = deps.buildPersona(role)
+      // 白名单与父会话真实可见面求交（warn-drop 未知名）——宿主 child-agent 对 toolFilter
+      // 直接 restrict，未知名响亮失败（spawn-in-process 测试 "an unknown toolFilter name
+      // fails the spawn loudly" 佐证）；与 bot 会话路径（channels/agent-setup.ts）对称，
+      // 消除两条路径的白名单有效性不对称。求交为空抛错防静默零工具子会话。
+      let toolFilter: { allow: string[] } | undefined
+      if (role.tools !== undefined) {
+        const visible = new Set(deps.visibleSurface(parent).filter((n) => n !== RUN_CODE_NAME))
+        const effective = role.tools.allow.filter((n) => visible.has(n))
+        const dropped = role.tools.allow.filter((n) => !visible.has(n))
+        if (dropped.length > 0) {
+          deps.warn(`dsh-agent-toolkit: 角色 ${role.id} 白名单含本会话不可见工具，委派时忽略：${dropped.join(', ')}`)
+        }
+        if (effective.length === 0) {
+          throw new Error(`dsh-agent-toolkit: 角色 ${role.id} 工具白名单求交后为空（原 ${role.tools.allow.length} 个均不可见）：${role.tools.allow.join(', ')}`)
+        }
+        toolFilter = { allow: effective }
+      }
       const request: SubagentStartRequest = {
         label: `role:${role.id}: ${args.description}`,
         prompt: [{ type: 'text', text: args.prompt } as ContentBlock],
@@ -156,8 +177,8 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
         ...role.model !== undefined
           ? { agentOptions: { provider: role.model.provider, model: role.model.model } }
           : {},
-        ...role.tools !== undefined
-          ? { toolFilter: { allow: [...role.tools.allow] } }
+        ...toolFilter !== undefined
+          ? { toolFilter }
           : {},
       } as SubagentStartRequest
       // 路由解析与 spawn driver resolveChildAgentOptions 同源：角色覆盖 ?? 父 options。
