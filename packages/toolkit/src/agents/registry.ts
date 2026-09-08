@@ -93,15 +93,18 @@ export async function createRegistry(
     await meta.put(EXPLORER_READONLY_MIGRATED_KEY, { value: '1' })
   }
 
-  // 内置名单重选一次性迁移（2026-09-08）：explorer 旧默认 5 个 → 新 9 个；general 无 tools
-  // → preset 面全量 20 个。条件式：仅更新仍是旧默认值的 builtin 记录（等值比对含顺序——
-  // seed 与旧迁移写入的就是 LEGACY 派生顺序）；用户面板改过的 = 自定义，跳过；同 id 非
-  // builtin 记录是用户数据，不动。无外部依赖，跑完即置标记（无需重试语义）。
+  // 内置名单重选一次性迁移（2026-09-08）：explorer 旧默认 → 新 9 个；general 无 tools
+  // → preset 面全量 20 个。条件式：仅更新仍是旧默认值的 builtin 记录（用户面板改过的 =
+  // 自定义，跳过）。explorer 旧默认有两种形状：纯净 5 个（seed/只读迁移写入的 LEGACY 派生
+  // 顺序）与原生并入加写后的 7 个（[...LEGACY, write, edit]——0.2.x 时代 native 合并不
+  // 跳过 builtin 记录，真实存量多为此形状）；7 个形状替换后 write/edit 随之移除，只读
+  // 约束随新名单恢复。同 id 非 builtin 记录是用户数据，不动。无外部依赖，跑完即置标记。
   if (meta.get(BUILTIN_TOOLS_RECATALOG_MIGRATED_KEY) === undefined) {
     const explorer = agents.get('explorer')
+    const legacyShapes: readonly (readonly string[])[] = [LEGACY_EXPLORER_ALLOW, [...LEGACY_EXPLORER_ALLOW, 'write', 'edit']]
     if (explorer?.builtin === true && explorer.tools !== undefined
-      && explorer.tools.allow.length === LEGACY_EXPLORER_ALLOW.length
-      && explorer.tools.allow.every((n, i) => n === LEGACY_EXPLORER_ALLOW[i])) {
+      && legacyShapes.some((shape) => explorer.tools!.allow.length === shape.length
+        && explorer.tools!.allow.every((n, i) => n === shape[i]))) {
       await agents.put('explorer', { ...explorer, tools: { allow: [...EXPLORER_READONLY_ALLOW] } })
     }
     const general = agents.get('general')

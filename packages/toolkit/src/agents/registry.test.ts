@@ -319,6 +319,17 @@ test('createRegistry：用户自定义过的内置记录跳过（explorer 改过
   expect(tables.meta.get(BUILTIN_TOOLS_RECATALOG_MIGRATED_KEY)).toEqual({ value: '1' })
 })
 
+test('createRegistry：原生并入加写后的 explorer（旧 5 + write/edit 共 7 个形状）同样更新为新名单，write/edit 随之移除', async () => {
+  const domain = new FakeDomain(agentToolkitDomain)
+  const tables = tablesOf(domain)
+  await tables.meta.put(TOOLS_NATIVE_MIGRATED_KEY, { value: '1' })
+  await tables.agents.put('explorer', { id: 'explorer', name: 'Explorer', builtin: true, tools: { allow: [...LEGACY_EXPLORER_ALLOW, 'write', 'edit'] } })
+  const registry = await createRegistry(vi.fn(), tables)
+  expect(registry.get('explorer')?.tools?.allow).toEqual(EXPLORER_READONLY_ALLOW)
+  expect(registry.get('explorer')?.tools?.allow).not.toContain('write')
+  expect(registry.get('explorer')?.tools?.allow).not.toContain('edit')
+})
+
 test('createRegistry：同 id 非 builtin 记录不动（用户数据），builtin 才迁移', async () => {
   const domain = new FakeDomain(agentToolkitDomain)
   const tables = tablesOf(domain)
