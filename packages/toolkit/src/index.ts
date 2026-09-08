@@ -173,6 +173,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       }
     },
   })
-  if (config.modules.feishu) setupBots(ctx, config.feishu, { registry, botPresetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.botsId : undefined })
+  const ownedSessions = new Set<string>()
+  if (config.modules.feishu) setupBots(ctx, config.feishu, { registry, botPresetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.botsId : undefined, ownedSessions })
   if (config.modules.usage) setupUsage(ctx, { timezone: config.timezone }, name)
 }

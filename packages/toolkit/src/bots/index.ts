@@ -5,7 +5,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
-import type { AgentHandle } from '@deepseek-ai/dsh-agent'
 // type-only 导入激活各包对 cordis Context 的声明合并（inject 的服务属性）。
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -18,11 +17,11 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import type { AgentRegistry } from '../agents/registry.ts'
 import { openDomainSafely } from '../shared/storage.ts'
 import { registerOptionalRoutes } from '../shared/webserver.ts'
-import { setupAgentScope } from '../channels/agent-setup.ts'
+import { createAgentsPort } from '../channels/agents-port.ts'
 import type { BotChannel, ChannelTunables } from '../channels/channel.ts'
 import { feishuChannel } from '../channels/feishu/index.ts'
 import type { AttachmentsPort } from '../channels/inbound.ts'
-import type { AgentPort, AgentsPort, WorkspacePort } from '../channels/ports.ts'
+import type { WorkspacePort } from '../channels/ports.ts'
 import { BotRuntime } from '../channels/runtime.ts'
 import { createScopeJoiner, type ScopeJoiner } from '../channels/scope-joiner.ts'
 import { createToolsScope } from '../channels/tool-scope.ts'
@@ -56,6 +55,8 @@ export interface BotsDeps {
   registry: AgentRegistry
   /** bot 会话挂载的 preset id（agentTeamPreset 开启时下达；undefined = 直接 toolsScope）。 */
   botPresetId?: string
+  /** 插件自有会话 id 集（cron_* 工具门控排除用；缺省不记录）。 */
+  ownedSessions?: Set<string>
 }
 
 export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps): void {
@@ -82,35 +83,7 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
     ? createScopeJoiner(ctx, deps.botPresetId, toolsScope, log.warn)
     : toolsScope
 
-  const agentsPort: AgentsPort = {
-    async create(input) {
-      const handle: AgentHandle = await ctx.agents.create({
-        sessionId: SessionId(input.sessionId),
-        meta: { cwd: input.cwd },
-        ...(input.agentOptions !== undefined ? { agentOptions: input.agentOptions } : {}),
-        setup: (agentCtx) => setupAgentScope(agentCtx, input.hooks, scopeJoiner),
-      })
-      return adaptAgent(handle)
-    },
-    async resume(input) {
-      const handle: AgentHandle = await ctx.agents.resume({
-        resumeSessionId: SessionId(input.sessionId),
-        ...(input.agentOptions !== undefined ? { agentOptions: input.agentOptions } : {}),
-        setup: (agentCtx) => setupAgentScope(agentCtx, input.hooks, scopeJoiner),
-      })
-      return adaptAgent(handle)
-    },
-  }
-
-  function adaptAgent(handle: AgentHandle): AgentPort {
-    const { agent } = handle
-    return {
-      sessionId: String(agent.id),
-      followup: (message) => agent.followup(message as Parameters<typeof agent.followup>[0]),
-      cancel: () => agent.cancel({ kind: 'user' }),
-      whenIdle: () => agent.whenIdle(),
-    }
-  }
+  const agentsPort = createAgentsPort(ctx, scopeJoiner, deps.ownedSessions)
 
   // workspaceRegistry 是可选服务（ctx.get 非严格模式）：缺失时 attach 抛错，
   // 由 Router 捕获降级为"未分组 + 告警"，不阻塞消息处理。
