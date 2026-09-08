@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { DomainSpec, KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { agentToolkitDomain, type AgentRecord } from './store.ts'
 import { createRegistry, EXPLORER_READONLY_MIGRATED_KEY, TOOLS_NATIVE_MIGRATED_KEY, type AgentRegistry } from './registry.ts'
-import { EXPLORER_READONLY_ALLOW } from './builtin.ts'
+import { EXPLORER_READONLY_ALLOW, GENERAL_ALLOW, LEGACY_EXPLORER_ALLOW } from './builtin.ts'
 import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 
 class FakeTable<V> implements KvTable<string, V> {
@@ -188,13 +188,15 @@ test('createRegistry：存量 tools.allow 一次性并入原生工具名，meta 
   expect(registry2.get('dev')?.tools?.allow).toEqual(['read'])
 })
 
-test('createRegistry：内置 explorer 默认携带只读白名单（不含 write/edit）；general 不限制', async () => {
+test('createRegistry：内置 explorer 默认只读白名单（不含 write/edit）；general 默认 preset 面全量（不含 team_delegate/run_code）', async () => {
   const domain = new FakeDomain(agentToolkitDomain)
   const registry = await createRegistry(vi.fn(), tablesOf(domain))
   expect(registry.get('explorer')?.tools?.allow).toEqual(EXPLORER_READONLY_ALLOW)
   expect(registry.get('explorer')?.tools?.allow).not.toContain('write')
   expect(registry.get('explorer')?.tools?.allow).not.toContain('edit')
-  expect(registry.get('general')?.tools).toBeUndefined()
+  expect(registry.get('general')?.tools?.allow).toEqual(GENERAL_ALLOW)
+  expect(registry.get('general')?.tools?.allow).not.toContain('team_delegate')
+  expect(registry.get('general')?.tools?.allow).not.toContain('run_code')
 })
 
 test('createRegistry：存量无 tools 的 explorer 一次性补默认白名单；改回不限制后不再补', async () => {
@@ -270,4 +272,21 @@ test('createRegistry：不传 listPresetTools（两参调用）→ 跳过迁移�
   await agentsOf(domain).put('dev', { id: 'dev', name: 'Dev', tools: { allow: ['read'] } })
   await createRegistry(vi.fn(), tablesOf(domain))
   expect(tablesOf(domain).meta.get('tools_preset_catalog_migrated')).toBeUndefined()
+})
+
+test('内置名单重选：explorer = 旧只读五件 + 只读安全四件；general = preset 面 20 个', () => {
+  for (const name of ['web_search', 'todo_write', 'job_list', 'job_output']) {
+    expect(EXPLORER_READONLY_ALLOW).toContain(name)
+  }
+  expect(EXPLORER_READONLY_ALLOW).toHaveLength(LEGACY_EXPLORER_ALLOW.length + 4)
+  expect(LEGACY_EXPLORER_ALLOW).toHaveLength(5)
+  expect(GENERAL_ALLOW).toHaveLength(20)
+  for (const name of ['write', 'edit', 'job_kill', 'ralph', 'workflow', 'ask_user_question', 'skill', 'exit_plan_mode', 'create_goal', 'get_goal', 'update_goal']) {
+    expect(GENERAL_ALLOW).toContain(name)
+  }
+  expect(GENERAL_ALLOW).not.toContain('team_delegate')
+  expect(GENERAL_ALLOW).not.toContain('run_code')
+  // shell 平台条件派生，两名单恰好含一个 shell 名
+  expect(GENERAL_ALLOW.filter((n) => n === 'pwsh' || n === 'bash')).toHaveLength(1)
+  expect(EXPLORER_READONLY_ALLOW.filter((n) => n === 'pwsh' || n === 'bash')).toHaveLength(1)
 })
