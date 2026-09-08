@@ -1,4 +1,4 @@
-/** 内置保底 Agent 记录：main + explorer（只读白名单 9 个）/ general（preset 面全量 20 个、禁二级委派）。 */
+/** 内置保底 Agent 记录：main + explorer（只读白名单 10 个）/ general（preset 面全量 20 个、禁二级委派）。 */
 import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 import type { AgentRecord } from './store.ts'
 
@@ -9,13 +9,14 @@ const SHELL_NAME = process.platform === 'win32' ? 'pwsh' : 'bash'
  *  shell 名平台互斥（win32=pwsh、其余=bash），必须从 NATIVE_TOOL_NAMES 派生不可写死。 */
 export const LEGACY_EXPLORER_ALLOW: readonly string[] = NATIVE_TOOL_NAMES.filter((n) => n !== 'write' && n !== 'edit')
 
-/** explorer 默认白名单（9 个）：只读基础五件（shell/read/read_image/glob/grep，旧派生不变）
- *  + preset 面只读安全四件（web_search/todo_write/job_list/job_output）。
+/** explorer 默认白名单（10 个）：只读基础五件（shell/read/read_image/glob/grep，旧派生不变）
+ *  + preset 面只读安全五件（web_search/todo_write/job_list/job_output/skill——skill 加载的是
+ *  指令文本，本身只读，用户决策默认可用）。
  *  编排类（ralph/workflow）、写文件类（write/edit）、job_kill、ask_user_question、
  *  goal 三件套、exit_plan_mode 不进只读名单。 */
 export const EXPLORER_READONLY_ALLOW: readonly string[] = [
   ...LEGACY_EXPLORER_ALLOW,
-  'web_search', 'todo_write', 'job_list', 'job_output',
+  'web_search', 'todo_write', 'job_list', 'job_output', 'skill',
 ]
 
 /** general 默认白名单（20 个）：agent-team preset standing 面全量（2026-09-08 实测枚举），

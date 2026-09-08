@@ -26,7 +26,7 @@ export const EXPLORER_READONLY_MIGRATED_KEY = 'explorer_readonly_migrated'
 /** tools.allow 一次性并入「preset 面 − 原生常量」差集的 meta 表标记键。 */
 export const TOOLS_PRESET_MIGRATED_KEY = 'tools_preset_catalog_migrated'
 
-/** 内置角色工具名单重选（explorer 5→9 / general 无→20）一次性迁移的 meta 表标记键。 */
+/** 内置角色工具名单重选（explorer 5→10 / general 无→20）一次性迁移的 meta 表标记键。 */
 export const BUILTIN_TOOLS_RECATALOG_MIGRATED_KEY = 'builtin_tools_recatalog_migrated'
 
 /**
@@ -93,7 +93,7 @@ export async function createRegistry(
     await meta.put(EXPLORER_READONLY_MIGRATED_KEY, { value: '1' })
   }
 
-  // 内置名单重选一次性迁移（2026-09-08）：explorer 旧默认 → 新 9 个；general 无 tools
+  // 内置名单重选一次性迁移（2026-09-08）：explorer 旧默认 → 新 10 个；general 无 tools
   // → preset 面全量 20 个。条件式：仅更新仍是旧默认值的 builtin 记录（用户面板改过的 =
   // 自定义，跳过）。explorer 旧默认有两种形状：纯净 5 个（seed/只读迁移写入的 LEGACY 派生
   // 顺序）与原生并入加写后的 7 个（[...LEGACY, write, edit]——0.2.x 时代 native 合并不

@@ -31,7 +31,7 @@ bot 会话与委派两条路径加载角色白名单时都会与会话真实可�
 | `explorer` | Explorer | 只读代码库探索：定位文件/符号、回答结构与调用关系问题，不做任何修改 |
 | `general` | General | 通用多步骤任务执行：可读可写、可运行命令，完成实现/修复类任务 |
 
-内置角色可编辑 persona/模型/工具，但 `builtin` 标记不可移除、角色不可删除。`explorer` 默认携带只读白名单 9 个（`pwsh`/`bash` + `read`/`read_image`/`glob`/`grep` + `web_search`/`todo_write`/`job_list`/`job_output`），委派时硬约束只读；`general` 默认携带 agent-team preset 面全量 20 个工具的显式白名单（不含 `team_delegate` 与 `run_code`，禁二级委派）。两者均可在面板改选「不限制」或自行调整。
+内置角色可编辑 persona/模型/工具，但 `builtin` 标记不可移除、角色不可删除。`explorer` 默认携带只读白名单 10 个（`pwsh`/`bash` + `read`/`read_image`/`glob`/`grep` + `web_search`/`todo_write`/`job_list`/`job_output`/`skill`），委派时硬约束只读；`general` 默认携带 agent-team preset 面全量 20 个工具的显式白名单（不含 `team_delegate` 与 `run_code`，禁二级委派）。两者均可在面板改选「不限制」或自行调整。
 
 ## YAML 首启导入
 

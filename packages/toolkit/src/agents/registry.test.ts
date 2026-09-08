@@ -274,11 +274,11 @@ test('createRegistry：不传 listPresetTools（两参调用）→ 跳过迁移�
   expect(tablesOf(domain).meta.get('tools_preset_catalog_migrated')).toBeUndefined()
 })
 
-test('内置名单重选：explorer = 旧只读五件 + 只读安全四件；general = preset 面 20 个', () => {
-  for (const name of ['web_search', 'todo_write', 'job_list', 'job_output']) {
+test('内置名单重选：explorer = 旧只读五件 + 只读安全五件（含 skill）；general = preset 面 20 个', () => {
+  for (const name of ['web_search', 'todo_write', 'job_list', 'job_output', 'skill']) {
     expect(EXPLORER_READONLY_ALLOW).toContain(name)
   }
-  expect(EXPLORER_READONLY_ALLOW).toHaveLength(LEGACY_EXPLORER_ALLOW.length + 4)
+  expect(EXPLORER_READONLY_ALLOW).toHaveLength(LEGACY_EXPLORER_ALLOW.length + 5)
   expect(LEGACY_EXPLORER_ALLOW).toHaveLength(5)
   expect(GENERAL_ALLOW).toHaveLength(20)
   for (const name of ['write', 'edit', 'job_kill', 'ralph', 'workflow', 'ask_user_question', 'skill', 'exit_plan_mode', 'create_goal', 'get_goal', 'update_goal']) {
@@ -292,7 +292,7 @@ test('内置名单重选：explorer = 旧只读五件 + 只读安全四件；gen
   expect(EXPLORER_READONLY_ALLOW.filter((n) => n === 'pwsh' || n === 'bash')).toHaveLength(1)
 })
 
-test('createRegistry：旧默认内置名单一次性重选（explorer 5→9、general 无→20），meta 标记幂等', async () => {
+test('createRegistry：旧默认内置名单一次性重选（explorer 5→10、general 无→20），meta 标记幂等', async () => {
   const domain = new FakeDomain(agentToolkitDomain)
   const tables = tablesOf(domain)
   await tables.meta.put(TOOLS_NATIVE_MIGRATED_KEY, { value: '1' }) // 隔离原生并入（否则 LEGACY 先被补 write/edit，等值比对永不命中）
