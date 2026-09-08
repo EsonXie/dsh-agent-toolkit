@@ -19,7 +19,7 @@ Agent 注册表管理一组可复用的 Agent 角色：每个角色有自己的�
 | 模型 | Provider + 模型两个级联下拉，可「跟随默认」。设置后该角色被委派/被 bot 引用时使用指定模型 |
 | 工具白名单 | 「不限制（继承会话全部工具）/ 自定义白名单」radio 二选一 + checkbox 列表，分「团队 preset 工具」（动态枚举 agent-team preset 真实挂载的工具面）和「全局工具」（顶层全局工具）两组。仅白名单语义：勾选的才可用，**没有 deny**。新建模式默认自定义 + 全勾；自定义下全不勾不可保存（改选不限制请用 radio） |
 
-bot 会话加载角色白名单时与会话可见面求交，不可见名记 warn 忽略（不再抛错）。
+bot 会话与委派两条路径加载角色白名单时都会与会话真实可见面求交：不可见名记 warn 忽略（不再抛错），求交后为空则报错（防静默零工具会话）。
 
 ![编辑器：模型选择与工具白名单（explorer 回显默认只读白名单）](images/agents-tools.png)
 
@@ -31,7 +31,7 @@ bot 会话加载角色白名单时与会话可见面求交，不可见名记 war
 | `explorer` | Explorer | 只读代码库探索：定位文件/符号、回答结构与调用关系问题，不做任何修改 |
 | `general` | General | 通用多步骤任务执行：可读可写、可运行命令，完成实现/修复类任务 |
 
-内置角色可编辑 persona/模型/工具，但 `builtin` 标记不可移除、角色不可删除。`explorer` 默认携带只读白名单（`pwsh`/`bash` + `read`/`read_image`/`glob`/`grep`，即原生工具去掉 `write`/`edit`），委派时硬约束只读；如需放开可在面板改选「不限制」。
+内置角色可编辑 persona/模型/工具，但 `builtin` 标记不可移除、角色不可删除。`explorer` 默认携带只读白名单 9 个（`pwsh`/`bash` + `read`/`read_image`/`glob`/`grep` + `web_search`/`todo_write`/`job_list`/`job_output`），委派时硬约束只读；`general` 默认携带 agent-team preset 面全量 20 个工具的显式白名单（不含 `team_delegate`，禁二级委派）。两者均可在面板改选「不限制」或自行调整。
 
 ## YAML 首启导入
 
@@ -68,6 +68,7 @@ tools:
 - 旧角色的 `tools.allow` 会一次性并入原生工具名（`meta` 表 `tools_native_migrated` 标记，幂等）。
 - 存量自定义白名单会一次性并入「preset 面 − 内置常量」差集（`meta` 表 `tools_preset_catalog_migrated` 标记，幂等；内置角色不 widen，枚举失败下次启动重试）。
 - 未配置工具的存量 `explorer` 会一次性补默认只读白名单（`meta` 表 `explorer_readonly_migrated` 标记，幂等）；已自行配置过工具的不受影响。
+- 仍是旧默认名单的内置角色会一次性更新为重选后的新名单（`meta` 表 `builtin_tools_recatalog_migrated` 标记，幂等；在面板改过的记录视为自定义，跳过）。
 
 ## 相关 HTTP API
 
