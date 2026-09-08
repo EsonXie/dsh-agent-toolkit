@@ -21,7 +21,7 @@ const nodeConfig = {
   sourcemap: true,
   clean: false,
   deps: {
-    neverBundle: [/^@deepseek-ai\//, '@dsh-agent-toolkit/token-usage', '@larksuiteoapi/node-sdk', 'clsx', 'zod'],
+    neverBundle: [/^@deepseek-ai\//, '@dsh-agent-toolkit/token-usage', '@larksuiteoapi/node-sdk', 'clsx', 'zod', 'croner'],
   },
 } satisfies UserConfig
 
