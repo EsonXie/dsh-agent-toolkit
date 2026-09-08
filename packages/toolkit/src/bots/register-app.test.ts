@@ -79,4 +79,8 @@ describe('RegisterAppService', () => {
     })
     svc.dispose()
   })
+
+  test('addons 声明卡片回传回调（card.action.trigger）', () => {
+    expect(FEISHU_REGISTER_APP_ADDONS.callbacks.items).toContain('card.action.trigger')
+  })
 })
