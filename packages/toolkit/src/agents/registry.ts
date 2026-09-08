@@ -1,7 +1,7 @@
 /** Agent 注册表：内存缓存 + 持久化回写 + 订阅通知；main 置顶、内置保底不可删。 */
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { AgentRecordSchema, migrateAgentRecord, type AgentRecord } from './store.ts'
-import { BUILTIN_AGENTS, EXPLORER_READONLY_ALLOW } from './builtin.ts'
+import { BUILTIN_AGENTS, EXPLORER_READONLY_ALLOW, GENERAL_ALLOW, LEGACY_EXPLORER_ALLOW } from './builtin.ts'
 import { importRolesYaml } from './import-yaml.ts'
 import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 
@@ -26,8 +26,11 @@ export const EXPLORER_READONLY_MIGRATED_KEY = 'explorer_readonly_migrated'
 /** tools.allow 一次性并入「preset 面 − 原生常量」差集的 meta 表标记键。 */
 export const TOOLS_PRESET_MIGRATED_KEY = 'tools_preset_catalog_migrated'
 
+/** 内置角色工具名单重选（explorer 5→9 / general 无→20）一次性迁移的 meta 表标记键。 */
+export const BUILTIN_TOOLS_RECATALOG_MIGRATED_KEY = 'builtin_tools_recatalog_migrated'
+
 /**
- * 打开 dsh_agent_toolkit 域 → 首启 YAML 导入 → 旧记录迁移（promptLayers/原生并入/explorer 只读）→
+ * 打开 dsh_agent_toolkit 域 → 首启 YAML 导入 → 旧记录迁移（promptLayers/原生并入/preset 差集并入/explorer 只读/内置名单重选）→
  * 缺 main/explorer/general 时种入内置 → 构建内存缓存。域由 apply 统一 open（storage-domain 同名单开），此处只消费表句柄。
  */
 export async function createRegistry(
@@ -88,6 +91,24 @@ export async function createRegistry(
       await agents.put('explorer', { ...explorer, tools: { allow: [...EXPLORER_READONLY_ALLOW] } })
     }
     await meta.put(EXPLORER_READONLY_MIGRATED_KEY, { value: '1' })
+  }
+
+  // 内置名单重选一次性迁移（2026-09-08）：explorer 旧默认 5 个 → 新 9 个；general 无 tools
+  // → preset 面全量 20 个。条件式：仅更新仍是旧默认值的 builtin 记录（等值比对含顺序——
+  // seed 与旧迁移写入的就是 LEGACY 派生顺序）；用户面板改过的 = 自定义，跳过；同 id 非
+  // builtin 记录是用户数据，不动。无外部依赖，跑完即置标记（无需重试语义）。
+  if (meta.get(BUILTIN_TOOLS_RECATALOG_MIGRATED_KEY) === undefined) {
+    const explorer = agents.get('explorer')
+    if (explorer?.builtin === true && explorer.tools !== undefined
+      && explorer.tools.allow.length === LEGACY_EXPLORER_ALLOW.length
+      && explorer.tools.allow.every((n, i) => n === LEGACY_EXPLORER_ALLOW[i])) {
+      await agents.put('explorer', { ...explorer, tools: { allow: [...EXPLORER_READONLY_ALLOW] } })
+    }
+    const general = agents.get('general')
+    if (general?.builtin === true && general.tools === undefined) {
+      await agents.put('general', { ...general, tools: { allow: [...GENERAL_ALLOW] } })
+    }
+    await meta.put(BUILTIN_TOOLS_RECATALOG_MIGRATED_KEY, { value: '1' })
   }
 
   await seedBuiltins(agents)

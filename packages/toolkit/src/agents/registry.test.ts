@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { DomainSpec, KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { agentToolkitDomain, type AgentRecord } from './store.ts'
-import { createRegistry, EXPLORER_READONLY_MIGRATED_KEY, TOOLS_NATIVE_MIGRATED_KEY, type AgentRegistry } from './registry.ts'
+import { createRegistry, BUILTIN_TOOLS_RECATALOG_MIGRATED_KEY, EXPLORER_READONLY_MIGRATED_KEY, TOOLS_NATIVE_MIGRATED_KEY, type AgentRegistry } from './registry.ts'
 import { EXPLORER_READONLY_ALLOW, GENERAL_ALLOW, LEGACY_EXPLORER_ALLOW } from './builtin.ts'
 import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 
@@ -289,4 +289,42 @@ test('内置名单重选：explorer = 旧只读五件 + 只读安全四件；gen
   // shell 平台条件派生，两名单恰好含一个 shell 名
   expect(GENERAL_ALLOW.filter((n) => n === 'pwsh' || n === 'bash')).toHaveLength(1)
   expect(EXPLORER_READONLY_ALLOW.filter((n) => n === 'pwsh' || n === 'bash')).toHaveLength(1)
+})
+
+test('createRegistry：旧默认内置名单一次性重选（explorer 5→9、general 无→20），meta 标记幂等', async () => {
+  const domain = new FakeDomain(agentToolkitDomain)
+  const tables = tablesOf(domain)
+  await tables.meta.put(TOOLS_NATIVE_MIGRATED_KEY, { value: '1' }) // 隔离原生并入（否则 LEGACY 先被补 write/edit，等值比对永不命中）
+  await tables.agents.put('explorer', { id: 'explorer', name: 'Explorer', builtin: true, tools: { allow: [...LEGACY_EXPLORER_ALLOW] } })
+  await tables.agents.put('general', { id: 'general', name: 'General', builtin: true })
+  const registry = await createRegistry(vi.fn(), tables)
+  expect(registry.get('explorer')?.tools?.allow).toEqual(EXPLORER_READONLY_ALLOW)
+  expect(registry.get('general')?.tools?.allow).toEqual(GENERAL_ALLOW)
+  expect(tables.meta.get(BUILTIN_TOOLS_RECATALOG_MIGRATED_KEY)).toEqual({ value: '1' })
+  // 标记已置：用户后续编辑（如 explorer 去掉并入项）不会被回收改
+  await registry.upsert({ id: 'explorer', name: 'Explorer', builtin: true, tools: { allow: ['read'] } })
+  const registry2 = await createRegistry(vi.fn(), tables)
+  expect(registry2.get('explorer')?.tools?.allow).toEqual(['read'])
+})
+
+test('createRegistry：用户自定义过的内置记录跳过（explorer 改过白名单 / general 已配 tools），标记仍置位', async () => {
+  const domain = new FakeDomain(agentToolkitDomain)
+  const tables = tablesOf(domain)
+  await tables.meta.put(TOOLS_NATIVE_MIGRATED_KEY, { value: '1' }) // 隔离原生并入
+  await tables.agents.put('explorer', { id: 'explorer', name: 'Explorer', builtin: true, tools: { allow: ['read'] } })
+  await tables.agents.put('general', { id: 'general', name: 'General', builtin: true, tools: { allow: ['read', 'write'] } })
+  const registry = await createRegistry(vi.fn(), tables)
+  expect(registry.get('explorer')?.tools?.allow).toEqual(['read'])
+  expect(registry.get('general')?.tools?.allow).toEqual(['read', 'write'])
+  expect(tables.meta.get(BUILTIN_TOOLS_RECATALOG_MIGRATED_KEY)).toEqual({ value: '1' })
+})
+
+test('createRegistry：同 id 非 builtin 记录不动（用户数据），builtin 才迁移', async () => {
+  const domain = new FakeDomain(agentToolkitDomain)
+  const tables = tablesOf(domain)
+  await tables.meta.put(TOOLS_NATIVE_MIGRATED_KEY, { value: '1' })
+  await tables.agents.put('general', { id: 'general', name: '自定义', builtin: false })
+  const registry = await createRegistry(vi.fn(), tables)
+  expect(registry.get('general')).toEqual({ id: 'general', name: '自定义', builtin: false })
+  expect(tables.meta.get(BUILTIN_TOOLS_RECATALOG_MIGRATED_KEY)).toEqual({ value: '1' })
 })
