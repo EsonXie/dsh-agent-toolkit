@@ -286,6 +286,7 @@ test('内置名单重选：explorer = 旧只读五件 + 只读安全四件；gen
   }
   expect(GENERAL_ALLOW).not.toContain('team_delegate')
   expect(GENERAL_ALLOW).not.toContain('run_code')
+  expect(EXPLORER_READONLY_ALLOW).not.toContain('run_code')
   // shell 平台条件派生，两名单恰好含一个 shell 名
   expect(GENERAL_ALLOW.filter((n) => n === 'pwsh' || n === 'bash')).toHaveLength(1)
   expect(EXPLORER_READONLY_ALLOW.filter((n) => n === 'pwsh' || n === 'bash')).toHaveLength(1)

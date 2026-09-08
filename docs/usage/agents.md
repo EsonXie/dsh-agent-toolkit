@@ -31,7 +31,7 @@ bot 会话与委派两条路径加载角色白名单时都会与会话真实可�
 | `explorer` | Explorer | 只读代码库探索：定位文件/符号、回答结构与调用关系问题，不做任何修改 |
 | `general` | General | 通用多步骤任务执行：可读可写、可运行命令，完成实现/修复类任务 |
 
-内置角色可编辑 persona/模型/工具，但 `builtin` 标记不可移除、角色不可删除。`explorer` 默认携带只读白名单 9 个（`pwsh`/`bash` + `read`/`read_image`/`glob`/`grep` + `web_search`/`todo_write`/`job_list`/`job_output`），委派时硬约束只读；`general` 默认携带 agent-team preset 面全量 20 个工具的显式白名单（不含 `team_delegate`，禁二级委派）。两者均可在面板改选「不限制」或自行调整。
+内置角色可编辑 persona/模型/工具，但 `builtin` 标记不可移除、角色不可删除。`explorer` 默认携带只读白名单 9 个（`pwsh`/`bash` + `read`/`read_image`/`glob`/`grep` + `web_search`/`todo_write`/`job_list`/`job_output`），委派时硬约束只读；`general` 默认携带 agent-team preset 面全量 20 个工具的显式白名单（不含 `team_delegate` 与 `run_code`，禁二级委派）。两者均可在面板改选「不限制」或自行调整。
 
 ## YAML 首启导入
 
@@ -68,7 +68,7 @@ tools:
 - 旧角色的 `tools.allow` 会一次性并入原生工具名（`meta` 表 `tools_native_migrated` 标记，幂等）。
 - 存量自定义白名单会一次性并入「preset 面 − 内置常量」差集（`meta` 表 `tools_preset_catalog_migrated` 标记，幂等；内置角色不 widen，枚举失败下次启动重试）。
 - 未配置工具的存量 `explorer` 会一次性补默认只读白名单（`meta` 表 `explorer_readonly_migrated` 标记，幂等）；已自行配置过工具的不受影响。
-- 仍是旧默认名单的内置角色会一次性更新为重选后的新名单（`meta` 表 `builtin_tools_recatalog_migrated` 标记，幂等；在面板改过的记录视为自定义，跳过）。
+- 仍是旧默认名单的内置角色会一次性更新为重选后的新名单（`meta` 表 `builtin_tools_recatalog_migrated` 标记，幂等；在面板改过的记录视为自定义，跳过）。注意：存量 general 的「不限制」视同旧默认，会被改写为显式 20 个白名单（且不再继承 team_delegate）；如需保留不限制，升级后在面板改选一次即可。
 
 ## 相关 HTTP API
 
