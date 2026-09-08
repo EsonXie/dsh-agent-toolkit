@@ -4,6 +4,7 @@ import type { AgentRegistry } from '../agents/registry.ts'
 import type { BotRecord } from '../bots/store.ts'
 import type { ReplyHandle } from './channel.ts'
 import { hooksOf, type AgentHooks, type AgentSection, type AgentsPort, type BindingStore, type DefaultModelAccessor, type SessionRuntime, type WorkspacePort } from './ports.ts'
+import { roleAgentOptions, roleHooks } from './role-assembly.ts'
 
 /** 发起人提示段名：bot 会话声明来源渠道与发起人 open_id。 */
 export const SENDER_SECTION_NAME = 'dsh-agent-toolkit:channel:sender'
@@ -81,15 +82,9 @@ export class Router {
       }
       return { agentOptions: bot.agentOptions ?? this.defaultModel(), hooks: this.withSenderSection(hooksOf(bot), bot, userId) }
     }
-    const sections = role.persona === undefined || role.persona.trim().length === 0
-      ? []
-      : [{ name: 'dsh-agent-toolkit:agent:persona', order: 0, text: role.persona }]
     return {
-      agentOptions: role.model ?? this.defaultModel(),
-      hooks: this.withSenderSection({
-        ...(sections.length > 0 ? { sections } : {}),
-        ...(role.tools !== undefined ? { tools: role.tools.allow } : {}),
-      }, bot, userId),
+      agentOptions: roleAgentOptions(role, this.defaultModel),
+      hooks: this.withSenderSection(roleHooks(role), bot, userId),
     }
   }
 
