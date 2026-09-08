@@ -4,6 +4,8 @@ import type { BotChannel, ChannelHandle } from '../channel.ts'
 import { createFeishuApi } from './api.ts'
 import { MessageDedup, parseMessageEvent } from './parse.ts'
 import { FeishuReplyHandle, makeAck } from './reply.ts'
+import { FeishuApprovalPresenter } from '../approval/feishu.ts'
+import { toCardActionInput, toastResponse } from './card-action.ts'
 
 export const feishuChannel: BotChannel = {
   type: 'feishu',
@@ -17,7 +19,7 @@ export const feishuChannel: BotChannel = {
     const botOpenId = await api.getBotOpenId()
     const dedup = new MessageDedup()
 
-    const dispatcher = new lark.EventDispatcher({}).register({
+    const dispatcher = new lark.EventDispatcher({}).register<{ 'card.action.trigger': (raw: unknown) => unknown }>({
       // 已读回执无动作；显式 no-op 消掉 EventDispatcher 的 "no ... handle" 告警噪音。
       'im.message.message_read_v1': async () => undefined,
       // WS 事件须 3 秒内返回：解析同步完成，业务投递 fire-and-forget（含图片懒下载）。
@@ -39,12 +41,20 @@ export const feishuChannel: BotChannel = {
           ackProcessing: makeAck(api, parsed.messageId, tunables.processingReactionEmoji),
         })
       },
+      // 卡片按钮回调（审批）：同步入核，toast 经 WS 应答帧回执。
+      'card.action.trigger': (raw: unknown) => {
+        if (io.onCardAction === undefined) return undefined
+        const action = toCardActionInput(raw)
+        if (action === undefined) return undefined
+        return toastResponse(io.onCardAction(action)) ?? undefined
+      },
     })
 
     const ws = new lark.WSClient({ appId, appSecret: bot.secret, loggerLevel: lark.LoggerLevel.warn })
     await ws.start({ eventDispatcher: dispatcher })
 
     return {
+      approval: new FeishuApprovalPresenter(api, log),
       close: () => {
         ws.close({ force: true })
         return Promise.resolve()
