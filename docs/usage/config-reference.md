@@ -28,6 +28,7 @@
       processingReactionEmoji: OneSecond
       errorDetailMaxChars: 500
       injectSender: true
+      approval: true
     agentTeamPreset:
       enabled: true
       id: agent-team
@@ -59,6 +60,7 @@
 | `feishu.processingReactionEmoji` | string | `OneSecond` | 「处理中」表情回复的 emoji_type |
 | `feishu.errorDetailMaxChars` | number | `500` | 回传飞书的错误摘要最大字符数 |
 | `feishu.injectSender` | boolean | `true` | 会话创建时注入「渠道 + 发起人 open_id」提示段（`dsh-agent-toolkit:channel:sender`），供 Agent 写多维表格人员字段等场景使用 |
+| `feishu.approval` | boolean | `true` | bot 会话工具提权申请改由飞书审批卡片处理（仅会话发起人可点）。注意：存量飞书应用需在开发者后台补开「卡片回传」(card.action.trigger) 订阅，否则卡片按钮无响应、审批会一直挂起；如无法开启可将该项设为 `false` 回退 web 审批弹窗 |
 
 ## `agentTeamPreset.*` 字段
 
