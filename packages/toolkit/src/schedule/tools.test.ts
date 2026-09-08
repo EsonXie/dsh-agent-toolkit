@@ -104,34 +104,59 @@ describe('setupCronTools 门控与互斥探测', () => {
     effects: Array<() => void>
   }
 
-  /** fake ctx + fake agent（agent.ctx.tools 与 ctx.tools 共用注册表，便于断言）。 */
+  /** fake ctx + fake agent（agent.ctx.tools 与 ctx.tools 共用注册表，便于断言）。
+   *  register 按宿主语义（tools/src/index.ts:726-728）对同名同 scope 抛错，
+   *  ctx.effect 收集 toolkit 级 fiber disposer（供 HMR 重挂测试手动卸载）。 */
   function fakeWorld(over: { hasScheduleCreate?: boolean } = {}) {
     const listeners: ((payload: { agent: FakeAgent }) => void)[] = []
     const registered: string[] = []
+    const registeredSet = new Set<string>()
     const warns: string[] = []
     const toolsRegistry = {
       get: (name: string) => (name === 'schedule_create' && over.hasScheduleCreate === true ? { name } : undefined),
-      register: (tool: { name: string }) => { registered.push(tool.name); return () => undefined },
+      register: (tool: { name: string }) => {
+        if (registeredSet.has(tool.name)) throw new Error(`tool "${tool.name}" is already registered in this scope`)
+        registeredSet.add(tool.name)
+        registered.push(tool.name)
+        return () => {
+          registeredSet.delete(tool.name)
+          const i = registered.lastIndexOf(tool.name)
+          if (i >= 0) registered.splice(i, 1)
+        }
+      },
     }
     let roots: FakeAgent[] = []
+    const fiberDisposers: Array<() => void | Promise<void>> = []
     const ctx = {
       agents: { roots: () => roots },
       on: (event: string, listener: (payload: { agent: FakeAgent }) => void) => {
-        if (event === 'agent/created') listeners.push(listener)
+        if (event === 'agent/created') {
+          listeners.push(listener)
+          return () => { const i = listeners.indexOf(listener); if (i >= 0) listeners.splice(i, 1) }
+        }
+        return () => undefined
       },
       tools: toolsRegistry,
       logger: { warn: (m: string) => warns.push(m) },
+      effect: (fn: () => (() => void | Promise<void>) | undefined) => {
+        const disposer = fn()
+        if (disposer !== undefined) fiberDisposers.push(disposer)
+      },
     } as unknown as Context
     const makeAgent = (origin: string | undefined, sessionId: string): FakeAgent => {
       const effects: Array<() => void> = []
       return {
         session: { id: sessionId, header: { origin } },
-        ctx: { effect: (fn: () => () => void) => { effects.push(fn()) }, tools: toolsRegistry },
+        // 真实 cordis 的 ctx.effect 同步执行 body 并返回 disposer；fake 同步镜像。
+        ctx: {
+          effect: (fn: () => () => void) => { const disposer = fn(); effects.push(disposer); return disposer },
+          tools: toolsRegistry,
+        },
         effects,
       }
     }
     return {
-      ctx, listeners, registered, warns, makeAgent,
+      ctx, listeners, registered, warns, makeAgent, fiberDisposers,
       setRoots: (agents: FakeAgent[]) => { roots = agents },
     }
   }
@@ -158,5 +183,39 @@ describe('setupCronTools 门控与互斥探测', () => {
     const agent = world.makeAgent(undefined, 'sess-new')
     for (const listener of world.listeners) listener({ agent })
     expect(world.registered).toContain('cron_task_create')
+  })
+
+  test('HMR 重挂：fiber 卸载清理 agent 工具后可再次挂载，不抛重复注册', async () => {
+    const world = fakeWorld()
+    const agent = world.makeAgent(undefined, 'sess-main')
+    world.setRoots([agent])
+    // fiber 1：主 Agent 注册 5 工具。
+    setupCronTools(world.ctx, createCronTools(fakeService()), new Set())
+    expect(world.registered).toHaveLength(5)
+    // fiber 1 卸载（HMR）：toolkit 级 ctx.effect cleanup 摘下 agent 上挂的工具。
+    await Promise.all(world.fiberDisposers.splice(0).map((dispose) => Promise.resolve(dispose())))
+    expect(world.registered).toEqual([])
+    // fiber 2 重挂：注册表已清空，可再次注册（旧实现残留 5 工具 → duplicate 抛错）。
+    setupCronTools(world.ctx, createCronTools(fakeService()), new Set())
+    expect(world.registered).toHaveLength(5)
+  })
+
+  test('同一 agent 重复 attach（roots 快照 + agent/created 双路径）只注册一次', () => {
+    const world = fakeWorld()
+    const agent = world.makeAgent(undefined, 'sess-main')
+    world.setRoots([agent])
+    setupCronTools(world.ctx, createCronTools(fakeService()), new Set())
+    for (const listener of world.listeners) listener({ agent })
+    expect(world.registered.filter((n) => n === 'cron_task_create')).toHaveLength(1)
+  })
+
+  test('agent.ctx 卸载：disposer 运行，工具从注册表移除', () => {
+    const world = fakeWorld()
+    const agent = world.makeAgent(undefined, 'sess-main')
+    world.setRoots([agent])
+    setupCronTools(world.ctx, createCronTools(fakeService()), new Set())
+    expect(agent.effects).toHaveLength(1)
+    agent.effects[0]()
+    expect(world.registered).toEqual([])
   })
 })

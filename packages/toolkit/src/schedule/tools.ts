@@ -177,12 +177,35 @@ export function createCronTools(service: CronService): ToolDefinition[] {
  * 门控：跳过 subagent（session.header.origin === 'subagent'）与插件自有会话（ownedSessions：
  * bot/schedule 会话）——dsh-schedule src/index.ts:45-49 同款 agent/created 模式，
  * 外加存量 roots 立即注册（HMR 重挂后当前主会话不丢工具）。
+ * HMR 安全：镜像 dsh-schedule src/index.ts:44-76——attached 身份表防同一 agent 二次挂载，
+ * toolkit 级 ctx.effect 卸载时 Promise.allSettled 摘下所有 agent 上挂的工具
+ * （agent.ctx 属宿主、长于 toolkit fiber，仅靠 agent.ctx.effect 会在重挂时残留）。
  */
 export function setupCronTools(ctx: Context, tools: ToolDefinition[], ownedSessions: ReadonlySet<string>): void {
-  const attach = (agent: Agent): void => {
+  const attached = new Map<Agent, () => void>()
+  let stopping = false
+
+  ctx.effect(() => {
+    const stopCreated = ctx.on('agent/created', ({ agent }) => {
+      if (stopping || attached.has(agent)) return
+      attach(agent)
+    })
+    for (const agent of ctx.agents.roots()) attach(agent)
+
+    return async () => {
+      stopping = true
+      stopCreated()
+      const cleanups = [...attached.values()]
+      attached.clear()
+      await Promise.allSettled(cleanups.map((cleanup) => Promise.resolve(cleanup())))
+    }
+  }, 'dsh-agent-toolkit.cron-tools()')
+
+  function attach(agent: Agent): void {
+    if (attached.has(agent)) return
     if (agent.session.header.origin === 'subagent') return
     if (ownedSessions.has(String(agent.session.id))) return
-    agent.ctx.effect(() => {
+    const cleanup = agent.ctx.effect(() => {
       const scope = scopeOf(agent.ctx)
       const hostPresent = scope !== undefined
         ? ctx.tools.get(HOST_SCHEDULE_TOOL, scope) !== undefined
@@ -195,9 +218,11 @@ export function setupCronTools(ctx: Context, tools: ToolDefinition[], ownedSessi
         )
       }
       const disposers = tools.map((tool) => agent.ctx.tools.register(tool))
-      return () => { for (const dispose of disposers) dispose() }
-    })
+      return () => {
+        for (const dispose of disposers) dispose()
+        if (attached.get(agent) === cleanup) attached.delete(agent)
+      }
+    }, 'dsh-agent-toolkit.cron-tools.attach()')
+    attached.set(agent, cleanup)
   }
-  for (const agent of ctx.agents.roots()) attach(agent)
-  ctx.on('agent/created', ({ agent }) => { attach(agent) })
 }
