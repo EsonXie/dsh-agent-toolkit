@@ -41,13 +41,13 @@ export class Router {
       }
       const agent = await this.agents.resume({ sessionId: bound, ...this.resolveSession(bot, userId) })
       await this.attach(bot.project, bound)
-      return this.adopt(bot.id, chatId, bound, agent, reply)
+      return this.adopt(bot.id, chatId, userId, bound, agent, reply)
     }
     const sessionId = randomUUID()
     const agent = await this.agents.create({ sessionId, cwd: bot.project, ...this.resolveSession(bot, userId) })
     await this.bindings.set(bot.id, chatId, sessionId)
     await this.attach(bot.project, sessionId)
-    return this.adopt(bot.id, chatId, sessionId, agent, reply)
+    return this.adopt(bot.id, chatId, userId, sessionId, agent, reply)
   }
 
   /** attach 失败仅告警（会话降级为未分组），不阻塞消息处理。 */
@@ -109,9 +109,9 @@ export class Router {
     return bound === undefined ? undefined : this.sessions.get(bound)
   }
 
-  private adopt(botId: string, chatId: string, sessionId: string, agent: SessionRuntime['agent'], reply: ReplyHandle): SessionRuntime {
+  private adopt(botId: string, chatId: string, userId: string, sessionId: string, agent: SessionRuntime['agent'], reply: ReplyHandle): SessionRuntime {
     const rt: SessionRuntime = {
-      botId, chatId, sessionId, agent, reply,
+      botId, chatId, sessionId, initiatorOpenId: userId, agent, reply,
       inflight: undefined, tail: Promise.resolve(), turn: undefined,
     }
     this.sessions.set(sessionId, rt)

@@ -85,6 +85,19 @@ describe('Router.ensure', () => {
     expect(rt.reply).toBe(reply)
   })
 
+  test('ensure 把发起人 open_id 落进 SessionRuntime', async () => {
+    const { router } = setup()
+    const rt = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_initiator_1')
+    expect(rt.initiatorOpenId).toBe('ou_initiator_1')
+  })
+
+  test('已存在会话直接返回：不改 initiatorOpenId（发起人不变）', async () => {
+    const { router } = setup()
+    await router.ensure(fakeBot(), 'oc_1', reply, 'ou_first')
+    const reused = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_other')
+    expect(reused.initiatorOpenId).toBe('ou_first')
+  })
+
   test('有绑定且进程内有 runtime：直接复用并刷新 reply', async () => {
     const { router, created, resumed } = setup()
     const first = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')

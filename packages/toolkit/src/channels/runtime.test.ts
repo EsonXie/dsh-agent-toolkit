@@ -151,7 +151,7 @@ test('unbindBot 停渠道并取消在飞会话，但保留绑定表', async () =
   await deps.bindings.put('reviewer:oc_1', { sessionId: 's1' })
   const cancelled: string[] = []
   runtime.sessions.set('s1', {
-    botId: 'reviewer', chatId: 'oc_1', sessionId: 's1',
+    botId: 'reviewer', chatId: 'oc_1', sessionId: 's1', initiatorOpenId: 'ou_x',
     agent: { sessionId: 's1', followup: () => undefined, cancel: () => { cancelled.push('s1') }, whenIdle: async () => undefined },
     reply: undefined, inflight: undefined, tail: Promise.resolve(), turn: undefined,
   })

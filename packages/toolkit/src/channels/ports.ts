@@ -59,6 +59,8 @@ export interface SessionRuntime {
   readonly botId: string
   readonly chatId: string
   readonly sessionId: string
+  /** 会话发起人的渠道 open_id（审批卡片越权校验用；ensure/reset 的 userId 落入）。 */
+  readonly initiatorOpenId: string
   agent: AgentPort
   /** 最近一次入站消息携带的回复句柄（回复永远回到 chat）。 */
   reply: ReplyHandle | undefined
