@@ -1,5 +1,6 @@
 /** 渠道抽象：飞书是第一个实现；核心只依赖本文件，不感知任何飞书 SDK 类型。 */
 import type { BotRecord } from '../bots/store.ts'
+import type { ApprovalPresenter, CardActionAck, CardActionInput } from './approval/center.ts'
 
 export type Disposer = () => void | Promise<void>
 
@@ -44,6 +45,8 @@ export interface InboundMessage {
 export interface ChannelIO {
   /** fire-and-forget：渠道 handler 须快速返回（飞书 WS 3 秒限制），业务异步消化。 */
   onMessage(msg: InboundMessage): void
+  /** 卡片按钮回调入核（审批）；渠道无交互卡片时可不实现。返回值经渠道应答帧回执（toast）。 */
+  onCardAction?(action: CardActionInput): CardActionAck | undefined
 }
 
 export type ChannelStatus = 'connected' | 'connecting' | 'reconnecting' | 'idle' | 'failed'
@@ -51,6 +54,8 @@ export type ChannelStatus = 'connected' | 'connecting' | 'reconnecting' | 'idle'
 export interface ChannelHandle {
   close(): Promise<void>
   status(): ChannelStatus
+  /** 该渠道的审批卡片能力（有交互卡片的渠道实现；缺席 = ask 回退其他审批通道）。 */
+  approval?: ApprovalPresenter
 }
 
 /** 全局可调参数（Config 快照，渠道层只读消费）。 */

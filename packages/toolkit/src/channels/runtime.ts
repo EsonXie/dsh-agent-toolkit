@@ -8,6 +8,7 @@ import { Outbound } from './outbound.ts'
 import type { AgentsPort, BindingStore, DefaultModelAccessor, SessionRuntime, WorkspacePort } from './ports.ts'
 import { Router } from './router.ts'
 import type { AttachmentsPort } from './inbound.ts'
+import { ApprovalCenter } from './approval/center.ts'
 
 export interface RuntimeDeps {
   bots: KvTable<string, BotRecord>
@@ -39,6 +40,7 @@ export class BotRuntime {
   readonly router: Router
   readonly inbound: Inbound
   readonly outbound: Outbound
+  readonly approval: ApprovalCenter
   private readonly handles = new Map<string, ChannelHandle>()
 
   constructor(private readonly deps: RuntimeDeps) {
@@ -52,6 +54,15 @@ export class BotRuntime {
       onError: (m) => deps.log.warn(m),
     })
     this.outbound = new Outbound(this.sessions, (m) => deps.log.warn(m), deps.maxErrorDetailChars)
+    this.approval = new ApprovalCenter(
+      this.sessions,
+      (botId) => {
+        const presenter = this.handles.get(botId)?.approval
+        if (presenter === undefined) return undefined
+        return { presenter, botName: this.deps.bots.get(botId)?.name ?? botId }
+      },
+      (m) => deps.log.warn(m),
+    )
   }
 
   async startAll(): Promise<void> {
@@ -82,7 +93,7 @@ export class BotRuntime {
     try {
       const handle = await channel.start(
         { record, secret },
-        { onMessage: (msg) => this.inbound.onMessage(msg) },
+        { onMessage: (msg) => this.inbound.onMessage(msg), onCardAction: (action) => this.approval.handleCardAction(action) },
         this.deps.tunables,
         (m) => this.deps.log.warn(m),
       )
@@ -130,6 +141,7 @@ export class BotRuntime {
     }))
     await Promise.allSettled([...this.handles.values()].map((h) => h.close()))
     this.handles.clear()
+    this.approval.dispose()
   }
 
   private async stopChannel(botId: string): Promise<void> {

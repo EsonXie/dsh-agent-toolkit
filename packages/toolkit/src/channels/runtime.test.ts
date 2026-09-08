@@ -1,8 +1,9 @@
 import { describe, expect, test, vi } from 'vitest'
-import type { BotChannel, ChannelHandle } from './channel.ts'
+import type { BotChannel, ChannelHandle, ReplyHandle } from './channel.ts'
 import { BotRuntime, type RuntimeDeps } from './runtime.ts'
 import type { BotRecord } from '../bots/store.ts'
 import type { AgentRegistry } from '../agents/registry.ts'
+import type { ApprovalPrompt, CardActionAck, CardActionInput } from './approval/center.ts'
 
 const fakeRegistry: AgentRegistry = {
   list: () => [],
@@ -160,4 +161,66 @@ test('unbindBot 停渠道并取消在飞会话，但保留绑定表', async () =
   expect(cancelled).toEqual(['s1'])
   expect(runtime.sessions.has('s1')).toBe(false)
   expect(deps.bindings.get('reviewer:oc_1')).toEqual({ sessionId: 's1' })
+})
+
+/** 带审批能力的渠道 harness：capture io + 记录 present 的 key。 */
+function approvalHarness() {
+  let io: { onMessage(m: unknown): void; onCardAction?(a: CardActionInput): CardActionAck | undefined } | undefined
+  const presented: ApprovalPrompt[] = []
+  const channel: BotChannel = {
+    type: 'feishu',
+    start: async (_bot, channelIo) => {
+      io = channelIo as typeof io
+      return {
+        close: async () => undefined,
+        status: () => 'connected' as const,
+        approval: {
+          present: async (prompt: ApprovalPrompt) => {
+            presented.push(prompt)
+            return { finalize: async () => undefined }
+          },
+        },
+      }
+    },
+  }
+  const fakeReply: ReplyHandle = {
+    beginTurn: async () => undefined, update: async () => undefined,
+    finalize: async () => undefined, notice: async () => undefined,
+  }
+  const { runtime } = harness({
+    channels: new Map([['feishu', channel]]),
+    agents: {
+      create: async (input: { sessionId: string }) => ({
+        sessionId: input.sessionId,
+        followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined,
+      }),
+      resume: async (input: { sessionId: string }) => ({
+        sessionId: input.sessionId,
+        followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined,
+      }),
+    } as unknown as RuntimeDeps['agents'],
+  })
+  return { runtime, fakeReply, presented, ioOf: () => io }
+}
+
+test('审批集成：渠道 approval presenter 发卡，io.onCardAction 路由回 center resolve', async () => {
+  const { runtime, fakeReply, presented, ioOf } = approvalHarness()
+  await runtime.startAll()
+  const rt = await runtime.router.ensure(BOT, 'oc_chat1', fakeReply, 'ou_initiator')
+  const pending = runtime.approval.handleRequest({ agent: { session: { id: rt.sessionId } }, toolName: 'write' })
+  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  // 经渠道 io 回调（与真实 card.action.trigger 同路径）
+  const ack = ioOf()!.onCardAction!({ chatId: 'oc_chat1', operatorOpenId: 'ou_initiator', value: { key: presented[0]!.key, decision: 'reject' } })
+  expect(ack).toEqual({ toast: '已拒绝' })
+  await expect(pending).resolves.toBe('rejected')
+})
+
+test('stopAll 兜底 dispose：挂起审批 settle cancelled', async () => {
+  const { runtime, fakeReply, presented } = approvalHarness()
+  await runtime.startAll()
+  const rt = await runtime.router.ensure(BOT, 'oc_chat1', fakeReply, 'ou_initiator')
+  const pending = runtime.approval.handleRequest({ agent: { session: { id: rt.sessionId } }, toolName: 'write' })
+  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  await runtime.stopAll()
+  await expect(pending).resolves.toBe('cancelled')
 })
