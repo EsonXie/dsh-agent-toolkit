@@ -87,6 +87,7 @@ export const Config: z<unknown, Config> = z.object({
     processingReactionEmoji: z.string().default('OneSecond'),
     errorDetailMaxChars: z.number().default(500),
     injectSender: z.boolean().default(true),
+    approval: z.boolean().default(true),
   }).default({
     cardUpdateThrottleMs: 500,
     cardMaxBytes: 28_000,
@@ -95,6 +96,7 @@ export const Config: z<unknown, Config> = z.object({
     processingReactionEmoji: 'OneSecond',
     errorDetailMaxChars: 500,
     injectSender: true,
+    approval: true,
   }),
   // agent-team preset 自动生成：派生 shipped standard、禁用 subagent 工具族 4 行，
   // 写入首个 trust=user root；另生成 bot 会话最小 preset（botsId，委派子会话 composeFrom 认父的前提）

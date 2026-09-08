@@ -136,6 +136,7 @@ describe('Config 默认值', () => {
       processingReactionEmoji: 'OneSecond',
       errorDetailMaxChars: 500,
       injectSender: true,
+      approval: true,
     })
     expect(config.agentTeamPreset).toEqual({
       enabled: true,
@@ -150,6 +151,11 @@ describe('Config 默认值', () => {
   test('feishu.injectSender=false 原样保留', () => {
     const config = Config({ feishu: { injectSender: false } })
     expect(config.feishu.injectSender).toBe(false)
+  })
+
+  test('feishu.approval=false 原样保留（关闭飞书审批卡片，回到 web api-proxy 弹窗）', () => {
+    const config = Config({ feishu: { approval: false } })
+    expect(config.feishu.approval).toBe(false)
   })
 })
 

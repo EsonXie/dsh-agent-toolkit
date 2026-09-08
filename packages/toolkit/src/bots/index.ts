@@ -12,6 +12,9 @@ import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
+// Side-effect type import: declaration-merges the `approval/request` waterfall event
+// answered below（照 host api-proxy.ts L87-90 同款；type-only，bundle 期擦除无运行时依赖）。
+import type {} from '@deepseek-ai/dsh-user-approval'
 import type { AgentRegistry } from '../agents/registry.ts'
 import { openDomainSafely } from '../shared/storage.ts'
 import { registerOptionalRoutes } from '../shared/webserver.ts'
@@ -23,6 +26,7 @@ import type { AgentPort, AgentsPort, WorkspacePort } from '../channels/ports.ts'
 import { BotRuntime } from '../channels/runtime.ts'
 import { createScopeJoiner, type ScopeJoiner } from '../channels/scope-joiner.ts'
 import { createToolsScope } from '../channels/tool-scope.ts'
+import { createApprovalAnswerer } from '../channels/approval/answerer.ts'
 import { createApiHandler } from './api.ts'
 import { RegisterAppService } from './register-app.ts'
 import { projectBotDomain, type Binding, type BotRecord } from './store.ts'
@@ -43,6 +47,8 @@ export interface BotsModuleConfig {
   errorDetailMaxChars: number
   /** 会话创建/恢复时注入「渠道 + 发起人 open_id」提示段（dsh-agent-toolkit:channel:sender）。 */
   injectSender: boolean
+  /** 飞书审批卡片：bot 会话的工具提权申请改由飞书卡片审批（仅会话发起人可点）。 */
+  approval: boolean
 }
 
 /** setupBots 的宿主接线依赖（registry 供运行时委派/API 消费；prompt 无消费方，Task 13 定案不装配 persona）。 */
@@ -201,6 +207,12 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
   ctx.on('session/event', (session, event) => {
     runtime?.outbound.handleSessionEvent(String(session.header.id), event as { type: string; data: Record<string, unknown> })
   })
+
+  // 审批 answerer：prepend 抢在 web api-proxy 全局 answerer 之前（其从不 next 让出）；
+  // runtime 未启动/非自有会话/发卡失败时 createApprovalAnswerer 内部 next() 透传，行为回到现状。
+  if (config.approval) {
+    ctx.on('approval/request', createApprovalAnswerer(() => runtime?.approval), { prepend: true })
+  }
 
   // turn 外错误（无 turn/end 兜底）：agent/error → notice 错误摘要 + 释放 inflight（outbound 内去重）。
   ctx.on('agent/error', ({ agent, error }) => {
