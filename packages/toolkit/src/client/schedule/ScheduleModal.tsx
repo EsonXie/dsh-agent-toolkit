@@ -5,7 +5,7 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { useLoadState } from '../shared/load-state.ts'
 import { deleteTask, fetchRuns, fetchTasks, triggerTask, updateTask, type CronRun, type CronTaskView } from './api.ts'
 import type { NS } from './locales.ts'
-import type { ScheduleTaskDraft } from './TaskForm.tsx'
+import type { ScheduleTaskDraft } from './TaskForm.types.ts'
 import css from './schedule.module.css'
 
 type T = PropsLocale<typeof NS>['t']

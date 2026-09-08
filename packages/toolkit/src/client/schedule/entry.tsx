@@ -6,7 +6,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { createSidebarEntry } from '../shared/entry.tsx'
 import { ScheduleModal } from './ScheduleModal.tsx'
 import type { NS } from './locales.ts'
-import type { ScheduleTaskDraft } from './TaskForm.tsx'
 
 /** 时钟图标（ui-primitives 无现成时钟图标，内联 16px outline SVG）。 */
 const IconClock = (

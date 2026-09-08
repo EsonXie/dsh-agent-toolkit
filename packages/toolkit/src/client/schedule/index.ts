@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 // 触发 ui-sidebar 对 SlotMap 的声明合并（sidebar.footer.action 键）。
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { ScheduleEntry } from './entry.tsx'
+import { TaskForm } from './TaskForm.tsx'
 import { en, NS, zh, type ScheduleKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -25,6 +26,11 @@ export function setupScheduleClient(ctx: Context): void {
   ctx.slots.inject('sidebar.footer.action', () =>
     ctx.slots.register(
       { name: 'sidebar.footer.action', id: 'dsh-agent-toolkit:schedule', order: 2, locale: NS },
-      (props) => ScheduleEntry({ ...props, openSession }),
+      (props) => ScheduleEntry({
+        ...props,
+        openSession,
+        renderForm: (draft, onSaved, onCancel) =>
+          TaskForm({ draft, t: props.t, onSaved, onCancel }),
+      }),
     ))
 }
