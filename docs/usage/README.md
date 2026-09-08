@@ -7,6 +7,7 @@
 | Agent 注册表 | 侧边栏底栏「Agent 管理」 | [agents.md](agents.md) |
 | 并行委派 | 主 Agent 的 `team_delegate` 工具 + 委派卡 | [delegation.md](delegation.md) |
 | 飞书 bots | 侧边栏底栏「消息机器人」 | [feishu-bots.md](feishu-bots.md) |
+| 定时任务 | 侧边栏底栏「定时任务」 | [cron-tasks.md](cron-tasks.md) |
 | Token 用量 | 侧边栏底栏「Token 用量」+ `/token-usage` 命令 | [token-usage.md](token-usage.md) |
 | 分层提示词 | 自动生效（随模型切换提示词） | [prompt-layers.md](prompt-layers.md) |
 | Agent 团队模式 | 模式选择器选用「Agent 团队」 | [agent-team-preset.md](agent-team-preset.md) |

@@ -75,6 +75,15 @@ Agent 团队 preset 自动生成（见 [agent-team-preset.md](agent-team-preset.
 | `agentTeamPreset.description` | string | `Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色` | preset.yml 的描述 |
 | `agentTeamPreset.botsId` | string | `agent-bot` | 飞书 bot 会话挂载的最小 preset id（内容 = 基础工具 5 行，从 `BASIC_TOOLS` 序列化）。`enabled: false` 时不挂（bot 直接走基础工具 standing scope）；非法 id 时启动跳过生成，bot 会话挂载失败走 warn 回退 |
 
+## `schedule.*` 字段
+
+定时任务（cron）模块（见 [cron-tasks.md](cron-tasks.md)）的执行参数。模块恒启用，不随 `modules.*` 门控。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `schedule.runTimeoutMinutes` | number | `60` | 单次运行超时（分钟）：任务触发到 `whenIdle` 超过该时长未空闲即取消并记为失败（防失控任务永占重叠锁） |
+| `schedule.runHistoryLimit` | number | `20` | 每任务运行历史环形保留条数，超出删最旧 |
+
 ## 注意事项
 
 - **layers/rules 是整体替换**：配置了自己的 `layers` 或 `rules` 会完全替换内置默认值，不是合并。想保留默认行为需把默认内容一并写入。
