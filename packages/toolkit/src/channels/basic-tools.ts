@@ -16,7 +16,7 @@ export interface BasicTool {
 export const BASIC_TOOLS: BasicTool[] = [
   {
     id: '@deepseek-ai/dsh-persona',
-    config: { text: 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.' },
+    config: { text: 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. If you need information or a decision from the user, ask directly in your reply and wait for their next message.' },
   },
   {
     id: '@deepseek-ai/dsh-agent-instructions',

@@ -52,3 +52,14 @@ describe('BASIC_TOOLS 包解析契约', () => {
     }
   })
 })
+
+describe('bot 会话工具面（BASIC_TOOLS）守护', () => {
+  test('bot 会话 persona 含"直接提问"引导（bot 工具面无 ask_user，IM 场景普通消息往返即提问）', () => {
+    const persona = BASIC_TOOLS.find((t) => t.id === '@deepseek-ai/dsh-persona')
+    expect(persona?.config?.text).toContain('ask directly in your reply')
+  })
+
+  test('BASIC_TOOLS 不含 ask_user（守护：防未来无意引入 web 独占的提问通道）', () => {
+    expect(BASIC_TOOLS.map((t) => t.id)).not.toContain('@deepseek-ai/dsh-tool-ask-user')
+  })
+})

@@ -9,7 +9,7 @@ describe('botPresetComposition', () => {
     const shellId = process.platform === 'win32' ? 'tool-pwsh' : 'tool-bash'
     const shellName = process.platform === 'win32' ? '@deepseek-ai/dsh-tool-pwsh' : '@deepseek-ai/dsh-tool-bash'
     expect(rows).toEqual([
-      { id: 'persona', name: '@deepseek-ai/dsh-persona', config: { text: 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.' } },
+      { id: 'persona', name: '@deepseek-ai/dsh-persona', config: { text: 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. If you need information or a decision from the user, ask directly in your reply and wait for their next message.' } },
       { id: 'agent-instructions', name: '@deepseek-ai/dsh-agent-instructions', config: { maxBytes: 65536 } },
       { id: shellId, name: shellName },
       { id: 'tool-fs', name: '@deepseek-ai/dsh-tool-fs' },
@@ -26,5 +26,12 @@ describe('botPresetComposition', () => {
 describe('serializeBotRows', () => {
   test('未登记映射的 BASIC_TOOLS 行：抛错（生成被 setup 层 catch 转 warn）', () => {
     expect(() => serializeBotRows([{ id: '@deepseek-ai/dsh-tool-unknown' }])).toThrow(/未登记/)
+  })
+})
+
+describe('agent-bot preset ask_user 守护', () => {
+  test('agent-bot preset 序列化不含 ask_user（守护）', () => {
+    expect(botPresetComposition()).not.toContain('ask-user')
+    expect(botPresetComposition()).not.toContain('ask_user')
   })
 })
