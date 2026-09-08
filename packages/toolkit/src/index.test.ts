@@ -65,6 +65,7 @@ function makeCtx(): ApplyHarness {
     },
     effect: () => {},
     on: vi.fn(() => () => {}),
+    interval: vi.fn(() => () => {}),
     systemPrompt: {
       section: (s: { name: string }) => {
         sections.push(s.name)
@@ -86,7 +87,7 @@ function makeCtx(): ApplyHarness {
       },
     },
     credentials: { set: vi.fn(async () => {}), resolve: vi.fn(async () => undefined), unset: vi.fn(async () => {}) },
-    agents: { create: vi.fn(), resume: vi.fn() },
+    agents: { create: vi.fn(), resume: vi.fn(), roots: () => [] },
     agentDefaultModel: { currentSelection: () => ({ provider: 'spawn', model: 'deepseek-chat' }) },
     llm: { listProviders: () => [], listModels: () => Promise.resolve([]) },
     get: () => undefined,
@@ -146,6 +147,7 @@ describe('Config 默认值', () => {
       description: 'Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色',
       botsId: 'agent-bot',
     })
+    expect(config.schedule).toEqual({ runTimeoutMinutes: 60, runHistoryLimit: 20 })
   })
 
   test('feishu.injectSender=false 原样保留', () => {
@@ -160,13 +162,13 @@ describe('Config 默认值', () => {
 })
 
 describe('apply 模块接线与开关', () => {
-  test('默认配置：注册 /token-usage 命令、四个存储域、委派工具挂载路径', async () => {
+  test('默认配置：注册 /token-usage 命令、五个存储域、委派工具挂载路径', async () => {
     const h = makeCtx()
     await apply(h.ctx, Config({}))
     await flush()
     expect(h.commands).toContain('token-usage')
     expect(h.commands).toContain('create-agent')
-    expect(h.openedDomains.sort()).toEqual(['dsh_agent_toolkit', 'dsh_agent_toolkit_routes', 'project_bot', 'token_usage'])
+    expect(h.openedDomains.sort()).toEqual(['dsh_agent_toolkit', 'dsh_agent_toolkit_routes', 'dsh_agent_toolkit_schedule', 'project_bot', 'token_usage'])
     expect(h.sections).toEqual(expect.arrayContaining(['plugin:dsh-agent-toolkit:team', 'prompt-stack:base', 'prompt-stack:model-notes']))
     expect(h.tools).not.toContain('team_delegate') // 无 subagent provider 在场时不挂载工具
   })
@@ -195,6 +197,13 @@ describe('apply 模块接线与开关', () => {
     expect(paths).toContain('/dsh-agent-toolkit/api/prompt-layers')
     expect(paths).toContain('/dsh-agent-toolkit/api/delegate')
     expect(paths).not.toContain('/dsh-agent-toolkit/api/bots')
+  })
+
+  test('默认配置：/dsh-agent-toolkit/api/cron 前缀路由注册（schedule 恒启用，不随 modules 门控）', async () => {
+    const h = makeCtx()
+    await apply(h.ctx, Config({ modules: { feishu: false } }))
+    await flush()
+    expect(h.registered.map((r) => r.path)).toContain('/dsh-agent-toolkit/api/cron')
   })
 
   test('默认配置：agents RPC 与 bots 路由均注册（同一 /dsh-agent-toolkit/api 前缀，路径互不重叠）', async () => {

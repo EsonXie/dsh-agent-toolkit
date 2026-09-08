@@ -19,6 +19,7 @@ import { setupAgentsApi } from './agents/api.ts'
 import { setupCreateAgentCommand } from './agents/create-command.ts'
 import { setupBots, type BotsModuleConfig } from './bots/index.ts'
 import { setupAgentTeamPreset, type AgentTeamPresetConfig } from './agents/team-preset.ts'
+import { setupSchedule, type ScheduleModuleConfig } from './schedule/index.ts'
 import { setupUsage } from '@dsh-agent-toolkit/token-usage'
 
 export const name = 'dsh-agent-toolkit'
@@ -49,6 +50,7 @@ export interface Config {
   toolName: string
   feishu: BotsModuleConfig
   agentTeamPreset: AgentTeamPresetConfig
+  schedule: ScheduleModuleConfig
 }
 
 /** layers/rules 的 schemastery schema 照归档 prompt-stack/src/index.ts:21-41 逐字段平移（含 overrides transform hack）。 */
@@ -116,6 +118,12 @@ export const Config: z<unknown, Config> = z.object({
     description: 'Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色',
     botsId: 'agent-bot',
   }),
+  // 定时任务（cron）：单次运行超时（分钟）与每任务运行历史环形上限（spec: docs/superpowers/specs/2026-09-07-cron-schedule-design.md §8）。
+  // natural() = 非负整数（schemastery 无 .int()，语义等价且校验更强）。
+  schedule: z.object({
+    runTimeoutMinutes: z.number().min(1).default(60),
+    runHistoryLimit: z.natural().min(1).default(20),
+  }).default({ runTimeoutMinutes: 60, runHistoryLimit: 20 }),
 }) as z<unknown, Config>
 
 export async function apply(ctx: Context, config: Config): Promise<void> {
@@ -176,4 +184,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const ownedSessions = new Set<string>()
   if (config.modules.feishu) setupBots(ctx, config.feishu, { registry, botPresetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.botsId : undefined, ownedSessions })
   if (config.modules.usage) setupUsage(ctx, { timezone: config.timezone }, name)
+  // schedule 恒启用，不随 modules 门控（任务可独立于飞书/用量使用）。
+  setupSchedule(ctx, config.schedule, {
+    registry,
+    botPresetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.botsId : undefined,
+    ownedSessions,
+  })
 }

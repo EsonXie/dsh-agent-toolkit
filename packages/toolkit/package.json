@@ -54,6 +54,7 @@
     "@deepseek-ai/cordis": "link:../../deepseek-harness/vendor/cordis",
     "@deepseek-ai/cordis-plugin-include": "link:../../deepseek-harness/vendor/include",
     "@deepseek-ai/cordis-plugin-loader": "link:../../deepseek-harness/vendor/loader",
+    "@deepseek-ai/cordis-plugin-timer": "link:../../deepseek-harness/vendor/timer",
     "@deepseek-ai/dsh-agent": "link:../../deepseek-harness/packages/core/agent",
     "@deepseek-ai/dsh-agent-default-model": "link:../../deepseek-harness/packages/core/agent-default-model",
     "@deepseek-ai/dsh-agent-instructions": "link:../../deepseek-harness/packages/context/agent-instructions",
