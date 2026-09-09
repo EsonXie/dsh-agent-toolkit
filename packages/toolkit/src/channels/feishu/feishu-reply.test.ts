@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { FeishuApi } from './api.ts'
 import { FeishuReplyHandle, makeAck, withRetry } from './reply.ts'
 
-const TUNABLES = { cardUpdateThrottleMs: 500, cardMaxBytes: 26_000, processMaxBytes: 8000, processingReactionEmoji: 'OneSecond' }
+const TUNABLES = { cardUpdateThrottleMs: 500, cardMaxBytes: 26_000, processMaxBytes: 8000, cardPrintStep: 5, processingReactionEmoji: 'OneSecond' }
 
 /** 飞书业务错误（模拟 lark SDK 的 axios error 形状）。 */
 const bizError = (code: number): Error => Object.assign(new Error(`biz ${code}`), { response: { data: { code } } })

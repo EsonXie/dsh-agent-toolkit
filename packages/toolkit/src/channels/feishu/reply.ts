@@ -99,7 +99,7 @@ export class FeishuReplyHandle implements ReplyHandle {
     this.planQueued = true
     this.enqueue(async () => {
       this.planQueued = false
-      const { ops } = planSync(this.state, this.segments, this.tunables.cardMaxBytes, this.tunables.processMaxBytes)
+      const { ops } = planSync(this.state, this.segments, this.tunables.cardMaxBytes, this.tunables.processMaxBytes, this.tunables.cardPrintStep)
       await this.exec(ops)
     })
   }
@@ -117,7 +117,7 @@ export class FeishuReplyHandle implements ReplyHandle {
       }
       if (!abandoned) return
       if (attempts >= MAX_ABANDON_PER_FLUSH) throw new Error('卡片连续废弃超限，本批输出放弃（下一 flush 继续）')
-      pending = planSync(this.state, this.segments, this.tunables.cardMaxBytes, this.tunables.processMaxBytes).ops
+      pending = planSync(this.state, this.segments, this.tunables.cardMaxBytes, this.tunables.processMaxBytes, this.tunables.cardPrintStep).ops
     }
   }
 

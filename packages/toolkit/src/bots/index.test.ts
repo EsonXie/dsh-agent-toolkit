@@ -8,6 +8,7 @@ function makeConfig(approval: boolean): BotsModuleConfig {
   return {
     cardUpdateThrottleMs: 500,
     cardMaxBytes: 28000,
+    cardPrintStep: 5,
     processMaxBytes: 8000,
     registerAppTimeoutMs: 600000,
     processingReactionEmoji: 'OneSecond',

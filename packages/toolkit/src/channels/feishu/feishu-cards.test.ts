@@ -14,7 +14,7 @@ const applyOps = (state: StreamState, ops: readonly PlannedOp[]): StreamState =>
   ops.reduce((s, p) => p.commit(s), state)
 
 // 拆卡预算基准：基础卡 JSON 全字节 / 空正文元素开销（结构 JSON 全字节，均为真实 DSL 字节）
-const BASE = Buffer.byteLength(buildCardJson(), 'utf8')
+const BASE = Buffer.byteLength(buildCardJson(5), 'utf8')
 const EL = Buffer.byteLength(buildSegmentJson('text', 'seg_1', ''), 'utf8')
 
 describe('sliceByBytes', () => {
@@ -64,7 +64,7 @@ describe('sliceTailByBytes', () => {
 
 describe('buildCardJson / buildSegmentJson', () => {
   test('新卡：无 header，仅状态行，流式配置保留', () => {
-    const json = JSON.parse(buildCardJson())
+    const json = JSON.parse(buildCardJson(5))
     expect(json.header).toBeUndefined()
     expect(json.config.streaming_mode).toBe(true)
     expect(json.body.elements).toEqual([
@@ -82,14 +82,20 @@ describe('buildCardJson / buildSegmentJson', () => {
       elements: [{ tag: 'markdown', content: '思考', element_id: 'seg_2' }],
     })
   })
+
+  test('print_step 取配置值', () => {
+    const json = JSON.parse(buildCardJson(5))
+    expect(json.config.streaming_config.print_step).toEqual({ default: 5 })
+    expect(json.config.streaming_config.print_strategy).toBe('fast')
+  })
 })
 
 describe('planSync', () => {
   test('首段 text：create + send + insert（锚定状态行之前）', () => {
-    const { ops } = planSync(initialStreamState(), [text('你好')], 28_000, 8_000)
+    const { ops } = planSync(initialStreamState(), [text('你好')], 28_000, 8_000, 5)
     const state = applyOps(initialStreamState(), ops)
     expect(ops.map((p) => p.op).filter((op) => op.type !== 'noop')).toEqual([
-      { type: 'create', cardJson: buildCardJson() },
+      { type: 'create', cardJson: buildCardJson(5) },
       { type: 'send' },
       { type: 'insert', elementJson: buildSegmentJson('text', 'seg_1', '你好'), sequence: 1 },
     ])
@@ -98,13 +104,13 @@ describe('planSync', () => {
   })
 
   test('尾段增长：元素 update；段切换 text→process→text：insert 交替、elementId 递增', () => {
-    const first = planSync(initialStreamState(), [text('你好')], 28_000, 8_000)
+    const first = planSync(initialStreamState(), [text('你好')], 28_000, 8_000, 5)
     const firstState = applyOps(initialStreamState(), first.ops)
-    const grown = planSync({ ...firstState, cardId: 'c1' }, [text('你好，世界')], 28_000, 8_000)
+    const grown = planSync({ ...firstState, cardId: 'c1' }, [text('你好，世界')], 28_000, 8_000, 5)
     expect(grown.ops.map((p) => p.op).filter((op) => op.type !== 'noop')).toEqual([{ type: 'update', elementId: 'seg_1', content: '你好，世界', sequence: 2 }])
     // 段切换
     const grownState = applyOps({ ...firstState, cardId: 'c1' }, grown.ops)
-    const more = planSync(grownState, [text('你好，世界'), proc('想一想'), text('继续')], 28_000, 8_000)
+    const more = planSync(grownState, [text('你好，世界'), proc('想一想'), text('继续')], 28_000, 8_000, 5)
     expect(more.ops.map((p) => p.op).filter((op) => op.type !== 'noop')).toEqual([
       { type: 'insert', elementJson: buildSegmentJson('process', 'seg_2', '想一想'), sequence: 3 },
       { type: 'insert', elementJson: buildSegmentJson('text', 'seg_3', '继续'), sequence: 4 },
@@ -115,7 +121,7 @@ describe('planSync', () => {
   })
 
   test('process 段超 processMaxBytes：截尾带省略标记', () => {
-    const { ops } = planSync(initialStreamState(), [proc('x'.repeat(100))], 28_000, 40)
+    const { ops } = planSync(initialStreamState(), [proc('x'.repeat(100))], 28_000, 40, 5)
     const insert = ops.map((p) => p.op).find((op) => op.type === 'insert')!
     if (insert.type !== 'insert') throw new Error('expected insert')
     const panel = JSON.parse(insert.elementJson)
@@ -126,20 +132,20 @@ describe('planSync', () => {
 
   test('text 段跨卡拆分：满卡关流 → 续卡 insert 续写剩余', () => {
     // 预算 = 基础卡 + 一个空正文元素开销 + 6 转义字节：每张卡至多放 '一二'（6 字节）
-    const { ops } = planSync(initialStreamState(), [text('一二三四五')], BASE + EL + 6, 8_000)
+    const { ops } = planSync(initialStreamState(), [text('一二三四五')], BASE + EL + 6, 8_000, 5)
     const state = applyOps(initialStreamState(), ops)
     expect(ops.map((p) => p.op).filter((op) => op.type !== 'noop')).toEqual([
-      { type: 'create', cardJson: buildCardJson() },
+      { type: 'create', cardJson: buildCardJson(5) },
       { type: 'send' },
       { type: 'insert', elementJson: buildSegmentJson('text', 'seg_1', '一二'), sequence: 1 },
       { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: 2 },
       { type: 'settings', streaming: false, sequence: 3, summary: STATUS_CONTINUED },
-      { type: 'create', cardJson: buildCardJson() },
+      { type: 'create', cardJson: buildCardJson(5) },
       { type: 'send' },
       { type: 'insert', elementJson: buildSegmentJson('text', 'seg_2', '三四'), sequence: 1 },
       { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: 2 },
       { type: 'settings', streaming: false, sequence: 3, summary: STATUS_CONTINUED },
-      { type: 'create', cardJson: buildCardJson() },
+      { type: 'create', cardJson: buildCardJson(5) },
       { type: 'send' },
       { type: 'insert', elementJson: buildSegmentJson('text', 'seg_3', '五'), sequence: 1 },
     ])
@@ -149,17 +155,17 @@ describe('planSync', () => {
 
   test('跨卡 text 段跨 flush 增长：从正确偏移续写，不重排时间线', () => {
     // Flush A：'一二三'（escaped 9）在 maxBytes=BASE+EL+8 下拆为 [一二 | 三]
-    const a = planSync(initialStreamState(), [text('一二三')], BASE + EL + 8, 8_000)
+    const a = planSync(initialStreamState(), [text('一二三')], BASE + EL + 8, 8_000, 5)
     const aState = applyOps(initialStreamState(), a.ops)
     expect(aState.tail).toEqual({ segIndex: 0, elementId: 'seg_2', base: 2, shownText: '三' })
     // Flush B：段增长到 '一二三四五'：卡 2 续写 '三四' 装满 → 拆卡 → 卡 3 insert '五'
-    const b = planSync({ ...aState, cardId: 'c2' }, [text('一二三四五')], BASE + EL + 8, 8_000)
+    const b = planSync({ ...aState, cardId: 'c2' }, [text('一二三四五')], BASE + EL + 8, 8_000, 5)
     const bState = applyOps({ ...aState, cardId: 'c2' }, b.ops)
     expect(b.ops.map((p) => p.op).filter((op) => op.type !== 'noop')).toEqual([
       { type: 'update', elementId: 'seg_2', content: '三四', sequence: 2 },
       { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: 3 },
       { type: 'settings', streaming: false, sequence: 4, summary: STATUS_CONTINUED },
-      { type: 'create', cardJson: buildCardJson() },
+      { type: 'create', cardJson: buildCardJson(5) },
       { type: 'send' },
       { type: 'insert', elementJson: buildSegmentJson('text', 'seg_3', '五'), sequence: 1 },
     ])
@@ -168,15 +174,15 @@ describe('planSync', () => {
 
   test('process 段拆卡：旧卡定格，续卡整窗重放', () => {
     // 先建一张几乎满卡的 text 卡，再来 process 段
-    const first = planSync(initialStreamState(), [text('一二')], BASE + EL + 6, 8_000)   // 基础+元素+6 满
+    const first = planSync(initialStreamState(), [text('一二')], BASE + EL + 6, 8_000, 5)   // 基础+元素+6 满
     const firstState = applyOps(initialStreamState(), first.ops)
-    const { ops } = planSync({ ...firstState, cardId: 'c1' }, [text('一二'), proc('思考内容')], BASE + EL + 6, 8_000)
+    const { ops } = planSync({ ...firstState, cardId: 'c1' }, [text('一二'), proc('思考内容')], BASE + EL + 6, 8_000, 5)
     const state = applyOps({ ...firstState, cardId: 'c1' }, ops)
     // text 无变化；process 12 字节放不进 → 关旧卡 → 新卡整窗插入
     expect(ops.map((p) => p.op).filter((op) => op.type !== 'noop')).toEqual([
       { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: 2 },
       { type: 'settings', streaming: false, sequence: 3, summary: STATUS_CONTINUED },
-      { type: 'create', cardJson: buildCardJson() },
+      { type: 'create', cardJson: buildCardJson(5) },
       { type: 'send' },
       { type: 'insert', elementJson: buildSegmentJson('process', 'seg_2', '思考内容'), sequence: 1 },
     ])
@@ -184,14 +190,14 @@ describe('planSync', () => {
   })
 
   test('无变化：空 ops', () => {
-    const first = planSync(initialStreamState(), [text('你好')], 28_000, 8_000)
+    const first = planSync(initialStreamState(), [text('你好')], 28_000, 8_000, 5)
     const firstState = applyOps(initialStreamState(), first.ops)
-    expect(planSync({ ...firstState, cardId: 'c1' }, [text('你好')], 28_000, 8_000).ops.map((p) => p.op).filter((op) => op.type !== 'noop')).toEqual([])
+    expect(planSync({ ...firstState, cardId: 'c1' }, [text('你好')], 28_000, 8_000, 5).ops.map((p) => p.op).filter((op) => op.type !== 'noop')).toEqual([])
   })
 
   test('拆卡定格：关流前先把旧卡状态行更新为「已接续」，summary 同步', () => {
     // maxBytes=BASE+EL+6：每卡至多再放 6 字节 → 必拆卡
-    const { ops } = planSync(initialStreamState(), [text('一二三四五')], BASE + EL + 6, 8_000)
+    const { ops } = planSync(initialStreamState(), [text('一二三四五')], BASE + EL + 6, 8_000, 5)
     const cardOps = ops.map((p) => p.op).filter((op) => op.type !== 'noop')
     const closes = cardOps.filter((op) => op.type === 'settings')
     expect(closes.length).toBe(2)   // 两次拆卡
@@ -204,7 +210,7 @@ describe('planSync', () => {
   })
 
   test('逐 op commit：create 后 cardId=PENDING，拆卡 settings 后 cardId=null', () => {
-    const { ops } = planSync(initialStreamState(), [text('一二三四五')], BASE + EL + 6, 8_000)
+    const { ops } = planSync(initialStreamState(), [text('一二三四五')], BASE + EL + 6, 8_000, 5)
     let s = initialStreamState()
     s = ops[0].commit(s)   // create
     expect(s.cardId).toBe(PENDING_CARD_ID)
@@ -219,7 +225,7 @@ describe('planSync', () => {
 
 describe('planFinalize', () => {
   test('先 update 状态行再关闭 + summary（sequence 接续）；未建卡空 ops', () => {
-    const base = applyOps(initialStreamState(), planSync(initialStreamState(), [text('你好')], 28_000, 8_000).ops)
+    const base = applyOps(initialStreamState(), planSync(initialStreamState(), [text('你好')], 28_000, 8_000, 5).ops)
     const state: StreamState = { ...base, cardId: 'c1' }
     const { ops } = planFinalize(state, 'done')
     expect(ops).toEqual([
@@ -246,13 +252,13 @@ describe('escapedLen / sliceByEscapedBytes', () => {
 })
 
 describe('planSync DSL 记账', () => {
-  const BASE = Buffer.byteLength(buildCardJson(), 'utf8')              // 实测 286
+  const BASE = Buffer.byteLength(buildCardJson(5), 'utf8')              // 实测 286
   const EL = Buffer.byteLength(buildSegmentJson('text', 'seg_1', ''), 'utf8')  // 实测 52
 
   test('insert 按 elementJson 全字节记账：预算只够一个元素时立即拆卡', () => {
     // 预算 = 基础 + 一个正文元素（空内容开销）+ 6 转义字节：每卡恰好放一个 2 字元素（'一二'）即满
     const maxBytes = BASE + EL + 6
-    const { ops } = planSync(initialStreamState(), [text('一二三四五')], maxBytes, 8_000)
+    const { ops } = planSync(initialStreamState(), [text('一二三四五')], maxBytes, 8_000, 5)
     const cardOps = ops.map((p) => p.op).filter((op) => op.type !== 'noop')
     const inserts = cardOps.filter((op) => op.type === 'insert')
     // 元素结构开销计入预算 → '一二'/'三四'/'五' 各占一卡（3 次 insert），贴线 6 转义字节逐卡满
@@ -265,14 +271,14 @@ describe('planSync DSL 记账', () => {
 
   test('update 按转义差值记账：换行多的内容更早触发拆卡', () => {
     const maxBytes = BASE + EL + 12   // 首卡放 'a\nb\n'（escaped 6+2=8? 见下）
-    const first = planSync(initialStreamState(), [text('a\nb')], maxBytes, 8_000)
+    const first = planSync(initialStreamState(), [text('a\nb')], maxBytes, 8_000, 5)
     const firstState = applyOps(initialStreamState(), first.ops)
     // 'a\nb' escapedLen=4；增长到 'a\nb\nc\nd' escapedLen=10，delta=6，剩 12-4=8 → 可 update
-    const grown = planSync({ ...firstState, cardId: 'c1' }, [text('a\nb\nc\nd')], maxBytes, 8_000)
+    const grown = planSync({ ...firstState, cardId: 'c1' }, [text('a\nb\nc\nd')], maxBytes, 8_000, 5)
     expect(grown.ops.map((p) => p.op).find((op) => op.type !== 'noop')).toMatchObject({ type: 'update', content: 'a\nb\nc\nd' })
     // 再增长到 escapedLen=16，delta=6，剩 2 → 拆卡
     const grownState = applyOps({ ...firstState, cardId: 'c1' }, grown.ops)
-    const over = planSync({ ...grownState }, [text('a\nb\nc\nd\ne\nf')], maxBytes, 8_000)
+    const over = planSync({ ...grownState }, [text('a\nb\nc\nd\ne\nf')], maxBytes, 8_000, 5)
     expect(over.ops.map((p) => p.op).some((op) => op.type === 'settings')).toBe(true)
   })
 })

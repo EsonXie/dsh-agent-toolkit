@@ -83,7 +83,8 @@ export const Config: z<unknown, Config> = z.object({
   // feishu 6 个全局可调参数照归档 project-bot/src/index.ts:38-45，字段名/默认值原样平移。
   feishu: z.object({
     cardUpdateThrottleMs: z.number().default(500),
-    cardMaxBytes: z.number().default(28_000),
+    cardMaxBytes: z.number().default(26_000),
+    cardPrintStep: z.number().default(5),
     processMaxBytes: z.number().default(8_000),
     registerAppTimeoutMs: z.number().default(600_000),
     processingReactionEmoji: z.string().default('OneSecond'),
@@ -92,7 +93,8 @@ export const Config: z<unknown, Config> = z.object({
     approval: z.boolean().default(true),
   }).default({
     cardUpdateThrottleMs: 500,
-    cardMaxBytes: 28_000,
+    cardMaxBytes: 26_000,
+    cardPrintStep: 5,
     processMaxBytes: 8_000,
     registerAppTimeoutMs: 600_000,
     processingReactionEmoji: 'OneSecond',

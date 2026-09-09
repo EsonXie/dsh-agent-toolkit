@@ -34,8 +34,10 @@ import { projectBotDomain, type Binding, type BotRecord } from './store.ts'
 export interface BotsModuleConfig {
   /** 卡片流式更新节流间隔（毫秒）。 */
   cardUpdateThrottleMs: number
-  /** 单张卡片内容字节上限（飞书硬上限 30KB，留余量）。 */
+  /** 单卡真实 DSL 字节上限（含结构与转义；平台硬上限 30KB）。 */
   cardMaxBytes: number
+  /** 飞书流式打字机每次打印字符数。 */
+  cardPrintStep: number
   /** 过程区（思考 + 工具调用）字节上限（截尾保留最近内容）。 */
   processMaxBytes: number
   /** 扫码创建应用的轮询超时（毫秒）。 */
@@ -66,6 +68,7 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
     cardUpdateThrottleMs: config.cardUpdateThrottleMs,
     cardMaxBytes: config.cardMaxBytes,
     processMaxBytes: config.processMaxBytes,
+    cardPrintStep: config.cardPrintStep,
     processingReactionEmoji: config.processingReactionEmoji,
   }
 

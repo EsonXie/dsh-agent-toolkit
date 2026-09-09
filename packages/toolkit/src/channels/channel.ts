@@ -64,6 +64,8 @@ export interface ChannelTunables {
   cardMaxBytes: number
   /** 过程区（思考 + 工具调用）字节上限（截尾保留最近内容）。 */
   processMaxBytes: number
+  /** 飞书流式打字机每次打印字符数。 */
+  cardPrintStep: number
   processingReactionEmoji: string
 }
 

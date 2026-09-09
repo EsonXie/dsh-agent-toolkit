@@ -89,13 +89,13 @@ export function sliceByEscapedBytes(text: string, maxBytes: number): string {
 }
 
 /** 新卡：仅状态行的流式卡；段后续经插入组件 API 动态加入。 */
-export function buildCardJson(): string {
+export function buildCardJson(printStep: number): string {
   return JSON.stringify({
     schema: '2.0',
     config: {
       streaming_mode: true,
       summary: { content: '生成中…' },
-      streaming_config: { print_frequency_ms: { default: 70 }, print_step: { default: 1 }, print_strategy: 'fast' },
+      streaming_config: { print_frequency_ms: { default: 70 }, print_step: { default: printStep }, print_strategy: 'fast' },
     },
     body: { elements: [{ tag: 'markdown', content: STATUS_STREAMING, element_id: STATUS_ELEMENT_ID }] },
   })
@@ -158,6 +158,7 @@ export function planSync(
   segments: readonly TurnSegment[],
   maxBytes: number,
   processMaxBytes: number,
+  printStep: number,
 ): { ops: PlannedOp[] } {
   const ops: PlannedOp[] = []
   let { cardId, seq, cardBytes, cardElements, segCounter, closedSegCount, tail, carry } = state
@@ -170,7 +171,7 @@ export function planSync(
 
   const ensureCard = (): void => {
     if (cardId !== null) return
-    const cardJson = buildCardJson()
+    const cardJson = buildCardJson(printStep)
     cardId = PENDING_CARD_ID
     seq = 0
     cardBytes = Buffer.byteLength(cardJson, 'utf8')   // 真实 DSL 字节

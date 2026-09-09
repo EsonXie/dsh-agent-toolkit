@@ -130,7 +130,8 @@ describe('Config 默认值', () => {
     expect(config.toolName).toBe('team_delegate')
     expect(config.feishu).toEqual({
       cardUpdateThrottleMs: 500,
-      cardMaxBytes: 28_000,
+      cardMaxBytes: 26_000,
+      cardPrintStep: 5,
       processMaxBytes: 8_000,
       registerAppTimeoutMs: 600_000,
       processingReactionEmoji: 'OneSecond',
