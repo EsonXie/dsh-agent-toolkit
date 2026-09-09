@@ -177,9 +177,15 @@ export class FeishuReplyHandle implements ReplyHandle {
     }
   }
 
-  /** 执行 API 并在成功后 commit；seqOverride 用于重放（create 的真实 cardId 在此覆盖进状态）。 */
+  /**
+   * 执行 API 并在成功后 commit；seqOverride 用于重放（create 的真实 cardId 在此覆盖进状态）。
+   * 带序号 op 的发送/提交序号一律取 max(本次序号, 已确认 seq+1)：重放/重激活会推高已确认 seq，
+   * 批内后续 op 的规划序号可能落后，照发会以非递增序号碰撞（平台可能视作幂等 no-op 静默丢 op →
+   * 定格/关流 op 消失 → 卡死「输出中」）。
+   */
   private async invokeThenCommit(planned: PlannedOp, seqOverride?: number): Promise<void> {
-    const op = withSeq(planned.op, seqOverride)
+    const effectiveSeq = effectiveSeqOf(planned.op, seqOverride, this.state.seq)
+    const op = withSeq(planned.op, effectiveSeq)
     if (op.type === 'create') {
       const id = await withRetry(() => this.api.createCard(op.cardJson))
       this.state = { ...planned.commit(this.state), cardId: id }
@@ -194,7 +200,7 @@ export class FeishuReplyHandle implements ReplyHandle {
     } else if (op.type === 'settings') {
       await this.api.setCardStreaming(this.state.cardId!, op.streaming, op.sequence, op.summary)
     }
-    this.commit(planned, seqOverride)
+    this.commit(planned, effectiveSeq)
   }
 
   private commit(planned: PlannedOp, seqOverride?: number): void {
@@ -266,6 +272,15 @@ function withSeq(op: CardOp, sequence: number | undefined): CardOp {
   if (op.type === 'update') return { ...op, sequence }
   if (op.type === 'settings') return { ...op, sequence }
   return op
+}
+
+/**
+ * 带序号 op 的生效 sequence（create/send 返回 undefined = 不占序号）：
+ * 重放/重激活推高已确认 seq 后，规划或重放序号落后时抬升到已确认 seq+1，保证单调不碰撞。
+ */
+function effectiveSeqOf(op: CardOp, override: number | undefined, confirmedSeq: number): number | undefined {
+  if (op.type !== 'insert' && op.type !== 'update' && op.type !== 'settings') return undefined
+  return Math.max(override ?? op.sequence, confirmedSeq + 1)
 }
 
 /** 「处理中」表情：加上后返回删除 disposer；加/删失败都静默（表情残留无害）。 */

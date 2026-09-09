@@ -7,7 +7,7 @@ function fakeRuntime(reply: ReplyHandle): SessionRuntime {
   return {
     botId: 'b', chatId: 'oc_1', sessionId: 's1', initiatorOpenId: 'ou_x',
     agent: { sessionId: 's1', followup: vi.fn(), cancel: vi.fn(), whenIdle: async () => undefined },
-    reply, inflight: { ack: undefined }, tail: Promise.resolve(), turn: undefined,
+    reply, inflight: { ack: undefined }, tail: Promise.resolve(), turn: undefined, retiring: false,
   }
 }
 

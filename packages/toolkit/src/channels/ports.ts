@@ -71,6 +71,11 @@ export interface SessionRuntime {
   tail: Promise<unknown>
   /** 当前 turn 归集状态；无进行中 turn 为 undefined。 */
   turn: { n: number; segments: TurnSegment[]; began: boolean } | undefined
+  /**
+   * retire 后仍在 sessions 中收尾（等 whenIdle + tail 落定才摘除，让旧卡 finalize）期间为 true：
+   * ensure 不得复用收尾中的 runtime（其 agent 已 cancel），重绑窗口须 resume + adopt 重建。
+   */
+  retiring: boolean
 }
 
 /** 从 bot 记录提取创作期注入（主 Agent 绑定形态）。 */

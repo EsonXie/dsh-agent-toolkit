@@ -80,7 +80,7 @@ export const Config: z<unknown, Config> = z.object({
   timezone: z.string().default('Asia/Shanghai'),
   provider: z.string().default('spawn'),
   toolName: z.string().default('team_delegate'),
-  // feishu 6 个全局可调参数照归档 project-bot/src/index.ts:38-45，字段名/默认值原样平移。
+  // feishu 9 个全局可调参数照归档 project-bot/src/index.ts:38-45，字段名/默认值原样平移。
   feishu: z.object({
     cardUpdateThrottleMs: z.number().default(500),
     cardMaxBytes: z.number().default(26_000),

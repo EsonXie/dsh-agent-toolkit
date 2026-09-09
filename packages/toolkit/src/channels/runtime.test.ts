@@ -154,7 +154,7 @@ test('unbindBot 停渠道并取消在飞会话，但保留绑定表', async () =
   runtime.sessions.set('s1', {
     botId: 'reviewer', chatId: 'oc_1', sessionId: 's1', initiatorOpenId: 'ou_x',
     agent: { sessionId: 's1', followup: () => undefined, cancel: () => { cancelled.push('s1') }, whenIdle: async () => undefined },
-    reply: undefined, inflight: undefined, tail: Promise.resolve(), turn: undefined,
+    reply: undefined, inflight: undefined, tail: Promise.resolve(), turn: undefined, retiring: false,
   })
   await runtime.unbindBot('reviewer')
   expect(closed).toEqual(['reviewer'])
@@ -162,6 +162,52 @@ test('unbindBot 停渠道并取消在飞会话，但保留绑定表', async () =
   // 会话映射改为「落定后清空」（whenIdle + tail 落定才摘出，让旧卡 finalize）——见计划 Task 5。
   await vi.waitFor(() => { expect(runtime.sessions.has('s1')).toBe(false) })
   expect(deps.bindings.get('reviewer:oc_1')).toEqual({ sessionId: 's1' })
+})
+
+test('unbindBot 重绑窗口：旧 rt 收尾期间的消息不复用已取消 agent，新 rt 不被旧 retire 摘除', async () => {
+  const { runtime, deps } = harness({
+    agents: {
+      create: async (input: { sessionId: string }) => ({
+        sessionId: input.sessionId, followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined,
+      }),
+      resume: async (input: { sessionId: string }) => ({
+        sessionId: input.sessionId, followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined,
+      }),
+    } as unknown as RuntimeDeps['agents'],
+  })
+  await runtime.startAll()
+  await deps.bindings.put('reviewer:oc_1', { sessionId: 's1' })
+  // 旧 rt 在飞（whenIdle 挂起 = finalize 收尾窗口内）
+  let releaseIdle!: () => void
+  const oldAgent = {
+    sessionId: 's1', followup: () => undefined,
+    cancel: vi.fn(), whenIdle: () => new Promise<void>((r) => { releaseIdle = r }),
+  }
+  runtime.sessions.set('s1', {
+    botId: 'reviewer', chatId: 'oc_1', sessionId: 's1', initiatorOpenId: 'ou_x',
+    agent: oldAgent, reply: undefined, inflight: undefined, tail: Promise.resolve(), turn: undefined, retiring: false,
+  })
+
+  await runtime.unbindBot('reviewer')       // retire 旧 rt（绑定保留）
+  expect(oldAgent.cancel).toHaveBeenCalled()
+  expect(runtime.sessions.get('s1')!.retiring).toBe(true)
+  await runtime.reconcile('reviewer')       // 重绑：渠道重启
+
+  runtime.inbound.onMessage({
+    botId: 'reviewer', chatId: 'oc_1', userId: 'ou_new', messageId: 'om_2', text: '重绑后消息',
+    reply: { beginTurn: async () => undefined, update: async () => undefined, finalize: async () => undefined, notice: async () => undefined },
+    ackProcessing: async () => () => undefined,
+  })
+  await vi.waitFor(() => {
+    const current = runtime.sessions.get('s1')
+    expect(current).toBeDefined()
+    expect(current!.agent).not.toBe(oldAgent)   // 不复用已取消 agent（resume + adopt 重建）
+    expect(current!.retiring).toBe(false)
+  })
+  const newRt = runtime.sessions.get('s1')!
+
+  releaseIdle()                               // 旧 rt 收尾落定：identity guard 不得误删新 rt
+  await vi.waitFor(() => { expect(runtime.sessions.get('s1')).toBe(newRt) })
 })
 
 /** 带审批能力的渠道 harness：capture io + 记录 present 的 key。 */

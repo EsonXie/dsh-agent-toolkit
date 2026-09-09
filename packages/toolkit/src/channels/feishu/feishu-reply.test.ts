@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import type { ChannelTunables } from '../channel.ts'
 import type { FeishuApi } from './api.ts'
+import { buildCardJson, buildSegmentJson } from './cards.ts'
 import { FeishuReplyHandle, makeAck, withRetry } from './reply.ts'
 
 const TUNABLES = { cardUpdateThrottleMs: 500, cardMaxBytes: 26_000, processMaxBytes: 8000, cardPrintStep: 5, processingReactionEmoji: 'OneSecond' }
@@ -28,9 +30,9 @@ function fakeApi() {
   return { api, calls }
 }
 
-function make(api: FeishuApi) {
+function make(api: FeishuApi, tunables: ChannelTunables = TUNABLES) {
   const logs: string[] = []
-  const reply = new FeishuReplyHandle(api, 'oc_1', TUNABLES, (m) => { logs.push(m) })
+  const reply = new FeishuReplyHandle(api, 'oc_1', tunables, (m) => { logs.push(m) })
   return { reply, logs }
 }
 
@@ -290,5 +292,60 @@ describe('确认式出站与失败治理', () => {
     const tail3 = calls.slice(-3).map((c) => c.op)
     expect(tail3).toEqual(['createCard', 'sendCardMessage', 'insertElement'])
     expect(String(calls[calls.length - 1].args[1])).toContain('你好呀')
+  })
+
+  /** 单次 flush 产出 insert + 定格(update status) + 关流(settings) + 续卡(create) 多 op 批：
+   *  卡预算只够 4 字符/卡，7 字符内容恰好拆两张（首卡 4 字符后 closeCard，续卡 3 字符收尾）。 */
+  function overflowBatchTunables(): ChannelTunables {
+    const CARD_BASE = Buffer.byteLength(buildCardJson(5))
+    const OVERHEAD = Buffer.byteLength(buildSegmentJson('text', 'seg_1', ''), 'utf8')
+    return { ...TUNABLES, cardMaxBytes: CARD_BASE + OVERHEAD + 4 }
+  }
+
+  test('批内重放推高已确认 seq（200850 重激活）：后续定格/关流 op 序号抬升，不碰撞不回归', async () => {
+    const { api, calls } = fakeApi()
+    let once = true
+    api.insertElement = async (...args) => {
+      calls.push({ op: 'insertElement', args })
+      if (once) { once = false; throw bizError(200850) }
+    }
+    const { reply } = make(api, overflowBatchTunables())
+    await reply.update([{ kind: 'text', content: 'x'.repeat(7) }])
+    await vi.advanceTimersByTimeAsync(500)
+    const inserts = calls.filter((c) => c.op === 'insertElement')
+    expect(inserts).toHaveLength(3)                                  // 首卡失败 + 重激活后重放 + 续卡
+    const replaySeq = inserts[1].args[3] as number
+    expect(replaySeq).toBeGreaterThan(inserts[0].args[3] as number)  // 重激活占一位后以 seq+1 重放
+    expect(calls.some((c) => c.op === 'setCardStreaming' && c.args[1] === true)).toBe(true)
+    const updates = calls.filter((c) => c.op === 'updateCardElement')
+    expect(updates).toHaveLength(1)                                  // 首卡状态行定格
+    expect(updates[0].args[3]).toBeGreaterThan(replaySeq)            // 定格 update > 已确认 seq（避让碰撞）
+    const closes = calls.filter((c) => c.op === 'setCardStreaming' && c.args[1] === false)
+    expect(closes).toHaveLength(1)                                   // 首卡关流
+    expect(closes[0].args[2]).toBeGreaterThan(updates[0].args[3] as number)  // 关流继续递增
+    expect(inserts[2].args[3]).toBe(1)                               // 续卡从新卡 seq 0 起排
+  })
+
+  test('批内未知错误重放（seq+2）：后续定格/关流 op 序号抬升到已确认 seq+1，不回归不碰撞', async () => {
+    const { api, calls } = fakeApi()
+    let once = true
+    api.insertElement = async (...args) => {
+      calls.push({ op: 'insertElement', args })
+      if (once) { once = false; throw new Error('socket hangup') }
+    }
+    const { reply } = make(api, overflowBatchTunables())
+    await reply.update([{ kind: 'text', content: 'x'.repeat(7) }])
+    await vi.advanceTimersByTimeAsync(500)
+    const inserts = calls.filter((c) => c.op === 'insertElement')
+    expect(inserts).toHaveLength(3)
+    const replaySeq = inserts[1].args[3] as number
+    expect(replaySeq).toBeGreaterThan(inserts[0].args[3] as number)  // seq+2 重放
+    const updates = calls.filter((c) => c.op === 'updateCardElement')
+    expect(updates).toHaveLength(1)
+    expect(updates[0].args[3]).toBeGreaterThan(replaySeq)
+    const closes = calls.filter((c) => c.op === 'setCardStreaming' && c.args[1] === false)
+    expect(closes).toHaveLength(1)
+    expect(closes[0].args[2]).toBeGreaterThan(updates[0].args[3] as number)
+    expect(inserts[2].args[3]).toBe(1)
   })
 })

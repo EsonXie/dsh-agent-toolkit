@@ -122,6 +122,7 @@ export class BotRuntime {
 
   /** 取消会话并等出站链落定后摘出 sessions（让在飞 turn 的 turn/end 正常 finalize 旧卡）。 */
   private retire(sessionId: string, rt: SessionRuntime): void {
+    rt.retiring = true
     rt.agent.cancel()
     void (async () => {
       await rt.agent.whenIdle().catch(() => undefined)

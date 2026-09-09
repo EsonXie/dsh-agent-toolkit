@@ -75,7 +75,7 @@ async function drive(failures: Map<string, number[]>) {
   const rt = {
     botId: 'b', chatId: 'oc_1', sessionId: 's1', initiatorOpenId: 'ou_1',
     agent: { sessionId: 's1', followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined },
-    reply, inflight: undefined, tail: Promise.resolve(), turn: undefined,
+    reply, inflight: undefined, tail: Promise.resolve(), turn: undefined, retiring: false,
   } as SessionRuntime
   const sessions = new Map([['s1', rt]])
   const outbound = new Outbound(sessions, () => undefined)

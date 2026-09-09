@@ -119,6 +119,21 @@ describe('Router.ensure', () => {
     expect(rt.sessionId).toBe('sess-old')
   })
 
+  test('retiring 中的会话不复用（重绑窗口）：resume + adopt 重建同一会话，替换后旧 retire 摘除不误删', async () => {
+    const { router, bindings, sessions, resumed } = setup()
+    const first = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    // 模拟 unbindBot 的 retire：绑定保留、runtime 标记 retiring（已 cancel、收尾中）
+    first.retiring = true
+    const second = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    expect(second).not.toBe(first)                    // 不复用已取消的 runtime
+    expect(second.sessionId).toBe(first.sessionId)    // 绑定保留：同一会话 resume 接续
+    expect(resumed).toHaveLength(1)
+    expect(resumed[0].input.sessionId).toBe(first.sessionId)
+    expect(sessions.get(first.sessionId)).toBe(second) // 替换已生效
+    expect(second.retiring).toBe(false)
+    expect(bindings.get('reviewer', 'oc_1')).toBe(first.sessionId)
+  })
+
   test('create 会话以宿主默认模型创建（{provider, model}）', async () => {
     const { router, created, defaultModel } = setup()
     await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')

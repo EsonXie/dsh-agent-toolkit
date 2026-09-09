@@ -31,14 +31,18 @@ export class Router {
     private readonly injectSender = true,
   ) {}
 
-  /** 取（或建/恢复）该 chat 的会话 runtime；reply 刷新为最近一次入站携带的句柄。 */
+  /**
+   * 取（或建/恢复）该 chat 的会话 runtime。存量活跃会话保持其 reply——运行中 turn 的出站
+   * 必须留在原句柄收尾，reply 刷新由 Inbound 在 in-flight 准入通过后执行；
+   * retiring（已 cancel、收尾中）的会话不可复用，重绑窗口内恢复时 resume + adopt 重建。
+   */
   async ensure(bot: BotRecord, chatId: string, reply: ReplyHandle, userId: string): Promise<SessionRuntime> {
     const bound = this.bindings.get(bot.id, chatId)
     if (bound !== undefined) {
       const existing = this.sessions.get(bound)
       // 活跃会话不替换 reply：运行中 turn 的出站必须留在原句柄收尾；
       // reply 的刷新由 Inbound 在 in-flight 准入通过后执行。
-      if (existing !== undefined) return existing
+      if (existing !== undefined && !existing.retiring) return existing
       const agent = await this.agents.resume({ sessionId: bound, ...this.resolveSession(bot, userId) })
       await this.attach(bot.project, bound)
       return this.adopt(bot.id, chatId, userId, bound, agent, reply)
@@ -100,6 +104,7 @@ export class Router {
 
   /** 取消会话并等出站链落定后摘出 sessions（让在飞 turn 的 turn/end 正常 finalize 旧卡）。 */
   private retire(sessionId: string, rt: SessionRuntime): void {
+    rt.retiring = true
     rt.agent.cancel()
     void (async () => {
       await rt.agent.whenIdle().catch(() => undefined)
@@ -116,7 +121,7 @@ export class Router {
   private adopt(botId: string, chatId: string, userId: string, sessionId: string, agent: SessionRuntime['agent'], reply: ReplyHandle): SessionRuntime {
     const rt: SessionRuntime = {
       botId, chatId, sessionId, initiatorOpenId: userId, agent, reply,
-      inflight: undefined, tail: Promise.resolve(), turn: undefined,
+      inflight: undefined, tail: Promise.resolve(), turn: undefined, retiring: false,
     }
     this.sessions.set(sessionId, rt)
     return rt

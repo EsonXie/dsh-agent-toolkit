@@ -7,7 +7,7 @@ function fakeRt(sessionId: string, botId = 'reviewer', initiatorOpenId = 'ou_ini
   return {
     botId, chatId: 'oc_chat1', sessionId, initiatorOpenId,
     agent: { sessionId, followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined },
-    reply: undefined, inflight: undefined, tail: Promise.resolve(), turn: undefined,
+    reply: undefined, inflight: undefined, tail: Promise.resolve(), turn: undefined, retiring: false,
   }
 }
 
