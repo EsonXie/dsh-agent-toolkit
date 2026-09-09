@@ -86,7 +86,14 @@ describe('executor.trigger', () => {
     expect(calls[0].hooks).toEqual({
       sections: [{ name: TASK_SECTION_NAME, order: 20, text: taskSectionText(task({}), new Date(NOW).toISOString()) }],
     })
-    expect(agent.followup).toHaveBeenCalledWith('写日报')
+    expect(vi.mocked(agent.followup)).toHaveBeenCalledTimes(1)
+    const message = vi.mocked(agent.followup).mock.calls[0][0]
+    expect(message).toMatchObject({
+      id: expect.any(String),
+      role: 'user',
+      content: [{ type: 'text', text: '写日报' }],
+      source: { kind: 'user' },
+    })
     expect(run.status).toBe('ok')
     expect(run.sessionId).toBe('sess-1')
     expect(run.finishedAt).toBeDefined()

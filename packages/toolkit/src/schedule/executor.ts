@@ -1,4 +1,5 @@
 /** 定时任务执行器：输入一条 task，输出一条 run 记录（建会话 → followup → whenIdle/超时 → 落库）。 */
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { AgentRegistry } from '../agents/registry.ts'
 import { roleAgentOptions, roleHooks } from '../channels/role-assembly.ts'
@@ -95,7 +96,11 @@ export function createExecutor(deps: ExecutorDeps): Executor {
         // attach 失败仅告警（会话降级为未分组），不阻塞执行——同 Router.attach。
         deps.warn(`[schedule] 会话 ${sessionId} 挂载 workspace 失败：${error instanceof Error ? error.message : String(error)}`)
       }
-      agent.followup(task.prompt)
+      // 必须经 createUserMessage 包装（裸字符串会让 turn 管线读 message.source.kind 崩溃）。
+      agent.followup(createUserMessage({
+        content: [{ type: 'text', text: task.prompt }],
+        source: { kind: 'user' },
+      }))
       // race 落败方的迟到 rejection 不变 unhandled（先各挂 noop catch；race 自身引用不受影响）。
       const idle = agent.whenIdle()
       idle.catch(() => undefined)

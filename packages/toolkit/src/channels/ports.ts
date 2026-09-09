@@ -4,6 +4,7 @@ import type { Disposer, ReplyHandle, TurnSegment } from './channel.ts'
 
 export interface AgentPort {
   readonly sessionId: string
+  /** 入参须为 @deepseek-ai/dsh-llm 的 createUserMessage 产物（裸字符串缺 source，turn 管线读 source.kind 崩溃）。 */
   followup(message: unknown): void
   cancel(): void
   whenIdle(): Promise<void>
