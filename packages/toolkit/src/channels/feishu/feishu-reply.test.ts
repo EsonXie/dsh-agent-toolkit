@@ -225,6 +225,29 @@ describe('确认式出站与失败治理', () => {
     expect(updates[updates.length - 1].args[3]).toBeGreaterThan(updates[0].args[3] as number)  // sequence 递增
   })
 
+  test('批内 insert 200850 重激活重放后 trailing noop 不回归已确认 seq：下一 flush 更新序号严格大于重放序号', async () => {
+    const { api, calls } = fakeApi()
+    let n = 0
+    api.insertElement = async (...args) => {
+      calls.push({ op: 'insertElement', args })
+      if (++n === 2) throw bizError(200850)   // flush2 的 insert 首试命中 200850（flush1 正常）
+    }
+    const { reply } = make(api)
+    await reply.update([{ kind: 'text', content: '你好' }])
+    await vi.advanceTimersByTimeAsync(500)                            // flush1：建卡 + insert seg_1@1
+    await reply.update([{ kind: 'text', content: '你好' }, { kind: 'text', content: '再见' }])
+    await vi.advanceTimersByTimeAsync(500)                            // flush2：insert seg_2 200850 → 重激活 → seq+1 重放
+    const inserts = calls.filter((c) => c.op === 'insertElement')
+    expect(inserts).toHaveLength(3)                                   // flush1 + flush2 首试 + 重放
+    const replaySeq = inserts[2].args[3] as number                    // 重放成功那次的序号
+    expect(calls.some((c) => c.op === 'setCardStreaming' && c.args[1] === true)).toBe(true)
+    await reply.update([{ kind: 'text', content: '你好' }, { kind: 'text', content: '再见啦' }])
+    await vi.advanceTimersByTimeAsync(500)                            // flush3：seg_2 增长 → update
+    const updates = calls.filter((c) => c.op === 'updateCardElement')
+    expect(updates).toHaveLength(1)
+    expect(updates[0].args[3] as number).toBeGreaterThan(replaySeq)   // 不回归：更新序号严格大于重放序号
+  })
+
   test('update 遇 200860（超 30KB）：废弃旧卡拆新卡续写，内容零丢失零重复', async () => {
     const { api, calls } = fakeApi()
     api.updateCardElement = async (...args) => { calls.push({ op: 'updateCardElement', args }); throw bizError(200860) }

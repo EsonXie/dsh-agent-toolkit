@@ -211,7 +211,9 @@ export class FeishuReplyHandle implements ReplyHandle {
     const cardId = next.cardId === PENDING_CARD_ID && current !== null && current !== PENDING_CARD_ID
       ? current
       : next.cardId
-    this.state = seqOverride !== undefined ? { ...next, seq: seqOverride, cardId } : { ...next, cardId }
+    this.state = seqOverride !== undefined
+      ? { ...next, seq: seqOverride, cardId }
+      : { ...next, seq: Math.max(next.seq, this.state.seq), cardId }
   }
 
   /** 流式超时后的官方恢复路径：settings 重设 streaming_mode:true（占一个 sequence）。 */
