@@ -82,12 +82,13 @@ Agent 需要执行需要授权的工具时，会在会话所在聊天里发一�
 
 Agent 工作时，回复以飞书卡片实时更新：
 
-- **正文区**：助手输出文本，流式追加（默认 500ms 节流合并，`feishu.cardUpdateThrottleMs`）
+- **正文区**：助手输出文本，流式追加（默认 500ms 节流合并，`feishu.cardUpdateThrottleMs`；打字机步长 `feishu.cardPrintStep` 默认 5）
 - **过程区**：「思考与工具调用过程」折叠面板，展示思考片段与工具调用（字节上限 `feishu.processMaxBytes`，超限截尾保留最近内容）
-- 内容过长时按 `feishu.cardMaxBytes`（默认 28KB，飞书单卡硬上限 30KB 留余量）自动拆成多张卡
+- 内容过长时按 `feishu.cardMaxBytes`（默认 26KB，语义为单卡真实 DSL 字节上限——含面板结构与 JSON 转义；飞书单卡硬上限 30KB 留余量）自动拆成多张卡，**旧卡状态行即时定格为「📦 内容较长，已接续到下一张卡片」**，不再残留「输出中」
 - 收尾定格着色：✅ 输出完成 / ❌ 输出出错 / ⏹ 已取消
+- 出站为**确认式状态机**：卡片更新 op 成功才提交状态，失败按错误码治理（流式超时自动重激活重放、超 30KB 废弃当前卡并续写新卡），内容零丢失；网络级错误保留重试
 - 处理期间给你的消息加「处理中」表情（默认 `OneSecond`，可用 `feishu.processingReactionEmoji` 改），完成或出错后移除
-- 卡片发送失败自动重试（3 次指数退避）；turn 之外的错误以文本通知发送错误摘要（最长 `feishu.errorDetailMaxChars` 字符）
+- 建卡/发消息失败自动重试（3 次指数退避）；turn 之外的错误以文本通知发送错误摘要（最长 `feishu.errorDetailMaxChars` 字符）
 
 ## 相关配置
 

@@ -22,7 +22,8 @@
         overrides: { base: '...' }
     feishu:
       cardUpdateThrottleMs: 500
-      cardMaxBytes: 28000
+      cardMaxBytes: 26000
+      cardPrintStep: 5
       processMaxBytes: 8000
       registerAppTimeoutMs: 600000
       processingReactionEmoji: OneSecond
@@ -54,7 +55,8 @@
 | 字段 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `feishu.cardUpdateThrottleMs` | number | `500` | 卡片流式更新节流间隔（毫秒） |
-| `feishu.cardMaxBytes` | number | `28000` | 单张卡片内容字节上限（飞书硬上限 30KB，留余量），超限自动拆卡 |
+| `feishu.cardMaxBytes` | number | `26000` | 单张卡片真实 DSL 字节上限（含面板结构开销与 JSON 转义；飞书硬上限 30KB 留余量），超限自动拆卡，旧卡状态行定格 |
+| `feishu.cardPrintStep` | number | `5` | 卡片打字机单次打印步长（越大越快），配合节流控制流式刷新观感 |
 | `feishu.processMaxBytes` | number | `8000` | 过程区（思考 + 工具调用折叠面板）字节上限，超限截尾保留最近内容 |
 | `feishu.registerAppTimeoutMs` | number | `600000` | 扫码一键创建应用的轮询超时（毫秒，默认 10 分钟） |
 | `feishu.processingReactionEmoji` | string | `OneSecond` | 「处理中」表情回复的 emoji_type |
