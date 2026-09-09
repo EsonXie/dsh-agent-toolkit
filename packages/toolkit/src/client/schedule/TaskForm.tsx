@@ -1,7 +1,8 @@
 /** 定时任务创建/编辑表单：名称/提示词/项目下拉/目标 radio/调度三选一（cron 预览经内联 croner 计算）/catchup/enabled。 */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import clsx from 'clsx'
 import { Cron } from 'croner'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { useLoadState } from '../shared/load-state.ts'
 import { createTask, fetchAgents, fetchProjects, updateTask, type CronTaskInput } from './api.ts'
@@ -91,57 +92,57 @@ export function TaskForm({ draft, t, onSaved, onCancel }: TaskFormProps): ReactN
     <form onSubmit={(e) => { e.preventDefault(); void save() }}>
       <label className={css.field}>
         {t('form.name')}
-        <input value={name} onChange={(e) => { setName(e.target.value) }} required />
+        <Input value={name} onChange={(e) => { setName(e.target.value) }} required aria-label={t('form.name')} className={css.input} />
       </label>
       <label className={css.field}>
         {t('form.prompt')}
-        <textarea value={prompt} onChange={(e) => { setPrompt(e.target.value) }} rows={5} required />
+        <textarea value={prompt} onChange={(e) => { setPrompt(e.target.value) }} rows={5} required className={css.textarea} />
       </label>
       <label className={css.field}>
         {t('form.project')}
-        <select value={cwd} onChange={(e) => { setCwd(e.target.value) }}>
+        <select value={cwd} onChange={(e) => { setCwd(e.target.value) }} className={css.select}>
           {projects.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
       </label>
-      <fieldset className={css.field}>
+      <fieldset className={clsx(css.field, css.radioGroup)}>
         <legend>{t('form.target')}</legend>
-        <label>
-          <input type="radio" name="target" checked={targetKind === 'main'} onChange={() => { setTargetKind('main') }} />
+        <label className={css.option}>
+          <input type="radio" className={css.radio} name="target" checked={targetKind === 'main'} onChange={() => { setTargetKind('main') }} />
           {t('form.targetMain')}
         </label>
-        <label>
-          <input type="radio" name="target" checked={targetKind === 'role'} onChange={() => { setTargetKind('role') }} />
+        <label className={css.option}>
+          <input type="radio" className={css.radio} name="target" checked={targetKind === 'role'} onChange={() => { setTargetKind('role') }} />
           {t('form.targetRole')}
         </label>
         {targetKind === 'role' && (
-          <select aria-label={t('form.targetRole')} value={roleId} onChange={(e) => { setRoleId(e.target.value) }}>
+          <select aria-label={t('form.targetRole')} className={css.select} value={roleId} onChange={(e) => { setRoleId(e.target.value) }}>
             {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
         )}
       </fieldset>
-      <fieldset className={css.field}>
+      <fieldset className={clsx(css.field, css.radioGroup)}>
         <legend>{t('form.schedule')}</legend>
-        <label>
-          <input type="radio" name="schedule" checked={scheduleKind === 'cron'} onChange={() => { setScheduleKind('cron') }} />
+        <label className={css.option}>
+          <input type="radio" className={css.radio} name="schedule" checked={scheduleKind === 'cron'} onChange={() => { setScheduleKind('cron') }} />
           {t('form.scheduleCron')}
         </label>
-        <label>
-          <input type="radio" name="schedule" checked={scheduleKind === 'at'} onChange={() => { setScheduleKind('at') }} />
+        <label className={css.option}>
+          <input type="radio" className={css.radio} name="schedule" checked={scheduleKind === 'at'} onChange={() => { setScheduleKind('at') }} />
           {t('form.scheduleAt')}
         </label>
-        <label>
-          <input type="radio" name="schedule" checked={scheduleKind === 'every'} onChange={() => { setScheduleKind('every') }} />
+        <label className={css.option}>
+          <input type="radio" className={css.radio} name="schedule" checked={scheduleKind === 'every'} onChange={() => { setScheduleKind('every') }} />
           {t('form.scheduleEvery')}
         </label>
         {scheduleKind === 'cron' && (
           <>
             <label className={css.field}>
               {t('form.cronExpr')}
-              <input value={cronExpr} onChange={(e) => { setCronExpr(e.target.value) }} />
+              <Input value={cronExpr} onChange={(e) => { setCronExpr(e.target.value) }} className={css.input} />
             </label>
             <label className={css.field}>
               {t('form.timeZone')}
-              <input value={timeZone} onChange={(e) => { setTimeZone(e.target.value) }} placeholder="Asia/Shanghai" />
+              <Input value={timeZone} onChange={(e) => { setTimeZone(e.target.value) }} placeholder="Asia/Shanghai" className={css.input} />
             </label>
             {preview.length > 0 && (
               <div data-testid="cron-preview">
@@ -156,27 +157,27 @@ export function TaskForm({ draft, t, onSaved, onCancel }: TaskFormProps): ReactN
         {scheduleKind === 'at' && (
           <label className={css.field}>
             {t('form.atTime')}
-            <input type="datetime-local" value={atTime} onChange={(e) => { setAtTime(e.target.value) }} />
+            <Input type="datetime-local" value={atTime} onChange={(e) => { setAtTime(e.target.value) }} className={css.input} />
           </label>
         )}
         {scheduleKind === 'every' && (
           <label className={css.field}>
             {t('form.everySeconds')}
-            <input type="number" min={60} value={everySeconds} onChange={(e) => { setEverySeconds(e.target.value) }} />
+            <Input type="number" min={60} value={everySeconds} onChange={(e) => { setEverySeconds(e.target.value) }} className={css.input} />
           </label>
         )}
       </fieldset>
-      <label>
-        <input type="checkbox" checked={catchup} onChange={(e) => { setCatchup(e.target.checked) }} />
+      <label className={css.option}>
+        <input type="checkbox" className={css.checkbox} checked={catchup} onChange={(e) => { setCatchup(e.target.checked) }} />
         {t('form.catchup')}
       </label>
-      <label>
-        <input type="checkbox" checked={enabled} onChange={(e) => { setEnabled(e.target.checked) }} />
+      <label className={css.option}>
+        <input type="checkbox" className={css.checkbox} checked={enabled} onChange={(e) => { setEnabled(e.target.checked) }} />
         {t('form.enabled')}
       </label>
       {error !== null && <p role="alert" className={css.error}>{error}</p>}
-      <div className={css.actions}>
-        <Button type="button" onClick={onCancel}>{t('form.cancel')}</Button>
+      <div className={css.formActions}>
+        <Button variant="outline" type="button" onClick={onCancel}>{t('form.cancel')}</Button>
         <Button variant="primary" type="submit">{t('form.save')}</Button>
       </div>
     </form>

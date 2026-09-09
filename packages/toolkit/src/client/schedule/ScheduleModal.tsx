@@ -1,5 +1,6 @@
 /** 定时任务管理模态框：任务列表（行内开关/编辑/删除两段确认/立即触发）+ 运行历史展开。 */
 import { useState, type ReactNode } from 'react'
+import clsx from 'clsx'
 import { Button, Modal, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { useLoadState } from '../shared/load-state.ts'
@@ -111,6 +112,7 @@ function ScheduleModalBody({ onClose: _onClose, ...props }: ScheduleModalProps):
           <div className={css.row}>
             <input
               type="checkbox"
+              className={css.enabled}
               aria-label={task.name}
               checked={task.enabled}
               onChange={() => { void toggleEnabled(task) }}
@@ -128,12 +130,12 @@ function ScheduleModalBody({ onClose: _onClose, ...props }: ScheduleModalProps):
                   : t('list.noNextRun')}</span>
               </span>
             </button>
-            {task.lastRun !== undefined && <Pill>{t(RUN_STATUS_KEY[task.lastRun.status])}</Pill>}
-            <button type="button" onClick={() => { setExpandedId(expandedId === task.id ? null : task.id) }}>
+            {task.lastRun !== undefined && <Pill className={css.badge}>{t(RUN_STATUS_KEY[task.lastRun.status])}</Pill>}
+            <button type="button" className={css.action} onClick={() => { setExpandedId(expandedId === task.id ? null : task.id) }}>
               {t('list.history')}
             </button>
-            <button type="button" onClick={() => { void trigger(task) }}>{t('list.trigger')}</button>
-            <button type="button" onClick={() => { void remove(task) }}>
+            <button type="button" className={css.action} onClick={() => { void trigger(task) }}>{t('list.trigger')}</button>
+            <button type="button" className={clsx(css.action, css.actionDanger)} onClick={() => { void remove(task) }}>
               {confirmDeleteId === task.id ? t('list.confirmDelete') : t('list.delete')}
             </button>
           </div>
@@ -162,9 +164,9 @@ function RunHistory({ taskId, openSession, t }: { taskId: string; openSession: (
           {run.finishedAt !== undefined && (
             <span>{Math.max(0, Math.round((Date.parse(run.finishedAt) - Date.parse(run.triggeredAt)) / 1000))}s</span>
           )}
-          {run.error !== undefined && <span className={css.error}>{run.error}</span>}
+          {run.error !== undefined && <span className={css.runError}>{run.error}</span>}
           {run.sessionId !== undefined && (
-            <button type="button" onClick={() => { openSession(run.sessionId as string) }}>
+            <button type="button" className={css.action} onClick={() => { openSession(run.sessionId as string) }}>
               {t('run.openSession')}
             </button>
           )}
