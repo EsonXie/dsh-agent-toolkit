@@ -46,6 +46,7 @@ describe('FeishuReplyHandle', () => {
     await vi.advanceTimersByTimeAsync(500)
     const updates = calls.filter((c) => c.op === 'updateCardElement')
     expect(updates).toHaveLength(1)
+    expect(updates[0].args[0]).toBe('card_1')         // 真实 cardId 未被 PENDING 快照覆盖（flush fold 须在 exec 前）
     expect(updates[0].args[1]).toBe('seg_1')          // elementId
     expect(updates[0].args[2]).toBe('你好，世界！')
     expect(updates[0].args[3]).toBe(2)                // sequence（insert 占 1 后接续）

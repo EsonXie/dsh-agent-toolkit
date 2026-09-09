@@ -87,8 +87,10 @@ export class FeishuReplyHandle implements ReplyHandle {
       return
     }
     this.enqueue(async () => {
-      await this.exec(ops.map((p) => p.op))
+      // 先 fold 全部 commit（乐观提交规划末态），再执行：exec 的 create 会把真实 cardId 覆盖进状态，
+      // 供同批后续 insert/update/settings 使用——避免 create 的 PENDING 快照在批尾覆盖真实 id。
       this.state = planned.ops.reduce((s, p) => p.commit(s), this.state)
+      await this.exec(ops.map((p) => p.op))
     })
   }
 
