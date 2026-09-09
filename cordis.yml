@@ -9,3 +9,15 @@
 - id: dsh-agent-toolkit
   config:
     timezone: Asia/Shanghai
+
+# 会话标题辅助请求默认 maxOutputTokens: 64 会被思考型模型（kimi k3-256k、
+# volc deepseek-v4-flash 等强制思考）整段吃光 → finish=max-tokens → 标题静默
+# 失败只剩 fallback。放大到 2048 让思考结束后仍有预算输出标题。
+# 注意：patch 行整行替换 config，5 个字段必须写全（插件自身无内置默认）。
+- id: session-title-llm
+  config:
+    targetWords: 5
+    targetCjkCharacters: 10
+    maxInputBytes: 4096
+    maxOutputTokens: 2048
+    timeoutMs: 60000
