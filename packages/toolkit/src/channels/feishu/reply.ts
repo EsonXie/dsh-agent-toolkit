@@ -80,9 +80,16 @@ export class FeishuReplyHandle implements ReplyHandle {
 
   private flush(): void {
     const planned = planSync(this.state, this.segments, this.tunables.cardMaxBytes, this.tunables.processMaxBytes)
-    if (planned.ops.length === 0) return
-    this.state = planned.state
-    this.enqueue(() => this.exec(planned.ops))
+    const ops = planned.ops.filter((p) => p.op.type !== 'noop')
+    if (ops.length === 0) {
+      // 纯状态推进也要落（段封闭），否则下一次规划重复
+      this.state = planned.ops.reduce((s, p) => p.commit(s), this.state)
+      return
+    }
+    this.enqueue(async () => {
+      await this.exec(ops.map((p) => p.op))
+      this.state = planned.ops.reduce((s, p) => p.commit(s), this.state)
+    })
   }
 
   private enqueue(task: () => Promise<void>): void {
@@ -114,6 +121,8 @@ export class FeishuReplyHandle implements ReplyHandle {
         await withRetry(() => this.api.insertElement(this.state.cardId!, op.elementJson, STATUS_ELEMENT_ID, op.sequence))
       } else if (op.type === 'update') {
         await withRetry(() => this.api.updateCardElement(this.state.cardId!, op.elementId, op.content, op.sequence))
+      } else if (op.type === 'noop') {
+        // 纯状态推进：无 API 调用（flush 已过滤 noop，此处为类型完备性；commit 由 flush 统一 fold）
       } else {
         await withRetry(() => this.api.setCardStreaming(this.state.cardId!, op.streaming, op.sequence, op.summary))
       }

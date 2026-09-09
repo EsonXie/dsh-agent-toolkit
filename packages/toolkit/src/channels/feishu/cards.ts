@@ -144,6 +144,13 @@ export type CardOp =
   | { type: 'insert'; elementJson: string; sequence: number }
   | { type: 'update'; elementId: string; content: string; sequence: number }
   | { type: 'settings'; streaming: boolean; sequence: number; summary?: string }
+  | { type: 'noop' }
+
+export interface PlannedOp {
+  op: CardOp
+  /** 该 op 成功后的状态迁移（快照整体替换）。 */
+  commit: (s: StreamState) => StreamState
+}
 
 /** 把段序列的新增部分同步到卡片；新段 insert 到状态行之前，尾段增长走元素 update，满卡关流开续卡。 */
 export function planSync(
@@ -151,29 +158,35 @@ export function planSync(
   segments: readonly TurnSegment[],
   maxBytes: number,
   processMaxBytes: number,
-): { state: StreamState; ops: CardOp[] } {
-  const ops: CardOp[] = []
+): { ops: PlannedOp[] } {
+  const ops: PlannedOp[] = []
   let { cardId, seq, cardBytes, cardElements, segCounter, closedSegCount, tail, carry } = state
+
+  /** 约定：先改规划局部变量再 push——commit 捕获该 op 完成后的状态快照。 */
+  const push = (op: CardOp): void => {
+    const snap = { cardId, seq, cardBytes, cardElements, segCounter, closedSegCount, tail, carry }
+    ops.push({ op, commit: () => ({ ...snap }) })
+  }
 
   const ensureCard = (): void => {
     if (cardId !== null) return
     const cardJson = buildCardJson()
-    ops.push({ type: 'create', cardJson })
-    ops.push({ type: 'send' })
     cardId = PENDING_CARD_ID
     seq = 0
     cardBytes = Buffer.byteLength(cardJson, 'utf8')   // 真实 DSL 字节
     cardElements = 1
+    push({ type: 'create', cardJson })
+    push({ type: 'send' })
   }
 
   const closeCard = (): void => {
     // 先定格状态行（流式还开着，组件 content API 需要流式模式），再关流 + summary。
     seq += 1
-    ops.push({ type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: seq })
+    push({ type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: seq })
     seq += 1
-    ops.push({ type: 'settings', streaming: false, sequence: seq, summary: STATUS_CONTINUED })
     cardId = null
     tail = undefined
+    push({ type: 'settings', streaming: false, sequence: seq, summary: STATUS_CONTINUED })
   }
 
   let i = tail?.segIndex ?? closedSegCount
@@ -191,17 +204,17 @@ export function planSync(
         const delta = escapedLen(elementContent) - escapedLen(tail.shownText)
         if (cardBytes + delta <= maxBytes) {
           seq += 1
-          ops.push({ type: 'update', elementId: tail.elementId, content: elementContent, sequence: seq })
           cardBytes += delta
           tail = { ...tail, shownText: elementContent }
+          push({ type: 'update', elementId: tail.elementId, content: elementContent, sequence: seq })
         } else if (seg.kind === 'text') {
           // 部分更新到满 → 拆卡，剩余经 carry 续写（预算按转义后字节）
           const piece = sliceByEscapedBytes(elementContent, escapedLen(tail.shownText) + (maxBytes - cardBytes))
           if (piece.length > tail.shownText.length) {
             seq += 1
-            ops.push({ type: 'update', elementId: tail.elementId, content: piece, sequence: seq })
             cardBytes += escapedLen(piece) - escapedLen(tail.shownText)
             tail = { ...tail, shownText: piece }
+            push({ type: 'update', elementId: tail.elementId, content: piece, sequence: seq })
           }
           carry = { segIndex: i, base: tail.base + tail.shownText.length }
           closeCard()
@@ -234,10 +247,10 @@ export function planSync(
       // 过程窗口由 processMaxBytes 兜底（sliceTailByBytes 已截尾）；新卡整窗插入，不再受卡预算约束。
       segCounter += 1
       seq += 1
-      ops.push({ type: 'insert', elementJson, sequence: seq })
       cardBytes += elBytes
       cardElements += 2
       tail = { segIndex: i, elementId, base: 0, shownText: elementContent }
+      push({ type: 'insert', elementJson, sequence: seq })
     } else {
       if (elementContent.length === 0) {   // 空 text 段不占卡
         closedSegCount = i + 1
@@ -259,10 +272,10 @@ export function planSync(
       segCounter += 1
       const elementJson = buildSegmentJson('text', elementId, piece)
       seq += 1
-      ops.push({ type: 'insert', elementJson, sequence: seq })
       cardBytes += Buffer.byteLength(elementJson, 'utf8')
       cardElements += 1
       tail = { segIndex: i, elementId, base, shownText: piece }
+      push({ type: 'insert', elementJson, sequence: seq })
       if (piece.length < elementContent.length) {
         carry = { segIndex: i, base: base + piece.length }
         closeCard()
@@ -275,7 +288,11 @@ export function planSync(
     closedSegCount = i + 1
     i += 1
   }
-  return { state: { cardId, seq, cardBytes, cardElements, segCounter, closedSegCount, tail, carry }, ops }
+  // 段封闭/进位等纯状态推进也要交还执行侧：无 op 或末 op 之后状态仍有差异时补一个空操作 commit。
+  // 简单起见：恒追加一个 no-op 规划项携带末态（执行侧对 type:'noop' 直接 commit，不调 API）。
+  const snap = { cardId, seq, cardBytes, cardElements, segCounter, closedSegCount, tail, carry }
+  ops.push({ op: { type: 'noop' }, commit: () => ({ ...snap }) })
+  return { ops }
 }
 
 /** 定格：先 update 状态行（流式还开着），再关闭 + summary。 */
