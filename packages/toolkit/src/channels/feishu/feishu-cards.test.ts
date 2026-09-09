@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   buildCardJson, buildSegmentJson, initialStreamState, PENDING_CARD_ID,
-  planFinalize, planSync, PROCESS_OMITTED, STATUS_ELEMENT_ID,
+  planFinalize, planSync, PROCESS_OMITTED, STATUS_CONTINUED, STATUS_ELEMENT_ID,
   sliceByBytes, sliceTailByBytes, type StreamState, type TurnSegment,
 } from './cards.ts'
 
@@ -119,11 +119,13 @@ describe('planSync', () => {
       { type: 'create', cardJson: buildCardJson() },
       { type: 'send' },
       { type: 'insert', elementJson: buildSegmentJson('text', 'seg_1', '一二'), sequence: 1 },
-      { type: 'settings', streaming: false, sequence: 2 },
+      { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: 2 },
+      { type: 'settings', streaming: false, sequence: 3, summary: STATUS_CONTINUED },
       { type: 'create', cardJson: buildCardJson() },
       { type: 'send' },
       { type: 'insert', elementJson: buildSegmentJson('text', 'seg_2', '三四'), sequence: 1 },
-      { type: 'settings', streaming: false, sequence: 2 },
+      { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: 2 },
+      { type: 'settings', streaming: false, sequence: 3, summary: STATUS_CONTINUED },
       { type: 'create', cardJson: buildCardJson() },
       { type: 'send' },
       { type: 'insert', elementJson: buildSegmentJson('text', 'seg_3', '五'), sequence: 1 },
@@ -140,7 +142,8 @@ describe('planSync', () => {
     const b = planSync({ ...a.state, cardId: 'c2' }, [text('一二三四五')], 70, 8_000)
     expect(b.ops).toEqual([
       { type: 'update', elementId: 'seg_2', content: '三四', sequence: 2 },
-      { type: 'settings', streaming: false, sequence: 3 },
+      { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: 3 },
+      { type: 'settings', streaming: false, sequence: 4, summary: STATUS_CONTINUED },
       { type: 'create', cardJson: buildCardJson() },
       { type: 'send' },
       { type: 'insert', elementJson: buildSegmentJson('text', 'seg_3', '五'), sequence: 1 },
@@ -154,7 +157,8 @@ describe('planSync', () => {
     const { state, ops } = planSync({ ...first.state, cardId: 'c1' }, [text('一二'), proc('思考内容')], 70, 8_000)
     // text 无变化；process 12 字节放不进 → 关旧卡 → 新卡整窗插入
     expect(ops).toEqual([
-      { type: 'settings', streaming: false, sequence: 2 },
+      { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: 2 },
+      { type: 'settings', streaming: false, sequence: 3, summary: STATUS_CONTINUED },
       { type: 'create', cardJson: buildCardJson() },
       { type: 'send' },
       { type: 'insert', elementJson: buildSegmentJson('process', 'seg_2', '思考内容'), sequence: 1 },
@@ -165,6 +169,19 @@ describe('planSync', () => {
   test('无变化：空 ops', () => {
     const first = planSync(initialStreamState(), [text('你好')], 28_000, 8_000)
     expect(planSync({ ...first.state, cardId: 'c1' }, [text('你好')], 28_000, 8_000).ops).toEqual([])
+  })
+
+  test('拆卡定格：关流前先把旧卡状态行更新为「已接续」，summary 同步', () => {
+    // maxBytes=70、CARD_FIXED_BYTES=64：每卡至多再放 6 字节 → 必拆卡
+    const { ops } = planSync(initialStreamState(), [text('一二三四五')], 70, 8_000)
+    const closes = ops.filter((op) => op.type === 'settings')
+    expect(closes.length).toBe(2)   // 两次拆卡
+    // 每次拆卡都是 update(status) 在前、settings 在后，且 summary 带上定格文案
+    const firstClose = ops.slice(3, 5)
+    expect(firstClose).toEqual([
+      { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: 2 },
+      { type: 'settings', streaming: false, sequence: 3, summary: STATUS_CONTINUED },
+    ])
   })
 })
 

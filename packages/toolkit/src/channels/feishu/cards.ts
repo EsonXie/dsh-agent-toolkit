@@ -21,6 +21,9 @@ const STATUS_FINAL: Record<TurnStatus, string> = {
   cancelled: '⏹ 已取消',
 }
 
+/** 拆卡定格状态行文案（旧卡内容已接续到下一张卡片）。 */
+export const STATUS_CONTINUED = '📦 内容较长，已接续到下一张卡片'
+
 /** 新卡固定开销字节数（状态行 + 结构，粗算进预算）。 */
 const CARD_FIXED_BYTES = 64
 
@@ -143,8 +146,11 @@ export function planSync(
   }
 
   const closeCard = (): void => {
+    // 先定格状态行（流式还开着，组件 content API 需要流式模式），再关流 + summary。
     seq += 1
-    ops.push({ type: 'settings', streaming: false, sequence: seq })
+    ops.push({ type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: seq })
+    seq += 1
+    ops.push({ type: 'settings', streaming: false, sequence: seq, summary: STATUS_CONTINUED })
     cardId = null
     tail = undefined
   }
