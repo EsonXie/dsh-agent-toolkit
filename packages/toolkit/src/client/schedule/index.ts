@@ -1,5 +1,6 @@
 /** dsh-agent-toolkit schedule 浏览器半：注册侧边栏底栏入口 + 文案词典。 */
 import type { Context } from '@deepseek-ai/cordis'
+import { createElement } from 'react'
 import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // 触发 dsh-client-locale 对 Context.locale 的声明合并。
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -30,7 +31,7 @@ export function setupScheduleClient(ctx: Context): void {
         ...props,
         openSession,
         renderForm: (draft, onSaved, onCancel) =>
-          TaskForm({ draft, t: props.t, onSaved, onCancel }),
+          createElement(TaskForm, { draft, t: props.t, onSaved, onCancel }),
       }),
     ))
 }

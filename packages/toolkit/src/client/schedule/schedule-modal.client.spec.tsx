@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
+import { createElement, type ComponentType } from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { CommonKeyOf } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context } from '@deepseek-ai/cordis'
 import { afterEach, expect, test, vi } from 'vitest'
+import { setupScheduleClient } from './index.ts'
 import { ScheduleModal } from './ScheduleModal.tsx'
 import { zh, type ScheduleKey } from './locales.ts'
 
@@ -95,4 +100,37 @@ test('运行历史：展开拉取 runs，sessionId 链接点击打开会话', as
   fireEvent.click(await screen.findByRole('button', { name: '运行历史' }))
   fireEvent.click(await screen.findByRole('button', { name: '查看会话' }))
   expect(openSession).toHaveBeenCalledWith('sess-1')
+})
+
+test('生产 renderForm 闭包：新建任务渲染 TaskForm 元素（React #310 hooks 边界回归）', async () => {
+  stubFetch({
+    '/dsh-agent-toolkit/api/cron/projects': () => ({ projects: ['D:\\work'] }),
+    '/dsh-agent-toolkit/api/agents': () => [],
+    '/dsh-agent-toolkit/api/cron/tasks': () => ({ tasks: [] }),
+  })
+  // 经 setupScheduleClient 捕获真实 slot 渲染器（index.ts 里 renderForm 闭包生产形态），
+  // 复现人工验收同款路径：点开侧边栏入口 → 新建任务 → TaskForm 直调导致 hooks 挂错宿主。
+  let slotRenderer: ComponentType | undefined
+  const ctx = {
+    effect: (fn: () => unknown) => { fn(); return () => {} },
+    locale: { register: () => {} },
+    sessions: { open: vi.fn() },
+    slots: {
+      inject: (_key: string, callback: () => unknown) => { callback(); return () => {} },
+      register: (_options: unknown, renderer: ComponentType) => { slotRenderer = renderer; return () => {} },
+    },
+  }
+  setupScheduleClient(ctx as unknown as Context)
+  const RUNTIME = {
+    useSessions: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<SessionListState>,
+    useWorkspaces: ((selector: (state: { items: readonly unknown[] }) => unknown) =>
+      selector({ items: [] })) as unknown as SnapshotSelectorHook<WorkspaceListState>,
+  }
+  render(createElement(
+    slotRenderer as ComponentType<{ t: typeof t; wide: boolean; useSessions: typeof RUNTIME.useSessions; useWorkspaces: typeof RUNTIME.useWorkspaces }>,
+    { t, wide: true, ...RUNTIME },
+  ))
+  fireEvent.click(await screen.findByRole('button', { name: '定时任务' }))
+  fireEvent.click(await screen.findByRole('button', { name: '新建任务' }))
+  expect(await screen.findByLabelText('名称')).toBeDefined()
 })
