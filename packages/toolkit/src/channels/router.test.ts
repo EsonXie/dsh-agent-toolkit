@@ -98,13 +98,14 @@ describe('Router.ensure', () => {
     expect(reused.initiatorOpenId).toBe('ou_first')
   })
 
-  test('有绑定且进程内有 runtime：直接复用并刷新 reply', async () => {
+  test('有绑定且进程内有 runtime：直接复用；reply 刷新移交 Inbound 准入后执行', async () => {
     const { router, created, resumed } = setup()
     const first = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
     const reply2 = {} as ReplyHandle
     const second = await router.ensure(fakeBot(), 'oc_1', reply2, 'ou_u1')
     expect(second).toBe(first)
-    expect(first.reply).toBe(reply2)
+    // ensure 不再触碰存量会话的 reply：运行中 turn 的出站须留在原句柄收尾（Task 5）。
+    expect(first.reply).toBe(reply)
     expect(created).toHaveLength(1)
     expect(resumed).toHaveLength(0)
   })
@@ -184,6 +185,21 @@ describe('Router.reset（/new）', () => {
     const { router, created } = setup()
     await router.reset(fakeBot(), 'oc_9', reply, 'ou_u1')
     expect(created).toHaveLength(1)
+  })
+
+  test('/new：旧会话等 turn 落定后再摘出 sessions（旧卡可 finalize）', async () => {
+    const { router, sessions } = setup()
+    const rt = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    const oldSessionId = rt.sessionId
+    let idle!: () => void
+    rt.agent.whenIdle = () => new Promise<void>((resolve) => { idle = resolve })
+    const done = router.reset(fakeBot(), 'oc_1', reply, 'ou_u1')
+    await done
+    expect(sessions.has(oldSessionId)).toBe(true)      // 未落定前仍在 map（turn/end 可达）
+    idle()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(sessions.has(oldSessionId)).toBe(false)     // 落定后摘除
+    expect(router.lookup('reviewer', 'oc_1')?.sessionId).not.toBe(oldSessionId)
   })
 })
 

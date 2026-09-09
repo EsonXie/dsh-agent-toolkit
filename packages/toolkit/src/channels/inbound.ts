@@ -67,7 +67,9 @@ export class Inbound {
       return
     }
     // 准入：先占槽再异步；表情回复失败不阻塞处理。
+    // reply 句柄只在准入通过后刷新——忙时消息不抢走运行中 turn 的出站。
     rt.inflight = { ack: undefined }
+    rt.reply = msg.reply
     rt.inflight.ack = (await msg.ackProcessing().catch(() => undefined)) ?? undefined
     // source kind 用 'user'（与 ACP 同款）：dsh sessionTitle 服务只接纳 user 消息生成会话标题。
     // 图片：in-flight 窗口内懒下载（不占飞书 WS 3 秒窗口）→ 落附件库 → image 内容块。

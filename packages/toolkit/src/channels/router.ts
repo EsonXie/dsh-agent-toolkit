@@ -36,10 +36,9 @@ export class Router {
     const bound = this.bindings.get(bot.id, chatId)
     if (bound !== undefined) {
       const existing = this.sessions.get(bound)
-      if (existing !== undefined) {
-        existing.reply = reply
-        return existing
-      }
+      // 活跃会话不替换 reply：运行中 turn 的出站必须留在原句柄收尾；
+      // reply 的刷新由 Inbound 在 in-flight 准入通过后执行。
+      if (existing !== undefined) return existing
       const agent = await this.agents.resume({ sessionId: bound, ...this.resolveSession(bot, userId) })
       await this.attach(bot.project, bound)
       return this.adopt(bot.id, chatId, userId, bound, agent, reply)
@@ -88,15 +87,25 @@ export class Router {
     }
   }
 
-  /** /new：取消旧会话、清绑定、开新会话。 */
+  /** /new：取消旧会话；等 turn/end 落定（旧卡在旧句柄 finalize）后再摘出 sessions。 */
   async reset(bot: BotRecord, chatId: string, reply: ReplyHandle, userId: string): Promise<SessionRuntime> {
     const bound = this.bindings.get(bot.id, chatId)
     if (bound !== undefined) {
-      this.sessions.get(bound)?.agent.cancel()
-      this.sessions.delete(bound)
+      const old = this.sessions.get(bound)
+      if (old !== undefined) this.retire(bound, old)
       await this.bindings.delete(bot.id, chatId)
     }
     return this.ensure(bot, chatId, reply, userId)
+  }
+
+  /** 取消会话并等出站链落定后摘出 sessions（让在飞 turn 的 turn/end 正常 finalize 旧卡）。 */
+  private retire(sessionId: string, rt: SessionRuntime): void {
+    rt.agent.cancel()
+    void (async () => {
+      await rt.agent.whenIdle().catch(() => undefined)
+      await rt.tail.catch(() => undefined)
+      if (this.sessions.get(sessionId) === rt) this.sessions.delete(sessionId)
+    })()
   }
 
   lookup(botId: string, chatId: string): SessionRuntime | undefined {

@@ -107,10 +107,7 @@ export class BotRuntime {
   async stopBot(botId: string): Promise<void> {
     await this.stopChannel(botId)
     for (const [sessionId, rt] of [...this.sessions]) {
-      if (rt.botId === botId) {
-        rt.agent.cancel()
-        this.sessions.delete(sessionId)
-      }
+      if (rt.botId === botId) this.retire(sessionId, rt)
     }
     await this.bindingStore().deleteBot(botId)
   }
@@ -119,11 +116,18 @@ export class BotRuntime {
   async unbindBot(botId: string): Promise<void> {
     await this.stopChannel(botId)
     for (const [sessionId, rt] of [...this.sessions]) {
-      if (rt.botId === botId) {
-        rt.agent.cancel()
-        this.sessions.delete(sessionId)
-      }
+      if (rt.botId === botId) this.retire(sessionId, rt)
     }
+  }
+
+  /** 取消会话并等出站链落定后摘出 sessions（让在飞 turn 的 turn/end 正常 finalize 旧卡）。 */
+  private retire(sessionId: string, rt: SessionRuntime): void {
+    rt.agent.cancel()
+    void (async () => {
+      await rt.agent.whenIdle().catch(() => undefined)
+      await rt.tail.catch(() => undefined)
+      if (this.sessions.get(sessionId) === rt) this.sessions.delete(sessionId)
+    })()
   }
 
   statusOf(botId: string): BotStatus {

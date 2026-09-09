@@ -159,7 +159,8 @@ test('unbindBot 停渠道并取消在飞会话，但保留绑定表', async () =
   await runtime.unbindBot('reviewer')
   expect(closed).toEqual(['reviewer'])
   expect(cancelled).toEqual(['s1'])
-  expect(runtime.sessions.has('s1')).toBe(false)
+  // 会话映射改为「落定后清空」（whenIdle + tail 落定才摘出，让旧卡 finalize）——见计划 Task 5。
+  await vi.waitFor(() => { expect(runtime.sessions.has('s1')).toBe(false) })
   expect(deps.bindings.get('reviewer:oc_1')).toEqual({ sessionId: 's1' })
 })
 

@@ -69,7 +69,7 @@ function harness(opts: { createError?: unknown; attachments?: () => AttachmentsP
       },
     }
   }
-  return { rec, inbound, sessions, msg }
+  return { rec, inbound, sessions, router, msg }
 }
 
 function fakeAgent(sessionId: string, rec: Recorded): AgentPort {
@@ -110,6 +110,18 @@ test('in-flight 占用期间第二条消息被拒并提示', async () => {
   inbound.onMessage(msg('第二条'))
   await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('上一条还在处理中'))).toBe(true) })
   expect(rec.followups).toHaveLength(1)
+})
+
+test('处理中再发消息：rt.reply 不被替换，运行中 turn 仍在旧句柄收尾', async () => {
+  const { rec, inbound, router, msg } = harness()
+  inbound.onMessage(msg('任务一'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  const rt = router.lookup('reviewer', 'oc_1')!
+  const firstReply = rt.reply
+  inbound.onMessage(msg('追问'))
+  await vi.waitFor(() => { expect(rec.notices).toContain('上一条还在处理中，请稍候（或发送 /stop 取消）') })
+  expect(rt.reply).toBe(firstReply)
+  expect(rec.notices).toEqual(['上一条还在处理中，请稍候（或发送 /stop 取消）'])
 })
 
 test('/new：重置会话并确认', async () => {
