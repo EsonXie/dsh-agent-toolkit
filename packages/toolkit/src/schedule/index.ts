@@ -2,8 +2,6 @@
 import { existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
-// ctx.interval 声明合并（宿主 profile-boot 保证 timer 在场：apps/cli/src/profile-boot.ts:280-281）。
-import type {} from '@deepseek-ai/cordis-plugin-timer'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -130,8 +128,13 @@ export function setupSchedule(ctx: Context, config: ScheduleModuleConfig, deps: 
     warn(`[schedule] 启动失败：${error instanceof Error ? error.message : String(error)}`)
   })
 
-  // 周期 tick：启动链落定后扫描到期任务（Cordis 卸载自动清理 interval）。
-  ctx.interval(() => { void started.then(() => scheduler?.tick()) }, TICK_MS)
+  // 周期 tick：启动链落定后扫描到期任务。裸 setInterval 而非 ctx.interval——
+  // timer mixin 受 cordis inject 门控，而本插件 inject 列表按约束不加新服务；
+  // ctx.effect 卸载时自动 clearInterval，与 ctx.interval 清理语义等价。
+  ctx.effect(() => {
+    const timer = setInterval(() => { void started.then(() => scheduler?.tick()) }, TICK_MS)
+    return () => clearInterval(timer)
+  })
 
   ctx.effect(() => async () => { await toolsScope.dispose() })
 }

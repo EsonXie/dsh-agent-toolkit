@@ -48,9 +48,6 @@ importers:
       '@deepseek-ai/cordis-plugin-loader':
         specifier: link:../../deepseek-harness/vendor/loader
         version: link:../../deepseek-harness/vendor/loader
-      '@deepseek-ai/cordis-plugin-timer':
-        specifier: link:../../deepseek-harness/vendor/timer
-        version: link:../../deepseek-harness/vendor/timer
       '@deepseek-ai/dsh-agent':
         specifier: link:../../deepseek-harness/packages/core/agent
         version: link:../../deepseek-harness/packages/core/agent

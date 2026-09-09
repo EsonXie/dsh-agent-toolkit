@@ -65,7 +65,6 @@ function makeCtx(): ApplyHarness {
     },
     effect: () => {},
     on: vi.fn(() => () => {}),
-    interval: vi.fn(() => () => {}),
     systemPrompt: {
       section: (s: { name: string }) => {
         sections.push(s.name)
