@@ -1,9 +1,9 @@
-/** 出站句柄：turn 级流式卡片（节流合并 + 拆卡 + 定格着色）与表情回复。 */
+/** 出站句柄：turn 级流式卡片（确认式状态机 + 失败分类治理 + 拆卡定格）。 */
 import type { ChannelTunables, Disposer, ReplyHandle, TurnSegment, TurnStatus } from '../channel.ts'
-import type { FeishuApi } from './api.ts'
+import { feishuErrorCode, type FeishuApi } from './api.ts'
 import {
   initialStreamState, PENDING_CARD_ID, STATUS_ELEMENT_ID,
-  planFinalize, planSync, type CardOp, type StreamState,
+  planFinalize, planSync, type CardOp, type PlannedOp, type StreamState,
 } from './cards.ts'
 
 /** 指数退避重试（默认 3 次，300ms 起）。 */
@@ -20,11 +20,18 @@ export async function withRetry<T>(fn: () => Promise<T>, attempts = 3, baseDelay
   throw lastError
 }
 
+/** 卡片输出异常时的用户提示（仅真实废弃一张已发卡时发送）。 */
+const ABANDON_NOTICE = '⚠️ 卡片输出异常，已在新卡片继续；如有内容缺失请重发。'
+
+/** 单次 flush 内连续废弃换卡的上限（防异常死循环；超限抛给出站链日志）。 */
+const MAX_ABANDON_PER_FLUSH = 3
+
 export class FeishuReplyHandle implements ReplyHandle {
   private state: StreamState = initialStreamState()
   private segments: readonly TurnSegment[] = []
   private tail: Promise<unknown> = Promise.resolve()
   private timer: ReturnType<typeof setTimeout> | undefined
+  private planQueued = false
   private finalized = false
 
   constructor(
@@ -34,7 +41,6 @@ export class FeishuReplyHandle implements ReplyHandle {
     private readonly log: (message: string) => void,
   ) {}
 
-  /** 惰性建卡：无文本输出的 turn 不产生空卡片。 */
   beginTurn(): Promise<void> {
     return Promise.resolve()
   }
@@ -62,12 +68,18 @@ export class FeishuReplyHandle implements ReplyHandle {
       this.timer = undefined
     }
     this.flush()
-    // 等 flush 定局（含失败回退）后再规划定格：失败回退时按未建卡降级为文本，
-    // 而不是按乐观状态对幻影卡发 update/settings。
+    // 等 flush 定局（含失败恢复）后再规划定格：状态此刻是已确认态。
     await this.tail
+    const hadCard = this.state.cardId !== null
     const { ops } = planFinalize(this.state, status)
-    this.enqueue(() => this.exec(ops))
-    if (this.state.cardId === null && detail !== undefined) {
+    // 定格批不触发废弃重规划（卡已在收尾）：遇 abandon 直接止步。
+    this.enqueue(async () => {
+      for (const op of ops) {
+        const outcome = await this.execOne({ op, commit: (s: StreamState) => s })
+        if (outcome === 'abandoned') return
+      }
+    })
+    if (!hadCard && detail !== undefined) {
       this.enqueue(() => withRetry(() => this.api.sendText(this.chatId, detail)).then(() => undefined))
     }
     await this.tail
@@ -78,58 +90,182 @@ export class FeishuReplyHandle implements ReplyHandle {
     return this.tail.then(() => undefined)
   }
 
+  /**
+   * 规划入串行链：planSync 在执行点读最新已确认状态与最新 segments，
+   * 在飞期间到达的 flush 只标位不重复规划（杜绝重复建卡/重复 insert）。
+   */
   private flush(): void {
-    const planned = planSync(this.state, this.segments, this.tunables.cardMaxBytes, this.tunables.processMaxBytes)
-    const ops = planned.ops.filter((p) => p.op.type !== 'noop')
-    if (ops.length === 0) {
-      // 纯状态推进也要落（段封闭），否则下一次规划重复
-      this.state = planned.ops.reduce((s, p) => p.commit(s), this.state)
+    if (this.planQueued) return
+    this.planQueued = true
+    this.enqueue(async () => {
+      this.planQueued = false
+      const { ops } = planSync(this.state, this.segments, this.tunables.cardMaxBytes, this.tunables.processMaxBytes)
+      await this.exec(ops)
+    })
+  }
+
+  /** 逐 op 确认执行；遇废弃从已确认状态重新规划续写（上限 MAX_ABANDON_PER_FLUSH 次）。 */
+  private async exec(ops: readonly PlannedOp[]): Promise<void> {
+    let pending = ops
+    for (let attempts = 0; ; attempts++) {
+      let abandoned = false
+      for (const planned of pending) {
+        if ((await this.execOne(planned)) === 'abandoned') {
+          abandoned = true
+          break
+        }
+      }
+      if (!abandoned) return
+      if (attempts >= MAX_ABANDON_PER_FLUSH) throw new Error('卡片连续废弃超限，本批输出放弃（下一 flush 继续）')
+      pending = planSync(this.state, this.segments, this.tunables.cardMaxBytes, this.tunables.processMaxBytes).ops
+    }
+  }
+
+  /**
+   * 单个 op：成功（或 insert 300301 视同成功）才 commit；
+   * 失败按错误码分类：流式超时重激活重放 / 200860 废弃续写 / 未知错误 seq+2 重放一次。
+   */
+  private async execOne(planned: PlannedOp): Promise<'ok' | 'abandoned'> {
+    const { op } = planned
+    if (op.type === 'noop') {
+      this.commit(planned)
+      return 'ok'
+    }
+    const liveCard = this.state.cardId !== null && this.state.cardId !== PENDING_CARD_ID
+    try {
+      await this.invokeThenCommit(planned)
+      return 'ok'
+    } catch (error) {
+      // 建卡链路（尚无活卡）：状态未推进，抛给出站链日志，下次 flush 自然重试。
+      if (!liveCard) throw error
+      const code = feishuErrorCode(error)
+      if (op.type === 'insert' && code === 300301) {
+        // 元素重复 = 服务端已执行（此前响应丢失），视同成功。
+        this.commit(planned)
+        return 'ok'
+      }
+      if (code === 200850 || code === 200510) {
+        // 流式被平台超时自动关闭：重激活（占一个 sequence）后以新 sequence 重放一次。
+        if (await this.reactivate()) {
+          try {
+            await this.invokeThenCommit(planned, this.state.seq + 1)
+            return 'ok'
+          } catch {
+            return this.abandon('流式超时重激活后重放失败', true)
+          }
+        }
+        return this.abandon('流式超时且重激活失败', true)
+      }
+      if (code === 200860) {
+        // 确定性超限：op 未被应用。废弃换卡，从确认点续写（不重演已显示部分）。
+        return this.abandon('卡片超出平台大小上限', false)
+      }
+      // 未知/网络错误（op 可能已执行）：sequence 跳过可能已消耗的序号重放一次
+      // （update/settings 幂等；insert 重演由 300301 兜底）。跳步按本次尝试的 sequence
+      // 计（state.seq 是最后已确认序号，未包含本次尝试，用它 +2 会差一）。
+      try {
+        const retrySeq = (op.type === 'insert' || op.type === 'update' || op.type === 'settings' ? op.sequence : this.state.seq) + 2
+        await this.invokeThenCommit(planned, retrySeq)
+        return 'ok'
+      } catch (retryError) {
+        if (op.type === 'insert' && feishuErrorCode(retryError) === 300301) {
+          this.commit(planned)
+          return 'ok'
+        }
+        return this.abandon('卡片操作重放失败', true)
+      }
+    }
+  }
+
+  /** 执行 API 并在成功后 commit；seqOverride 用于重放（create 的真实 cardId 在此覆盖进状态）。 */
+  private async invokeThenCommit(planned: PlannedOp, seqOverride?: number): Promise<void> {
+    const op = withSeq(planned.op, seqOverride)
+    if (op.type === 'create') {
+      const id = await withRetry(() => this.api.createCard(op.cardJson))
+      this.state = { ...planned.commit(this.state), cardId: id }
       return
     }
-    this.enqueue(async () => {
-      // 先 fold 全部 commit（乐观提交规划末态），再执行：exec 的 create 会把真实 cardId 覆盖进状态，
-      // 供同批后续 insert/update/settings 使用——避免 create 的 PENDING 快照在批尾覆盖真实 id。
-      this.state = planned.ops.reduce((s, p) => p.commit(s), this.state)
-      await this.exec(ops.map((p) => p.op))
-    })
+    if (op.type === 'send') {
+      await withRetry(() => this.api.sendCardMessage(this.chatId, this.state.cardId!))
+    } else if (op.type === 'insert') {
+      await this.api.insertElement(this.state.cardId!, op.elementJson, STATUS_ELEMENT_ID, op.sequence)
+    } else if (op.type === 'update') {
+      await this.api.updateCardElement(this.state.cardId!, op.elementId, op.content, op.sequence)
+    } else if (op.type === 'settings') {
+      await this.api.setCardStreaming(this.state.cardId!, op.streaming, op.sequence, op.summary)
+    }
+    this.commit(planned, seqOverride)
+  }
+
+  private commit(planned: PlannedOp, seqOverride?: number): void {
+    const next = planned.commit(this.state)
+    // 建卡批次里 create 已把真实 cardId 叠入状态，后续 op 的规划快照仍带 PENDING 占位：
+    // 占位符不得回写真实卡号，否则同批末尾的 insert/update 会对 __pending__ 发 op。
+    const current = this.state.cardId
+    const cardId = next.cardId === PENDING_CARD_ID && current !== null && current !== PENDING_CARD_ID
+      ? current
+      : next.cardId
+    this.state = seqOverride !== undefined ? { ...next, seq: seqOverride, cardId } : { ...next, cardId }
+  }
+
+  /** 流式超时后的官方恢复路径：settings 重设 streaming_mode:true（占一个 sequence）。 */
+  private async reactivate(): Promise<boolean> {
+    const { cardId, seq } = this.state
+    if (cardId === null || cardId === PENDING_CARD_ID) return false
+    try {
+      await this.api.setCardStreaming(cardId, true, seq + 1)
+      this.state = { ...this.state, seq: seq + 1 }
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * 废弃当前卡：尽力关流 → cardId 归零、尾段回卷为 carry → 调用方重新规划续写。
+   * reshowTail=true（未知失败，op 可能已执行）时从尾段 base 重演（少量重复优于丢失）；
+   * reshowTail=false（200860 确定性未应用）时跳过已显示部分（零重复）。
+   */
+  private async abandon(reason: string, reshowTail: boolean): Promise<'abandoned'> {
+    const { cardId, tail, seq } = this.state
+    const hadRealCard = cardId !== null && cardId !== PENDING_CARD_ID
+    if (hadRealCard) {
+      await this.api.setCardStreaming(cardId as string, false, seq + 1).catch(() => undefined)
+    }
+    if (tail !== undefined) {
+      const kind = this.segments[tail.segIndex]?.kind
+      const base = kind === 'process' ? 0 : reshowTail ? tail.base : tail.base + tail.shownText.length
+      this.state = {
+        ...this.state,
+        cardId: null,
+        tail: undefined,
+        closedSegCount: tail.segIndex,
+        carry: { segIndex: tail.segIndex, base },
+      }
+    } else {
+      this.state = { ...this.state, cardId: null }
+    }
+    this.log(`[project-bot] 卡片输出异常（${reason}），已废弃当前卡并在新卡继续`)
+    if (hadRealCard) {
+      await withRetry(() => this.api.sendText(this.chatId, ABANDON_NOTICE)).catch(() => undefined)
+    }
+    return 'abandoned'
   }
 
   private enqueue(task: () => Promise<void>): void {
     this.tail = this.tail.then(task).catch((error) => {
-      // 建卡链路失败（create 未返回，卡片从未可见）：回到未建卡状态，并把乐观推进的
-      // tail 回卷为 carry（base 保持原位——幻影卡上什么都没真正显示），让下一次
-      // flush 走 insert 分支重新建卡、完整插入未显示内容，而不是对 null 卡号发 update。
-      if (this.state.cardId === PENDING_CARD_ID) {
-        const t = this.state.tail
-        this.state = {
-          ...this.state,
-          cardId: null,
-          ...(t !== undefined
-            ? { tail: undefined, carry: { segIndex: t.segIndex, base: t.base }, closedSegCount: t.segIndex }
-            : {}),
-        }
-      }
       this.log(`[project-bot] 卡片操作失败：${error instanceof Error ? error.message : String(error)}`)
     })
   }
+}
 
-  private async exec(ops: readonly CardOp[]): Promise<void> {
-    for (const op of ops) {
-      if (op.type === 'create') {
-        this.state.cardId = await withRetry(() => this.api.createCard(op.cardJson))
-      } else if (op.type === 'send') {
-        await withRetry(() => this.api.sendCardMessage(this.chatId, this.state.cardId!))
-      } else if (op.type === 'insert') {
-        await withRetry(() => this.api.insertElement(this.state.cardId!, op.elementJson, STATUS_ELEMENT_ID, op.sequence))
-      } else if (op.type === 'update') {
-        await withRetry(() => this.api.updateCardElement(this.state.cardId!, op.elementId, op.content, op.sequence))
-      } else if (op.type === 'noop') {
-        // 纯状态推进：无 API 调用（flush 已过滤 noop，此处为类型完备性；commit 由 flush 统一 fold）
-      } else {
-        await withRetry(() => this.api.setCardStreaming(this.state.cardId!, op.streaming, op.sequence, op.summary))
-      }
-    }
-  }
+/** 重放用：仅带 sequence 语义的 op 替换序号（create/send 无序号）。 */
+function withSeq(op: CardOp, sequence: number | undefined): CardOp {
+  if (sequence === undefined) return op
+  if (op.type === 'insert') return { ...op, sequence }
+  if (op.type === 'update') return { ...op, sequence }
+  if (op.type === 'settings') return { ...op, sequence }
+  return op
 }
 
 /** 「处理中」表情：加上后返回删除 disposer；加/删失败都静默（表情残留无害）。 */

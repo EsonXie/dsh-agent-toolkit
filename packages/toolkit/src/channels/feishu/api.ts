@@ -18,6 +18,14 @@ export interface FeishuApi {
   getBotOpenId(): Promise<string>
 }
 
+/** 从 lark SDK 抛出的 axios 错误提取飞书业务错误码（无则 undefined）。 */
+export function feishuErrorCode(error: unknown): number | undefined {
+  const data = (error as { response?: { data?: unknown } } | null | undefined)?.response?.data
+  if (typeof data !== 'object' || data === null) return undefined
+  const code = (data as { code?: unknown }).code
+  return typeof code === 'number' ? code : undefined
+}
+
 /** 附件服务接受的图片媒体类型（与宿主 attachment v1 一致）。 */
 const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
 export type SniffedImageMediaType = (typeof IMAGE_MEDIA_TYPES)[number]

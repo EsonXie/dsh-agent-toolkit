@@ -4,6 +4,9 @@ import { FeishuReplyHandle, makeAck, withRetry } from './reply.ts'
 
 const TUNABLES = { cardUpdateThrottleMs: 500, cardMaxBytes: 26_000, processMaxBytes: 8000, processingReactionEmoji: 'OneSecond' }
 
+/** 飞书业务错误（模拟 lark SDK 的 axios error 形状）。 */
+const bizError = (code: number): Error => Object.assign(new Error(`biz ${code}`), { response: { data: { code } } })
+
 interface Call { op: string; args: unknown[] }
 
 function fakeApi() {
@@ -180,5 +183,112 @@ describe('withRetry', () => {
     const second = expect(withRetry(async () => { throw new Error('boom') }, 3, 1)).rejects.toThrow('boom')
     await vi.advanceTimersByTimeAsync(100)   // 推进第 1、2 次退避，第 3 次尝试抛错
     await second
+  })
+})
+
+describe('确认式出站与失败治理', () => {
+  test('insert 遇 300301（元素重复）= 服务端已执行，视为成功', async () => {
+    const { api, calls } = fakeApi()
+    let once = true
+    api.insertElement = async (...args) => {
+      calls.push({ op: 'insertElement', args })
+      if (once) { once = false; throw bizError(300301) }
+    }
+    const { reply } = make(api)
+    await reply.update([{ kind: 'text', content: '你好' }])
+    await vi.advanceTimersByTimeAsync(500)
+    // 简化：直接再 update 一个增长触发 update 即可；核心断言：insert 只调一次且后续 update 正常
+    await reply.update([{ kind: 'text', content: '你好呀' }])
+    await vi.advanceTimersByTimeAsync(500)
+    expect(calls.filter((c) => c.op === 'insertElement')).toHaveLength(1)   // 300301 未触发重插
+    expect(calls.some((c) => c.op === 'updateCardElement')).toBe(true)
+  })
+
+  test('update 遇 200850（流式超时关闭）：重激活后重放，内容完整', async () => {
+    const { api, calls } = fakeApi()
+    let once = true
+    api.updateCardElement = async (...args) => {
+      calls.push({ op: 'updateCardElement', args })
+      if (once) { once = false; throw bizError(200850) }
+    }
+    const { reply } = make(api)
+    await reply.update([{ kind: 'text', content: '你好' }])
+    await vi.advanceTimersByTimeAsync(500)
+    await reply.update([{ kind: 'text', content: '你好，世界' }])
+    await vi.advanceTimersByTimeAsync(500)
+    const reactivate = calls.find((c) => c.op === 'setCardStreaming' && c.args[1] === true)
+    expect(reactivate).toBeDefined()                        // 重激活发生
+    const updates = calls.filter((c) => c.op === 'updateCardElement')
+    expect(updates[updates.length - 1].args[2]).toBe('你好，世界')   // 重放后内容完整
+    expect(updates[updates.length - 1].args[3]).toBeGreaterThan(updates[0].args[3] as number)  // sequence 递增
+  })
+
+  test('update 遇 200860（超 30KB）：废弃旧卡拆新卡续写，内容零丢失零重复', async () => {
+    const { api, calls } = fakeApi()
+    api.updateCardElement = async (...args) => { calls.push({ op: 'updateCardElement', args }); throw bizError(200860) }
+    const { reply } = make(api)
+    await reply.update([{ kind: 'text', content: '前半' }])
+    await vi.advanceTimersByTimeAsync(500)
+    await reply.update([{ kind: 'text', content: '前半后半' }])
+    await vi.advanceTimersByTimeAsync(500)
+    await vi.advanceTimersByTimeAsync(5000)
+    // 旧卡尝试关流；新卡从「后半」（确认点之后）续写，不重演「前半」
+    const inserts = calls.filter((c) => c.op === 'insertElement')
+    const newCardInsert = inserts[inserts.length - 1]
+    expect(String(newCardInsert.args[1])).toContain('后半')
+    expect(String(newCardInsert.args[1])).not.toContain('前半')
+    expect(calls.some((c) => c.op === 'createCard')).toBe(true)
+    expect(calls.filter((c) => c.op === 'createCard').length).toBe(2)
+  })
+
+  test('未知网络错误：sequence+2 重放一次成功；持续失败则废弃重演尾段并 notice', async () => {
+    const { api, calls } = fakeApi()
+    let fail = 1
+    api.updateCardElement = async (...args) => {
+      calls.push({ op: 'updateCardElement', args })
+      if (fail-- > 0) throw new Error('socket hangup')
+    }
+    const { reply } = make(api)
+    await reply.update([{ kind: 'text', content: '你好' }])
+    await vi.advanceTimersByTimeAsync(500)
+    await reply.update([{ kind: 'text', content: '你好，世界' }])
+    await vi.advanceTimersByTimeAsync(500)
+    const updates = calls.filter((c) => c.op === 'updateCardElement')
+    expect(updates).toHaveLength(2)                                   // 首次失败 + 重放成功
+    expect(updates[1].args[3]).toBe((updates[0].args[3] as number) + 2)  // seq+2
+    expect(updates[1].args[2]).toBe('你好，世界')
+
+    // 持续失败分支
+    const { api: api2, calls: calls2 } = fakeApi()
+    api2.updateCardElement = async (...args) => { calls2.push({ op: 'updateCardElement', args }); throw new Error('down') }
+    const { reply: reply2 } = make(api2)
+    await reply2.update([{ kind: 'text', content: '前半' }])
+    await vi.advanceTimersByTimeAsync(500)
+    await reply2.update([{ kind: 'text', content: '前半后半' }])
+    await vi.advanceTimersByTimeAsync(500)
+    const inserts2 = calls2.filter((c) => c.op === 'insertElement')
+    // 废弃时重演尾段：新卡 insert 含完整段（从 base 重插）
+    expect(String(inserts2[inserts2.length - 1].args[1])).toContain('前半后半')
+    expect(calls2.some((c) => c.op === 'sendText' && String(c.args[1]).includes('卡片输出异常'))).toBe(true)
+  })
+
+  test('建卡链路失败保持现状语义：不重放不废弃，下次 flush 重试', async () => {
+    const { api, calls } = fakeApi()
+    let failing = true
+    api.createCard = async () => {
+      calls.push({ op: 'createCard', args: [] })
+      if (failing) throw new Error('rate limited')
+      return 'card_back'
+    }
+    const { reply } = make(api)
+    await reply.update([{ kind: 'text', content: '你好' }])
+    await vi.advanceTimersByTimeAsync(500)
+    await vi.advanceTimersByTimeAsync(5000)
+    failing = false
+    await reply.update([{ kind: 'text', content: '你好呀' }])
+    await vi.advanceTimersByTimeAsync(500)
+    const tail3 = calls.slice(-3).map((c) => c.op)
+    expect(tail3).toEqual(['createCard', 'sendCardMessage', 'insertElement'])
+    expect(String(calls[calls.length - 1].args[1])).toContain('你好呀')
   })
 })
