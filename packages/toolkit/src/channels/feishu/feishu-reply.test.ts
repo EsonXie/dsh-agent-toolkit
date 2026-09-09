@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { FeishuApi } from './api.ts'
 import { FeishuReplyHandle, makeAck, withRetry } from './reply.ts'
 
-const TUNABLES = { cardUpdateThrottleMs: 500, cardMaxBytes: 100, processMaxBytes: 8000, processingReactionEmoji: 'OneSecond' }
+const TUNABLES = { cardUpdateThrottleMs: 500, cardMaxBytes: 26_000, processMaxBytes: 8000, processingReactionEmoji: 'OneSecond' }
 
 interface Call { op: string; args: unknown[] }
 

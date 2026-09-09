@@ -24,9 +24,6 @@ const STATUS_FINAL: Record<TurnStatus, string> = {
 /** 拆卡定格状态行文案（旧卡内容已接续到下一张卡片）。 */
 export const STATUS_CONTINUED = '📦 内容较长，已接续到下一张卡片'
 
-/** 新卡固定开销字节数（状态行 + 结构，粗算进预算）。 */
-const CARD_FIXED_BYTES = 64
-
 /** 单卡组件数安全上限（飞书硬上限 200；面板按 2 计：面板 + 内嵌 markdown）。 */
 const CARD_ELEMENT_LIMIT = 190
 
@@ -66,6 +63,29 @@ export function sliceTailByBytes(text: string, maxBytes: number): string {
     if (code >= 0xdc_00 && code <= 0xdf_ff) cut += 1   // 低位代理在开头：整对移除
   }
   return PROCESS_OMITTED + text.slice(cut)
+}
+
+/** JSON 串内内容的转义后字节数（去首尾引号）；卡片 DSL 真实字节记账用。 */
+export function escapedLen(s: string): number {
+  return Buffer.byteLength(JSON.stringify(s), 'utf8') - 2
+}
+
+/** 按转义后字节上限截头（保留头部），不劈开多字节字符与代理对。 */
+export function sliceByEscapedBytes(text: string, maxBytes: number): string {
+  if (escapedLen(text) <= maxBytes) return text
+  let lo = 0
+  let hi = text.length
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2)
+    if (escapedLen(text.slice(0, mid)) <= maxBytes) lo = mid
+    else hi = mid - 1
+  }
+  let cut = lo
+  if (cut > 0) {
+    const code = text.charCodeAt(cut - 1)
+    if (code >= 0xd8_00 && code <= 0xdb_ff) cut -= 1
+  }
+  return text.slice(0, cut)
 }
 
 /** 新卡：仅状态行的流式卡；段后续经插入组件 API 动态加入。 */
@@ -137,11 +157,12 @@ export function planSync(
 
   const ensureCard = (): void => {
     if (cardId !== null) return
-    ops.push({ type: 'create', cardJson: buildCardJson() })
+    const cardJson = buildCardJson()
+    ops.push({ type: 'create', cardJson })
     ops.push({ type: 'send' })
     cardId = PENDING_CARD_ID
     seq = 0
-    cardBytes = CARD_FIXED_BYTES
+    cardBytes = Buffer.byteLength(cardJson, 'utf8')   // 真实 DSL 字节
     cardElements = 1
   }
 
@@ -167,19 +188,19 @@ export function planSync(
     if (tail !== undefined && tail.segIndex === i) {
       // 当前卡上的打开段：内容增长走 update
       if (elementContent !== tail.shownText) {
-        const delta = Buffer.byteLength(elementContent, 'utf8') - Buffer.byteLength(tail.shownText, 'utf8')
+        const delta = escapedLen(elementContent) - escapedLen(tail.shownText)
         if (cardBytes + delta <= maxBytes) {
           seq += 1
           ops.push({ type: 'update', elementId: tail.elementId, content: elementContent, sequence: seq })
           cardBytes += delta
           tail = { ...tail, shownText: elementContent }
         } else if (seg.kind === 'text') {
-          // 部分更新到满 → 拆卡，剩余经 carry 续写
-          const piece = sliceByBytes(elementContent, Buffer.byteLength(tail.shownText, 'utf8') + (maxBytes - cardBytes))
+          // 部分更新到满 → 拆卡，剩余经 carry 续写（预算按转义后字节）
+          const piece = sliceByEscapedBytes(elementContent, escapedLen(tail.shownText) + (maxBytes - cardBytes))
           if (piece.length > tail.shownText.length) {
             seq += 1
             ops.push({ type: 'update', elementId: tail.elementId, content: piece, sequence: seq })
-            cardBytes += Buffer.byteLength(piece, 'utf8') - Buffer.byteLength(tail.shownText, 'utf8')
+            cardBytes += escapedLen(piece) - escapedLen(tail.shownText)
             tail = { ...tail, shownText: piece }
           }
           carry = { segIndex: i, base: tail.base + tail.shownText.length }
@@ -202,18 +223,19 @@ export function planSync(
 
     // 当前卡上还没有该段的元素 → insert
     if (seg.kind === 'process') {
-      const windowBytes = Buffer.byteLength(elementContent, 'utf8')
-      if (cardId !== null && (cardBytes + windowBytes > maxBytes || cardElements + 2 > CARD_ELEMENT_LIMIT)) {
+      const elementId = `seg_${segCounter + 1}`
+      const elementJson = buildSegmentJson('process', elementId, elementContent)
+      const elBytes = Buffer.byteLength(elementJson, 'utf8')
+      if (cardId !== null && (cardBytes + elBytes > maxBytes || cardElements + 2 > CARD_ELEMENT_LIMIT)) {
         closeCard()
         continue
       }
       ensureCard()
       // 过程窗口由 processMaxBytes 兜底（sliceTailByBytes 已截尾）；新卡整窗插入，不再受卡预算约束。
       segCounter += 1
-      const elementId = `seg_${segCounter}`
       seq += 1
-      ops.push({ type: 'insert', elementJson: buildSegmentJson('process', elementId, elementContent), sequence: seq })
-      cardBytes += windowBytes
+      ops.push({ type: 'insert', elementJson, sequence: seq })
+      cardBytes += elBytes
       cardElements += 2
       tail = { segIndex: i, elementId, base: 0, shownText: elementContent }
     } else {
@@ -228,15 +250,17 @@ export function planSync(
         continue
       }
       ensureCard()
-      const piece = sliceByBytes(elementContent, maxBytes - cardBytes)
+      const elementId = `seg_${segCounter + 1}`
+      const overhead = Buffer.byteLength(buildSegmentJson('text', elementId, ''), 'utf8')
+      const piece = sliceByEscapedBytes(elementContent, maxBytes - cardBytes - overhead)
       if (piece.length === 0) {
-        throw new Error(`cardMaxBytes=${maxBytes} 过小，扣固定开销后连一个字符都容纳不了`)
+        throw new Error(`cardMaxBytes=${maxBytes} 过小，扣基础卡与元素开销后连一个字符都容纳不了`)
       }
       segCounter += 1
-      const elementId = `seg_${segCounter}`
+      const elementJson = buildSegmentJson('text', elementId, piece)
       seq += 1
-      ops.push({ type: 'insert', elementJson: buildSegmentJson('text', elementId, piece), sequence: seq })
-      cardBytes += Buffer.byteLength(piece, 'utf8')
+      ops.push({ type: 'insert', elementJson, sequence: seq })
+      cardBytes += Buffer.byteLength(elementJson, 'utf8')
       cardElements += 1
       tail = { segIndex: i, elementId, base, shownText: piece }
       if (piece.length < elementContent.length) {

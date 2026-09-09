@@ -1,13 +1,17 @@
 import { describe, expect, test } from 'vitest'
 import {
-  buildCardJson, buildSegmentJson, initialStreamState, PENDING_CARD_ID,
+  buildCardJson, buildSegmentJson, escapedLen, initialStreamState, PENDING_CARD_ID,
   planFinalize, planSync, PROCESS_OMITTED, STATUS_CONTINUED, STATUS_ELEMENT_ID,
-  sliceByBytes, sliceTailByBytes, type StreamState, type TurnSegment,
+  sliceByBytes, sliceByEscapedBytes, sliceTailByBytes, type StreamState, type TurnSegment,
 } from './cards.ts'
 
 // sliceByBytes / sliceTailByBytes 五个测试原样保留（见现文件，不重复列出）
 const text = (content: string): TurnSegment => ({ kind: 'text', content })
 const proc = (content: string): TurnSegment => ({ kind: 'process', content })
+
+// 拆卡预算基准：基础卡 JSON 全字节 / 空正文元素开销（结构 JSON 全字节，均为真实 DSL 字节）
+const BASE = Buffer.byteLength(buildCardJson(), 'utf8')
+const EL = Buffer.byteLength(buildSegmentJson('text', 'seg_1', ''), 'utf8')
 
 describe('sliceByBytes', () => {
   test('短文本原样返回', () => {
@@ -113,8 +117,8 @@ describe('planSync', () => {
   })
 
   test('text 段跨卡拆分：满卡关流 → 续卡 insert 续写剩余', () => {
-    // CARD_FIXED_BYTES=64：maxBytes=70 时每张卡至多再放 6 字节（2 个汉字）
-    const { state, ops } = planSync(initialStreamState(), [text('一二三四五')], 70, 8_000)
+    // 预算 = 基础卡 + 一个空正文元素开销 + 6 转义字节：每张卡至多放 '一二'（6 字节）
+    const { state, ops } = planSync(initialStreamState(), [text('一二三四五')], BASE + EL + 6, 8_000)
     expect(ops).toEqual([
       { type: 'create', cardJson: buildCardJson() },
       { type: 'send' },
@@ -135,11 +139,11 @@ describe('planSync', () => {
   })
 
   test('跨卡 text 段跨 flush 增长：从正确偏移续写，不重排时间线', () => {
-    // Flush A：'一二三'（9B）在 maxBytes=70（固定开销 64）下拆为 [一二 | 三]
-    const a = planSync(initialStreamState(), [text('一二三')], 70, 8_000)
+    // Flush A：'一二三'（escaped 9）在 maxBytes=BASE+EL+8 下拆为 [一二 | 三]
+    const a = planSync(initialStreamState(), [text('一二三')], BASE + EL + 8, 8_000)
     expect(a.state.tail).toEqual({ segIndex: 0, elementId: 'seg_2', base: 2, shownText: '三' })
     // Flush B：段增长到 '一二三四五'：卡 2 续写 '三四' 装满 → 拆卡 → 卡 3 insert '五'
-    const b = planSync({ ...a.state, cardId: 'c2' }, [text('一二三四五')], 70, 8_000)
+    const b = planSync({ ...a.state, cardId: 'c2' }, [text('一二三四五')], BASE + EL + 8, 8_000)
     expect(b.ops).toEqual([
       { type: 'update', elementId: 'seg_2', content: '三四', sequence: 2 },
       { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: 3 },
@@ -153,8 +157,8 @@ describe('planSync', () => {
 
   test('process 段拆卡：旧卡定格，续卡整窗重放', () => {
     // 先建一张几乎满卡的 text 卡，再来 process 段
-    const first = planSync(initialStreamState(), [text('一二')], 70, 8_000)   // 64+6=70 满
-    const { state, ops } = planSync({ ...first.state, cardId: 'c1' }, [text('一二'), proc('思考内容')], 70, 8_000)
+    const first = planSync(initialStreamState(), [text('一二')], BASE + EL + 6, 8_000)   // 基础+元素+6 满
+    const { state, ops } = planSync({ ...first.state, cardId: 'c1' }, [text('一二'), proc('思考内容')], BASE + EL + 6, 8_000)
     // text 无变化；process 12 字节放不进 → 关旧卡 → 新卡整窗插入
     expect(ops).toEqual([
       { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: 2 },
@@ -172,8 +176,8 @@ describe('planSync', () => {
   })
 
   test('拆卡定格：关流前先把旧卡状态行更新为「已接续」，summary 同步', () => {
-    // maxBytes=70、CARD_FIXED_BYTES=64：每卡至多再放 6 字节 → 必拆卡
-    const { ops } = planSync(initialStreamState(), [text('一二三四五')], 70, 8_000)
+    // maxBytes=BASE+EL+6：每卡至多再放 6 字节 → 必拆卡
+    const { ops } = planSync(initialStreamState(), [text('一二三四五')], BASE + EL + 6, 8_000)
     const closes = ops.filter((op) => op.type === 'settings')
     expect(closes.length).toBe(2)   // 两次拆卡
     // 每次拆卡都是 update(status) 在前、settings 在后，且 summary 带上定格文案
@@ -197,5 +201,47 @@ describe('planFinalize', () => {
     expect(planFinalize(initialStreamState(), 'done').ops).toEqual([])
     expect(planFinalize(state, 'error').ops[0]).toMatchObject({ content: '❌ 输出出错' })
     expect(planFinalize(state, 'cancelled').ops[0]).toMatchObject({ content: '⏹ 已取消' })
+  })
+})
+
+describe('escapedLen / sliceByEscapedBytes', () => {
+  test('转义膨胀计入：换行/引号每个 +1 字节', () => {
+    expect(escapedLen('ab')).toBe(2)
+    expect(escapedLen('a\nb')).toBe(4)      // \n 在 JSON 串里占 2 字节
+    expect(escapedLen('中')).toBe(3)
+  })
+
+  test('按转义后字节截断，不劈多字节字符', () => {
+    expect(sliceByEscapedBytes('a\nb\nc', 4)).toBe('a\nb')   // 'a\nb'=4，'a\nb\n'=6 超
+    expect(sliceByEscapedBytes('中中', 4)).toBe('中')
+  })
+})
+
+describe('planSync DSL 记账', () => {
+  const BASE = Buffer.byteLength(buildCardJson(), 'utf8')              // 实测 286
+  const EL = Buffer.byteLength(buildSegmentJson('text', 'seg_1', ''), 'utf8')  // 实测 52
+
+  test('insert 按 elementJson 全字节记账：预算只够一个元素时立即拆卡', () => {
+    // 预算 = 基础 + 一个正文元素（空内容开销）+ 6 转义字节：每卡恰好放一个 2 字元素（'一二'）即满
+    const maxBytes = BASE + EL + 6
+    const { ops } = planSync(initialStreamState(), [text('一二三四五')], maxBytes, 8_000)
+    const inserts = ops.filter((op) => op.type === 'insert')
+    // 元素结构开销计入预算 → '一二'/'三四'/'五' 各占一卡（3 次 insert），贴线 6 转义字节逐卡满
+    expect(inserts).toHaveLength(3)
+    expect(JSON.parse(inserts[0].elementJson).content).toBe('一二')
+    expect(JSON.parse(inserts[1].elementJson).content).toBe('三四')
+    expect(JSON.parse(inserts[2].elementJson).content).toBe('五')
+    expect(ops.filter((op) => op.type === 'settings')).toHaveLength(2)
+  })
+
+  test('update 按转义差值记账：换行多的内容更早触发拆卡', () => {
+    const maxBytes = BASE + EL + 12   // 首卡放 'a\nb\n'（escaped 6+2=8? 见下）
+    const first = planSync(initialStreamState(), [text('a\nb')], maxBytes, 8_000)
+    // 'a\nb' escapedLen=4；增长到 'a\nb\nc\nd' escapedLen=10，delta=6，剩 12-4=8 → 可 update
+    const grown = planSync({ ...first.state, cardId: 'c1' }, [text('a\nb\nc\nd')], maxBytes, 8_000)
+    expect(grown.ops[0]).toMatchObject({ type: 'update', content: 'a\nb\nc\nd' })
+    // 再增长到 escapedLen=16，delta=6，剩 2 → 拆卡
+    const over = planSync({ ...grown.state }, [text('a\nb\nc\nd\ne\nf')], maxBytes, 8_000)
+    expect(over.ops.some((op) => op.type === 'settings')).toBe(true)
   })
 })
