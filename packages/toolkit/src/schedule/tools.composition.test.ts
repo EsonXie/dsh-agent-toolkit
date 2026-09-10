@@ -34,7 +34,7 @@ function fakeService(): CronService {
 describe('cron 工具真实 ToolRuntime 注册守护', () => {
   test('5 个 cron_ 工具注册进真实 ctx.tools：不抛错、可解析、输出 schema 为宿主接受的 annotation-only 形式', async () => {
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt, { persona: '' })
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
     await ctx.plugin(ToolRuntime)
     const tools = createCronTools(fakeService())
     const disposers = tools.map((tool) => ctx.tools.register(tool))

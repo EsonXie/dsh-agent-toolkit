@@ -1,11 +1,14 @@
 /** dsh-agent-toolkit schedule 浏览器半：注册侧边栏底栏入口 + 文案词典。 */
 import type { Context } from '@deepseek-ai/cordis'
 import { createElement } from 'react'
-import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // 触发 dsh-client-locale 对 Context.locale 的声明合并。
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // 触发 ui-sidebar 对 SlotMap 的声明合并（sidebar.footer.action 键）。
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+// 触发 ui-renderer 对 Context.slots 的声明合并（0.1.5 起由 client-runtime 迁入）。
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { ScheduleEntry } from './entry.tsx'
 import { TaskForm } from './TaskForm.tsx'
 import { en, NS, zh, type ScheduleKey } from './locales.ts'

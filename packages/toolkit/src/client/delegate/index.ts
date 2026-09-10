@@ -1,8 +1,11 @@
 /** dsh-agent-toolkit 委派卡浏览器半：注册 team_delegate 的 keyed 委派卡 + 文案词典。 */
 import type { Context } from '@deepseek-ai/cordis'
-import type { ISessions, SubagentAddress } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 // 触发 dsh-client-locale 对 Context.locale 的声明合并。
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+// 触发 ui-renderer 对 Context.slots 的声明合并（0.1.5 起由 client-runtime 迁入）。
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { DelegateCard, type DelegateCardInjected } from './delegate-card.tsx'
 import { en, NS, zh, type AgentTeamKey } from './locales.ts'
 

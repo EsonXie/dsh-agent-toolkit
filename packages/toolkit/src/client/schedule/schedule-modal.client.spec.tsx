@@ -3,7 +3,8 @@ import { createElement, type ComponentType } from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { CommonKeyOf } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { Context } from '@deepseek-ai/cordis'
 import { afterEach, expect, test, vi } from 'vitest'
 import { setupScheduleClient } from './index.ts'
@@ -124,7 +125,7 @@ test('生产 renderForm 闭包：新建任务渲染 TaskForm 元素（React #310
   const RUNTIME = {
     useSessions: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<SessionListState>,
     useWorkspaces: ((selector: (state: { items: readonly unknown[] }) => unknown) =>
-      selector({ items: [] })) as unknown as SnapshotSelectorHook<WorkspaceListState>,
+      selector({ items: [] })) as unknown as SnapshotSelectorHook<WorkspaceSnapshot>,
   }
   render(createElement(
     slotRenderer as ComponentType<{ t: typeof t; wide: boolean; useSessions: typeof RUNTIME.useSessions; useWorkspaces: typeof RUNTIME.useWorkspaces }>,

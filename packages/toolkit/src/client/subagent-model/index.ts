@@ -2,6 +2,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 // 触发 dsh-client-ui-conversation 的 SlotMap 声明合并（本文件调用 slots.register 需要槽位类型可见）。
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// 触发 ui-renderer 对 Context.slots 的声明合并（0.1.5 起由 client-runtime 迁入）。
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { NS } from '../delegate/locales.ts'
 import { SubagentModelChip } from './SubagentModelChip.tsx'
 

@@ -2,6 +2,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 // 触发 ui-sidebar 对 SlotMap 的声明合并（sidebar.footer.action 键）。
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+// 触发 ui-renderer 对 Context.slots 的声明合并（0.1.5 起由 client-runtime 迁入）。
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { AgentsEntry } from './entry.tsx'
 
 export function setupAgentsClient(ctx: Context): void {

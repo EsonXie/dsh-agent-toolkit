@@ -27,7 +27,7 @@ function fakeSource(layers: typeof CONFIG.layers): LayerView {
 /** 挂 SystemPrompt + 宿主变量（照 agent-loop）+ prompt-stack。 */
 async function boot(): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(SystemPrompt, { persona: '' })
+  await ctx.plugin(SystemPrompt, { personaPrefix: '' })
   ctx.systemPrompt.variable('model', context => context.agent?.options?.model)
   ctx.systemPrompt.variable('provider', context => context.agent?.options?.provider)
   setupPrompt(ctx, { source: fakeSource(CONFIG.layers), rules: CONFIG.rules })

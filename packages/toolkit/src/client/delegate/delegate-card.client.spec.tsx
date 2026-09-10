@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, test } from 'vitest'
-import type { SubagentAddress, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { DelegateCard } from './delegate-card.tsx'
 import { zh } from './locales.ts'
 
@@ -34,7 +36,9 @@ function renderCard(block: ToolCallBlock, openChild: (address: SubagentAddress) 
       toolName="team_delegate"
       block={block}
       openFile={() => {}}
-      sessionId="parent-1"
+      // 0.1.5 起 ToolCallOwnerProps 新增必填 loadImage（tool.call.images 槽的会话授权图加载器）；本卡不渲染图。
+      loadImage={(() => { throw new Error('unused') }) as never}
+      sessionId={'parent-1' as SessionId}
       useSession={(() => undefined) as never}
       useSessions={(() => undefined) as never}
       useProjection={(() => undefined) as never}
@@ -44,6 +48,12 @@ function renderCard(block: ToolCallBlock, openChild: (address: SubagentAddress) 
       // 纯类型效应、无运行时影响，故用 as never 桩掉。
       useInput={(() => undefined) as never}
       inputActions={(() => undefined) as never}
+      // 0.1.5 起 SessionStandardProps 新增的会话座位；本卡不消费，桩掉。
+      useConversation={(() => undefined) as never}
+      useChat={(() => undefined) as never}
+      // 0.1.5 起 GlobalStandardProps 新增的全局座位；本卡不消费，桩掉。
+      useSessionPendingInteraction={(() => undefined) as never}
+      usePanelInfo={(() => undefined) as never}
       openChild={openChild}
       t={((key: keyof typeof zh) => zh[key]) as never}
     />,

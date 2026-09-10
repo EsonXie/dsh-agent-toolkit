@@ -6,6 +6,9 @@ export const zh = {
   'card.running': '成员执行中',
   'card.failed': '委派失败',
   'card.modelAria': '子 Agent 使用模型 {route}',
+  'card.copy': '复制',
+  'card.copied': '已复制',
+  'card.footnotes': '脚注',
   'header.modelAria': '子会话模型 {route}',
 } as const
 
@@ -16,5 +19,8 @@ export const en: Record<AgentTeamKey, string> = {
   'card.running': 'Member running',
   'card.failed': 'Delegation failed',
   'card.modelAria': 'Subagent runs on {route}',
+  'card.copy': 'Copy',
+  'card.copied': 'Copied',
+  'card.footnotes': 'Footnotes',
   'header.modelAria': 'Subagent session model {route}',
 }

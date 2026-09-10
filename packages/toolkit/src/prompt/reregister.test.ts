@@ -23,7 +23,7 @@ function agentContext(model: string): AssembleContext {
 
 async function boot(source: LayerView): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(SystemPrompt, { persona: '' })
+  await ctx.plugin(SystemPrompt, { personaPrefix: '' })
   setupPrompt(ctx, { source, rules: [] })
   return ctx
 }

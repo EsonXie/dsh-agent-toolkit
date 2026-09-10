@@ -1,6 +1,8 @@
 /** dsh-agent-toolkit 分层提示词浏览器半：注册侧边栏底栏入口。 */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+// 触发 ui-renderer 对 Context.slots 的声明合并（0.1.5 起由 client-runtime 迁入）。
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { PromptLayersEntry } from './entry.tsx'
 
 export function setupPromptClient(ctx: Context): void {

@@ -1,9 +1,11 @@
 /** 委派卡：team_delegate 的 keyed tool.call.toolview 渲染器。 */
-import type { SessionId, SubagentAddress, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
-import { MarkdownText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { MarkdownText, StateDot, type MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { fetchActiveRoute, type DelegateRoute } from './api.ts'
 import css from './delegate-card.module.css'
 import type { NS } from './locales.ts'
@@ -56,6 +58,11 @@ export function DelegateCard(props: DelegateCardProps) {
   const [expanded, setExpanded] = useState(false)
   const role = args.role
   const [activeRoute, setActiveRoute] = useState<DelegateRoute | null>(null)
+  // MarkdownText 的 labels 自 0.1.5 起必填（ui-primitives 无线文案）；随 locale 版本重建。
+  const markdownLabels = useMemo<MarkdownLabels>(() => ({
+    code: { copyLabel: t('card.copy'), copiedLabel: t('card.copied') },
+    footnotes: t('card.footnotes'),
+  }), [t])
   useEffect(() => {
     if (settled || role === undefined) return
     let cancelled = false
@@ -105,7 +112,7 @@ export function DelegateCard(props: DelegateCardProps) {
         <div className={css.body}>
           {expanded && args.prompt !== undefined && <pre className={css.prompt}>{args.prompt}</pre>}
           {settled && resultText(block) !== '' && (
-            <div className={css.result}><MarkdownText text={resultText(block)} /></div>
+            <div className={css.result}><MarkdownText text={resultText(block)} labels={markdownLabels} /></div>
           )}
           {settled && !isError && meta?.childSessionId !== undefined && (
             <button

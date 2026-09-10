@@ -34,7 +34,7 @@ function fakeSource(layers: ConfigT['layers'], identity = ''): LayerView {
 
 async function boot(config: ConfigT = CONFIG): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(SystemPrompt, { persona: '' })
+  await ctx.plugin(SystemPrompt, { personaPrefix: '' })
   setupPrompt(ctx, { source: fakeSource(config.layers), rules: config.rules })
   return ctx
 }
@@ -87,7 +87,7 @@ describe('prompt 组装（模型层 + persona 普通段）', () => {
 
   test('宿主变量插值与重名不抛错（回归，同原语义）', async () => {
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt, { persona: '' })
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
     ctx.systemPrompt.variable('provider', context => context.agent?.options.provider)
     ctx.systemPrompt.variable('model', context => context.agent?.options.model)
     setupPrompt(ctx, { source: fakeSource([{ name: 'who', order: 10, text: 'model={{model}} provider={{provider}}' }]), rules: [] })
@@ -97,7 +97,7 @@ describe('prompt 组装（模型层 + persona 普通段）', () => {
 
   test('Config 校验失败在 apply 期响亮抛错', async () => {
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt, { persona: '' })
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
     expect(() => setupPrompt(ctx, { source: fakeSource([]), rules: [] })).toThrow(/at least one layer/)
   })
 
@@ -120,20 +120,21 @@ describe('prompt 组装（模型层 + persona 普通段）', () => {
 })
 
 describe('deployment:persona 槽位还原生', () => {
-  test('toolkit 不改写槽位：cordis.yml 的 systemPrompt.persona 原样渲染', async () => {
+  // 0.1.5 起宿主 persona 拆为 prefix/suffix 两段（config personaPrefix → deployment:persona-prefix）。
+  test('toolkit 不改写槽位：cordis.yml 的 systemPrompt.personaPrefix 原样渲染', async () => {
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt, { persona: 'NATIVE-PERSONA' })
+    await ctx.plugin(SystemPrompt, { personaPrefix: 'NATIVE-PERSONA' })
     setupPrompt(ctx, { source: fakeSource(CONFIG.layers), rules: CONFIG.rules })
     const assembly = await ctx.systemPrompt.assemble(agentContext({}))
     const texts = sectionTexts(assembly.sections)
-    expect(texts['deployment:persona']).toBe('NATIVE-PERSONA')
+    expect(texts['deployment:persona-prefix']).toBe('NATIVE-PERSONA')
     // UI persona 层走自己的普通段，与槽位互不影响
     expect(texts['prompt-stack:persona']).toBe('PERSONA')
   })
 
   test('bot 角色 scoped 同名段 shadow 全局 persona 段', async () => {
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt, { persona: '' })
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
     setupPrompt(ctx, { source: fakeSource(CONFIG.layers), rules: CONFIG.rules })
     // scoped shadow 是 agent scope 机制：根 ctx 全局重名注册会抛错，必须走 scope。
     const scope = await mintScope(ctx, 'agent')
@@ -154,7 +155,7 @@ describe('identity 段覆盖（可编辑，空 = 还原原生）', () => {
 
   test('非空覆盖：整份替换原生句（主 Agent）', async () => {
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt, { persona: '' })
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
     setupPrompt(ctx, { source: fakeSource(CONFIG.layers, 'MY-IDENTITY'), rules: CONFIG.rules })
     const texts = sectionTexts((await ctx.systemPrompt.assemble(agentContext({}))).sections)
     expect(texts['harness:identity']).toBe('MY-IDENTITY')
@@ -162,7 +163,7 @@ describe('identity 段覆盖（可编辑，空 = 还原原生）', () => {
 
   test('子 Agent（origin=subagent）：跳过覆盖，原生句原样渲染', async () => {
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt, { persona: '' })
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
     setupPrompt(ctx, { source: fakeSource(CONFIG.layers, 'MY-IDENTITY'), rules: CONFIG.rules })
     const childContext = {
       agent: {
@@ -176,7 +177,7 @@ describe('identity 段覆盖（可编辑，空 = 还原原生）', () => {
 
   test('scoped shadow（段文本 ≠ 原生常量）不被覆盖改写', async () => {
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt, { persona: '' })
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
     setupPrompt(ctx, { source: fakeSource(CONFIG.layers, 'MY-IDENTITY'), rules: CONFIG.rules })
     const scope = await mintScope(ctx, 'agent')
     scope.ctx.systemPrompt.section({ name: 'harness:identity', order: -100, text: 'SCOPED-IDENTITY' })
