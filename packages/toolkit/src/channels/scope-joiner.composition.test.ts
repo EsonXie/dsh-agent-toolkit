@@ -13,6 +13,7 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import AgentPresets from '@deepseek-ai/dsh-agent-presets'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import { createScopeJoiner } from './scope-joiner.ts'
 import { createToolsScope } from './tool-scope.ts'
@@ -53,6 +54,9 @@ beforeEach(async () => {
   ctx.baseUrl = pathToFileURL(tempDir).href + '/'
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
+  // 0.1.5-rc.1 起 AgentPresets inject ['loader', 'sessionProjections']，缺 sessionProjections
+  // 时服务不发布（ctx.agentPresets 恒 undefined）。镜像宿主 mount.spec.ts 的 harness 补上。
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt, { personaPrefix: '' })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentPresets, { default: 'agent-bot', roots: [{ path: join(tempDir, 'presets'), trust: 'user' }], includeUserRoot: false, includeShippedRoot: false })
