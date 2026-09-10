@@ -1,7 +1,7 @@
 /** 动态工具名册：团队 preset 面经宿主 standing mount 枚举（standingKeyFor + scoped schemas），
  *  agentPresets 缺席/枚举失败回退 NATIVE_TOOL_NAMES 常量。每次调用现算，不缓存——standing
  *  mount 由宿主按 composition 文件代际缓存，view 遍历是纯内存操作。
- *  设计：docs/superpowers/specs/2026-09-07-dynamic-tool-catalog-design.md */
+ *  设计：docs/superpowers/specs/archive/2026-09-07-dynamic-tool-catalog-design.md */
 import type { Context } from '@deepseek-ai/cordis'
 import { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import type { ScopeKey } from '@deepseek-ai/dsh-scope'

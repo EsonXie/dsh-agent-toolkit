@@ -1,0 +1,5 @@
+# 定时任务 cron（现行事实）
+
+> 本文是该功能域**现行状态**的权威描述（2026-09-10 自 AGENTS.md 拆出）；改动该域时同步本文。「为什么这样设计」的决策考古见 `docs/superpowers/specs/archive/2026-09-07-cron-schedule-design.md`。
+
+定时任务（cron）：模块 `src/schedule/`（store/timing/executor/scheduler/service/tools/api/index 八文件；schema 单一来源 `src/schedule/store.ts`），存储域 `dsh_agent_toolkit_schedule`（表 tasks/runs/meta）；调度三选一（cron 仅 5 字段 / at RFC 3339 一次性 / every ≥60s 创建锚），croner 解析（dependencies 真实依赖 + Node 半 neverBundle）；30s tick（`ctx.effect` + 裸 `setInterval`——timer mixin 受 cordis inject 门控，inject 不加新服务）+ 启动 rearm（catchup 补跑/过期 at 作废）+ 内存重叠锁（skipped-overlap）；执行复用 channels 共享件（`role-assembly.ts` 角色装配、`agents-port.ts` AgentsPort 工厂——后者把插件自有会话记入 ownedSessions 供 cron_* 工具门控排除）；cron_* 工具经 agent/created + 存量 roots 注册进主 Agent scope（own 层；跳过 subagent 与 ownedSessions），同钩子探测宿主 schedule_create 并存并 warn（与 @deepseek-ai/dsh-schedule 互斥）；来源段 `dsh-agent-toolkit:schedule:task`（order 20）；Config `schedule.runTimeoutMinutes`（默认 60）/ `schedule.runHistoryLimit`（默认 20）；UI 面板 `src/client/schedule/`（侧边栏底栏 order 2「定时任务」+ locales NS agent-schedule）。

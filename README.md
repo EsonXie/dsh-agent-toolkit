@@ -24,7 +24,8 @@ dsh plugin --profile <profile 名> add dsh-agent-toolkit
 ├─ deepseek-harness/     ← dsh 源码 checkout（只读使用；已被 .gitignore 排除）
 ├─ docs/refer/           ← dsh 官方文档本地镜像（入口：docs/refer/INDEX.md）
 ├─ docs/usage/           ← 插件使用手册（中文多文件 + images/ 截图）
-├─ docs/superpowers/     ← 设计 spec（specs/）与实施计划（plans/）
+├─ docs/domains/         ← 功能域现行状态文档（prompt-layers / agents / delegation / feishu / schedule / releases）
+├─ docs/superpowers/     ← 设计 spec（specs/）与实施计划（plans/），历史文档在各自 archive/
 ├─ packages/toolkit/     ← 单插件总入口（npm 包名 dsh-agent-toolkit；Node 半 lib/index.js + 浏览器半 lib/client.js）
 ├─ packages/usage/       ← token 用量独立包（npm 包名 @dsh-agent-toolkit/token-usage；Node 半 + 浏览器半 + client-module 三产物）
 ├─ scripts/              ← 发布等脚本
@@ -60,7 +61,8 @@ powershell -File scripts/publish.ps1 -Package <name>
 | [AGENTS.md](AGENTS.md) | 开发约定、目录结构定案、插件开发要点、已知问题 |
 | [docs/refer/INDEX.md](docs/refer/INDEX.md) | dsh 官方文档镜像入口（学习路径 + 任务索引 + 87 篇清单） |
 | [docs/usage/](docs/usage/README.md) | 插件使用手册（含配置参考） |
-| [docs/superpowers/specs/](docs/superpowers/specs/) | 设计 spec |
+| [docs/domains/](docs/domains/) | 功能域现行状态文档（改动对应域时同步） |
+| [docs/superpowers/specs/](docs/superpowers/specs/) | 设计 spec（已落地任务在 specs/archive/） |
 
 ## License
 

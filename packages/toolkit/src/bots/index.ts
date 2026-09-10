@@ -79,7 +79,7 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
   }
 
   /** 创作期注入已迁至 agent-setup.ts + tool-scope.ts（基础工具行 standing scope 挂载 + persona/tools）。
-   *  preset 优先 joiner（agent-bot 组合）：mount 成功后委派子会话 composeFrom 认父（spec: docs/superpowers/specs/2026-09-07-bot-delegation-preset-mount-design.md）。 */
+   *  preset 优先 joiner（agent-bot 组合）：mount 成功后委派子会话 composeFrom 认父（spec: docs/superpowers/specs/archive/2026-09-07-bot-delegation-preset-mount-design.md）。 */
   const toolsScope = createToolsScope(ctx)
   // preset 优先：mount 成功后委派子会话 composeFrom 认父；未下达 id 时维持 toolsScope 直挂。
   const scopeJoiner: ScopeJoiner = deps.botPresetId !== undefined

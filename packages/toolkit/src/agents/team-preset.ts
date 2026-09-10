@@ -1,7 +1,7 @@
 /**
  * Agent 团队 preset 自动生成：派生宿主当前 shipped standard composition，
  * 文本级禁用 subagent 工具族 4 个行，写入首个 trust=user 的 preset root。
- * 设计：docs/superpowers/specs/2026-09-02-agent-team-preset-design.md
+ * 设计：docs/superpowers/specs/archive/2026-09-02-agent-team-preset-design.md
  */
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'

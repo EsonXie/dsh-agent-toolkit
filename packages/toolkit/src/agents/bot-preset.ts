@@ -1,5 +1,5 @@
 /** agent-bot preset 组合序列化：BASIC_TOOLS → preset 行（bot 会话挂载的最小组合，
- *  委派子会话 composeFrom 认父的前提；spec: docs/superpowers/specs/2026-09-07-bot-delegation-preset-mount-design.md）。 */
+ *  委派子会话 composeFrom 认父的前提；spec: docs/superpowers/specs/archive/2026-09-07-bot-delegation-preset-mount-design.md）。 */
 import yaml from 'js-yaml'
 import { BASIC_TOOLS, type BasicTool } from '../channels/basic-tools.ts'
 

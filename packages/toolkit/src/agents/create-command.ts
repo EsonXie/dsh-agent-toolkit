@@ -1,7 +1,7 @@
 /**
  * /create-agent 命令：返回引导文本驱动主 Agent 完成
  * 「访谈澄清 → 推荐配置 → 用户确认 → 复用面板 HTTP API 落库」全流程。
- * 设计：docs/superpowers/specs/2026-09-02-create-agent-command-design.md
+ * 设计：docs/superpowers/specs/archive/2026-09-02-create-agent-command-design.md
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'

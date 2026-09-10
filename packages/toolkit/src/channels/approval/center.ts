@@ -1,5 +1,5 @@
 /** 审批中心（渠道无关）：自有 bot 会话的 approval ask → 渠道审批卡片挂起 → 卡片回调 resolve。
- *  spec: docs/superpowers/specs/2026-09-08-feishu-approval-card-design.md（飞书独占 / 仅发起人 / 不超时）。 */
+ *  spec: docs/superpowers/specs/archive/2026-09-08-feishu-approval-card-design.md（飞书独占 / 仅发起人 / 不超时）。 */
 import { randomUUID } from 'node:crypto'
 import type { SessionRuntime } from '../ports.ts'
 

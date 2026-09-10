@@ -104,7 +104,7 @@ export const Config: z<unknown, Config> = z.object({
   }),
   // agent-team preset 自动生成：派生 shipped standard、禁用 subagent 工具族 4 行，
   // 写入首个 trust=user root；另生成 bot 会话最小 preset（botsId，委派子会话 composeFrom 认父的前提）
-  // （spec: docs/superpowers/specs/2026-09-02-agent-team-preset-design.md）。
+  // （spec: docs/superpowers/specs/archive/2026-09-02-agent-team-preset-design.md）。
   agentTeamPreset: z.object({
     enabled: z.boolean().default(true),
     id: z.string().default('agent-team'),
@@ -120,7 +120,7 @@ export const Config: z<unknown, Config> = z.object({
     description: 'Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色',
     botsId: 'agent-bot',
   }),
-  // 定时任务（cron）：单次运行超时（分钟）与每任务运行历史环形上限（spec: docs/superpowers/specs/2026-09-07-cron-schedule-design.md §8）。
+  // 定时任务（cron）：单次运行超时（分钟）与每任务运行历史环形上限（spec: docs/superpowers/specs/archive/2026-09-07-cron-schedule-design.md §8）。
   // natural() = 非负整数（schemastery 无 .int()，语义等价且校验更强）。
   schedule: z.object({
     runTimeoutMinutes: z.number().min(1).default(60),
