@@ -12,9 +12,6 @@ import type { ActiveRoutes, DelegateRoute } from './active.ts'
 export type { DelegateToolDeps } from './tool.ts'
 export { createDelegateTool } from './tool.ts'
 
-/** 团队名册段在 prompt 中的位置：紧随内置 subagent 段（116.5）之后。 */
-const TEAM_SECTION_ORDER = 116.6
-
 /**
  * 团队名册段文本：仅当该 agent scope 的可见工具里确有委派工具时渲染，否则空
  * （空段渲染时被丢弃）。工具白名单 restrict 只作用于 tools 视图，名册段必须
@@ -109,7 +106,9 @@ export function setupDelegate(ctx: Context, config: DelegateConfig, registry: Ag
   }
   ctx.systemPrompt.section({
     name: 'plugin:dsh-agent-toolkit:team',
-    order: TEAM_SECTION_ORDER, // 紧随内置 subagent 段（116.5）之后，同归档 agent-team
+    // 紧随内置 subagent 指导段之后：order 取宿主中央 SECTION_ORDERS 的 TOOL_SUBAGENT（0.1.5 起 2800）
+    // + 0.1，跟随宿主重排而非硬编码（同宿主 tool-subagent 自身注册方式，systemPrompt.getSectionOrder）。
+    order: ctx.systemPrompt.getSectionOrder('TOOL_SUBAGENT') + 0.1,
     text: (context) => teamSectionText(
       config.toolName,
       registry.list(),

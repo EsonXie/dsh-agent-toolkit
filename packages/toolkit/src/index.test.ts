@@ -70,6 +70,7 @@ function makeCtx(): ApplyHarness {
         sections.push(s.name)
         return () => {}
       },
+      getSectionOrder: () => 2800,
     },
     tools: {
       register: (d: { name: string }) => {
