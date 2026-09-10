@@ -8,4 +8,4 @@
 
 ## team_delegate 与名册段
 
-委派走 `team_delegate`（一次性），浏览器半渲染委派卡（含 `provider / model` chip：运行中读在途端点、结束后读 presentationMeta）；团队名册段（delegate/index.ts `teamSectionText`）按 `tools.get(name, scope)` 联动工具可见性——白名单 restrict 掉委派工具或 provider 未挂载的会话不再出现委派段落（restrict 只作用 tools 视图，管不到 systemPrompt sections，须段落自查）。
+委派走 `team_delegate`（一次性），浏览器半渲染委派卡（含 `provider / model` chip：运行中读在途端点、结束后读 presentationMeta）；团队名册段（delegate/index.ts `teamSectionText`）按 `tools.get(name, scope)` 联动工具可见性——白名单 restrict 掉委派工具或 provider 未挂载的会话不再出现委派段落（restrict 只作用 tools 视图，管不到 systemPrompt sections，须段落自查）；段 order 动态取 `ctx.systemPrompt.getSectionOrder('TOOL_SUBAGENT') + 0.1` 紧随内置 subagent 指导段（0.1.5 起该段 2800），随宿主重排而非硬编码。
