@@ -1,4 +1,6 @@
-/** 出站：持久会话事件 → turn 级回复驱动（per-session Promise 链保序）。 */
+/** 出站：持久会话事件 + 瞬态流式帧 → turn 级回复驱动（per-session Promise 链保序）。 */
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
+import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { TurnSegment, TurnStatus } from './channel.ts'
 import type { SessionRuntime } from './ports.ts'
 
@@ -16,6 +18,14 @@ export function textOf(content: readonly unknown[]): string {
     .join('')
 }
 
+/** 从 assistant 消息内容块取最后一个 text 块的纯文本；无 text 块返回 ''（非 undefined）。 */
+export function lastTextOf(content: readonly unknown[]): string {
+  const texts = (content as readonly { type?: unknown; text?: unknown }[])
+    .filter((b): b is { type: 'text'; text: string } => b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text)
+  return texts.length === 0 ? '' : texts[texts.length - 1]!
+}
+
 /** 工具调用参数摘要最大字符数。 */
 export const TOOL_ARGS_MAX_CHARS = 120
 
@@ -24,6 +34,39 @@ export function appendToSegments(segments: TurnSegment[], kind: 'text' | 'proces
   const tail = segments[segments.length - 1]
   if (tail !== undefined && tail.kind === kind) tail.content += text
   else segments.push({ kind, content: text })
+}
+
+/** 向段序列应用一个流式 chunk：text-delta → text、reasoning-delta → process、reasoning block-end → 过程段段落分隔；其余类型不消费返回 false。 */
+export function applyStreamChunk(segments: TurnSegment[], chunk: StreamChunk): boolean {
+  if (chunk.type === 'text-delta') {
+    appendToSegments(segments, 'text', chunk.text)
+  } else if (chunk.type === 'reasoning-delta') {
+    appendToSegments(segments, 'process', chunk.text)
+  } else if (chunk.type === 'block-end' && chunk.block?.type === 'reasoning' && segments[segments.length - 1]?.kind === 'process') {
+    appendToSegments(segments, 'process', '\n\n')
+  } else {
+    return false
+  }
+  return true
+}
+
+/**
+ * 对账尾 text 段：把最后一个 text 段的内容替换为权威全文（丢帧补齐）。
+ * 前置条件：调用方已保证尾 text 段归属本结算 step（lastTextStep 命中结算 step）。
+ * 返回是否发生替换；authoritative 为空、无 text 段或内容已相等时返回 false。
+ */
+export function reconcileTrailingText(segments: TurnSegment[], authoritative: string): boolean {
+  if (authoritative === '') return false
+  let tail: TurnSegment | undefined
+  for (let i = segments.length - 1; i >= 0; i--) {
+    if (segments[i]!.kind === 'text') {
+      tail = segments[i]!
+      break
+    }
+  }
+  if (tail === undefined || tail.content === authoritative) return false
+  tail.content = authoritative
+  return true
 }
 
 /** （保留供测试）从组装消息提取过程输出：reasoning 全文 + tool_call 摘要行（段落间空行分隔）。 */
@@ -82,19 +125,15 @@ export class Outbound {
       return
     }
 
-    if (event.type === 'assistant/chunk') {
+    if (event.type === 'assistant/message') {
       const turn = rt.turn
       if (turn === undefined || turn.n !== (event.data.turn as number)) return
-      const chunk = event.data.chunk as { type: string; text?: string; block?: { type?: unknown } }
-      if (chunk.type === 'text-delta' && typeof chunk.text === 'string') {
-        appendToSegments(turn.segments, 'text', chunk.text)
-      } else if (chunk.type === 'reasoning-delta' && typeof chunk.text === 'string') {
-        appendToSegments(turn.segments, 'process', chunk.text)
-      } else if (chunk.type === 'block-end' && chunk.block?.type === 'reasoning' && turn.segments[turn.segments.length - 1]?.kind === 'process') {
-        appendToSegments(turn.segments, 'process', '\n\n')   // 推理块段落分隔
-      } else {
-        return
-      }
+      // 防护（必需）：仅当尾 text 段归属本结算 step（本 step 至少成功应用过一帧 text-delta）
+      // 才用权威全文对账；否则跳过——用本 step 全文覆盖会篡改上一步已提交正文（宁缺勿错）。
+      if (turn.lastTextStep !== (event.data.step as number)) return
+      const content = (event.data.message as { content?: readonly unknown[] }).content ?? []
+      const authoritative = lastTextOf(content)               // 该 step 最后一个 text 块
+      if (!reconcileTrailingText(turn.segments, authoritative)) return
       const snapshot = turn.segments.map((s) => ({ ...s }))
       this.enqueue(rt, async () => {
         if (rt.reply === undefined) return
@@ -106,6 +145,9 @@ export class Outbound {
       })
       return
     }
+
+    // assistant/attempt：该 attempt 无表面消息（失败/重试/取消无内容/流错误），不消费；
+    // 已通过帧显示的过程区内容留在段里，由 turn/end 兜底定格。
 
     if (event.type === 'tool/call') {
       const turn = rt.turn
@@ -140,6 +182,37 @@ export class Outbound {
       })
       rt.turn = undefined
     }
+  }
+
+  /**
+   * 出站：瞬态流式帧 → 段构建 + 打字机。chunk 帧不携带 turn/step，由 start 帧建 attempt 基线
+   * （turn/step，宿主 accumulator 同款取数）；end 帧不消费；生命周期仍由 turn/start、turn/end 驱动。
+   * 帧为 fire-and-forget，丢帧后无重传，正文由 assistant/message 结算对账有界恢复。
+   */
+  handleAssistantFrame(sessionId: string, frame: AssistantStreamFrame): void {
+    const rt = this.sessions.get(sessionId)
+    if (rt === undefined) return
+    const turn = rt.turn
+    if (turn === undefined) return
+    if (frame.type === 'start') {
+      if (turn.n !== frame.turn) return
+      turn.attemptStep = frame.step
+      return
+    }
+    if (frame.type !== 'chunk') return
+    const step = turn.attemptStep
+    if (step === undefined) return
+    if (!applyStreamChunk(turn.segments, frame.chunk)) return
+    if (frame.chunk.type === 'text-delta') turn.lastTextStep = step   // 对账防护：尾 text 段的归属 step
+    const snapshot = turn.segments.map((s) => ({ ...s }))
+    this.enqueue(rt, async () => {
+      if (rt.reply === undefined) return
+      if (!turn.began) {
+        await rt.reply.beginTurn()
+        turn.began = true
+      }
+      await rt.reply.update(snapshot)
+    })
   }
 
   /**

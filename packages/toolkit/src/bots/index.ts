@@ -11,6 +11,7 @@ import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 // Side-effect type import: declaration-merges the `approval/request` waterfall event
 // answered below（照 host api-proxy.ts L87-90 同款；type-only，bundle 期擦除无运行时依赖）。
 import type {} from '@deepseek-ai/dsh-user-approval'
@@ -182,6 +183,11 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
   // 出站：持久会话事件 → runtime.outbound（session id 匹配自有 runtime，其余忽略）。
   ctx.on('session/event', (session, event) => {
     runtime?.outbound.handleSessionEvent(String(session.header.id), event as { type: string; data: Record<string, unknown> })
+  })
+
+  // 出站：瞬态流式帧 → runtime.outbound（agent scoped emit，app 级订阅收到全部 agent，按自有 session 过滤）。
+  ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+    runtime?.outbound.handleAssistantFrame(String(agent.session.id), frame)
   })
 
   // 审批 answerer：prepend 抢在 web api-proxy 全局 answerer 之前（其从不 next 让出）；

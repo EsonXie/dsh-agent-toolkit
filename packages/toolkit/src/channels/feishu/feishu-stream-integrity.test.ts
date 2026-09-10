@@ -1,8 +1,20 @@
 import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest'
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
+import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { FeishuReplyHandle } from './reply.ts'
 import { Outbound } from '../outbound.ts'
 import type { FeishuApi } from './api.ts'
 import type { SessionRuntime } from '../ports.ts'
+
+/** 构造一个 chunk 帧（attemptId/revision/time 宿主细节对 outbound 不消费，用占位；chunk 帧无 turn/step，由 start 帧建基线）。 */
+function chunkFrame(chunk: StreamChunk): AssistantStreamFrame {
+  return { type: 'chunk', attemptId: 'a1' as never, revision: 1, index: 0, time: 0, chunk }
+}
+
+/** 构造一个 start 帧（attempt 的 turn/step 基线来源）。 */
+function startFrame(turn: number, step: number): AssistantStreamFrame {
+  return { type: 'start', attemptId: 'a1' as never, revision: 1, turn, step }
+}
 
 /** 模拟飞书服务端：卡片实体表 + 元素表，支持按调用序号注入错误。 */
 function fakeFeishu(failures: Map<string, number[]>) {
@@ -49,21 +61,25 @@ function fakeFeishu(failures: Map<string, number[]>) {
   return { api, cards }
 }
 
-/** 生成 40 轮「思考×8 + 工具行 + 正文×10 增量」的会话事件流（driver 逐条喂 Outbound）。 */
-function* events(turn: number) {
-  yield { type: 'turn/start', data: { turn } }
+type Feed = { kind: 'session'; event: { type: string; data: Record<string, unknown> } } | { kind: 'frame'; frame: AssistantStreamFrame }
+
+/** 生成 40 轮「思考×8 + 工具行 + 正文×10 增量」的会话事件 + 帧流（driver 逐条喂 Outbound）。 */
+function* events(turn: number): Generator<Feed> {
+  yield { kind: 'session', event: { type: 'turn/start', data: { turn } } }
   for (let round = 0; round < 40; round++) {
+    yield { kind: 'frame', frame: startFrame(turn, round * 2 + 1) }
     for (let i = 0; i < 8; i++) {
-      yield { type: 'assistant/chunk', data: { turn, step: round * 2 + 1, chunk: { type: 'reasoning-delta', index: 0, text: `思考片段 r${round}.${i}。` } } }
+      yield { kind: 'frame', frame: chunkFrame({ type: 'reasoning-delta', index: 0, text: `思考片段 r${round}.${i}。` }) }
     }
-    yield { type: 'tool/call', data: { turn, step: round * 2 + 1, name: 'fs_read', arguments: '{"path":"src/main.ts"}' } }
+    yield { kind: 'session', event: { type: 'tool/call', data: { turn, step: round * 2 + 1, name: 'fs_read', arguments: '{"path":"src/main.ts"}' } } }
     const text = `第 ${round} 轮正文输出。`.repeat(80)
     for (let i = 1; i <= 10; i++) {
       const piece = text.slice(Math.floor((i - 1) * text.length / 10), Math.floor(i * text.length / 10))
-      yield { type: 'assistant/chunk', data: { turn, step: round * 2 + 1, chunk: { type: 'text-delta', index: 1, text: piece } } }
+      yield { kind: 'frame', frame: chunkFrame({ type: 'text-delta', index: 1, text: piece }) }
     }
+    yield { kind: 'session', event: { type: 'assistant/message', data: { turn, step: round * 2 + 1, message: { content: [{ type: 'text', text }] } } } }
   }
-  yield { type: 'turn/end', data: { turn, reason: { kind: 'completed' } } }
+  yield { kind: 'session', event: { type: 'turn/end', data: { turn, reason: { kind: 'completed' } } } }
 }
 
 const TUNABLES = { cardUpdateThrottleMs: 50, cardMaxBytes: 26_000, cardPrintStep: 5, processMaxBytes: 8_000, processingReactionEmoji: 'OneSecond' }
@@ -79,8 +95,9 @@ async function drive(failures: Map<string, number[]>) {
   } as SessionRuntime
   const sessions = new Map([['s1', rt]])
   const outbound = new Outbound(sessions, () => undefined)
-  for (const e of events(1)) {
-    outbound.handleSessionEvent('s1', e)
+  for (const feed of events(1)) {
+    if (feed.kind === 'session') outbound.handleSessionEvent('s1', feed.event)
+    else outbound.handleAssistantFrame('s1', feed.frame)
     await vi.advanceTimersByTimeAsync(60)   // 越过 50ms 节流
   }
   await vi.advanceTimersByTimeAsync(10_000) // 收尾退避

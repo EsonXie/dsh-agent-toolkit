@@ -1,7 +1,19 @@
 import { describe, expect, test, vi } from 'vitest'
-import type { ReplyHandle, TurnStatus } from './channel.ts'
-import { Outbound, mapTurnEnd, processOf, textOf } from './outbound.ts'
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
+import type { StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { ReplyHandle, TurnSegment, TurnStatus } from './channel.ts'
+import { Outbound, applyStreamChunk, lastTextOf, mapTurnEnd, processOf, reconcileTrailingText, textOf } from './outbound.ts'
 import type { SessionRuntime } from './ports.ts'
+
+/** 构造一个 chunk 帧（attemptId/revision/index/time 宿主细节对 outbound 不消费，用占位；chunk 帧无 turn/step，由 start 帧建基线）。 */
+function chunkFrame(chunk: StreamChunk): AssistantStreamFrame {
+  return { type: 'chunk', attemptId: 'a1' as never, revision: 1, index: 0, time: 0, chunk }
+}
+
+/** 构造一个 start 帧（attempt 的 turn/step 基线来源）。 */
+function startFrame(turn: number, step: number): AssistantStreamFrame {
+  return { type: 'start', attemptId: 'a1' as never, revision: 1, turn, step }
+}
 
 function fakeRuntime(reply: ReplyHandle): SessionRuntime {
   return {
@@ -69,8 +81,9 @@ describe('Outbound.handleSessionEvent', () => {
     const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
 
     outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
-    outbound.handleSessionEvent('s1', { type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '你好' } } })
-    outbound.handleSessionEvent('s1', { type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '，世界' } } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 0, text: '你好' }))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 0, text: '，世界' }))
     outbound.handleSessionEvent('s1', { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
     await drain(rt)
 
@@ -90,8 +103,9 @@ describe('Outbound.handleSessionEvent', () => {
     const rt = fakeRuntime(reply)
     const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
     outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
-    outbound.handleSessionEvent('s1', { type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: '先读文件' } } })
-    outbound.handleSessionEvent('s1', { type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'block-end', index: 0, block: { type: 'reasoning', text: '先读文件' } } } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'reasoning-delta', index: 0, text: '先读文件' }))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'block-end', index: 0, block: { type: 'reasoning', text: '先读文件' } }))
     outbound.handleSessionEvent('s1', { type: 'tool/call', data: { turn: 1, step: 1, callId: 'c1', name: 'fs_read', arguments: '{"path":"a.ts"}' } })
     await drain(rt)
     expect(calls).toEqual([
@@ -107,9 +121,10 @@ describe('Outbound.handleSessionEvent', () => {
     const rt = fakeRuntime(reply)
     const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
     outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
-    outbound.handleSessionEvent('s1', { type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: '想' } } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'reasoning-delta', index: 0, text: '想' }))
     outbound.handleSessionEvent('s1', { type: 'tool/call', data: { turn: 1, step: 1, callId: 'c1', name: 'fs_read', arguments: '{}' } })
-    outbound.handleSessionEvent('s1', { type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 1, text: '好' } } })
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 1, text: '好' }))
     await drain(rt)
     expect(calls).toEqual([
       { op: 'beginTurn' },
@@ -157,14 +172,219 @@ describe('Outbound.handleSessionEvent', () => {
     expect(rt.inflight).toBeUndefined()
   })
 
-  test('非本插件 session 与错序 turn 的事件被忽略', async () => {
+  test('非本插件 session 与错序 turn 的帧被忽略', async () => {
     const { calls, reply } = recorder()
     const rt = fakeRuntime(reply)
     const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
     outbound.handleSessionEvent('other-session', { type: 'turn/start', data: { turn: 1 } })
-    outbound.handleSessionEvent('s1', { type: 'assistant/chunk', data: { turn: 9, step: 1, chunk: { type: 'text-delta', index: 0, text: 'x' } } })
+    outbound.handleAssistantFrame('s1', startFrame(9, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 0, text: 'x' }))
     await drain(rt)
     expect(calls).toEqual([])
+  })
+
+  test('start 帧只建 attempt 基线不产生卡操作；end 帧被忽略', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', { type: 'end', attemptId: 'a1' as never, revision: 1, index: 3, outcome: { kind: 'committed', eventType: 'assistant/message', seq: 5 as never } })
+    await drain(rt)
+    expect(calls).toEqual([])
+    expect(rt.turn!.attemptStep).toBe(1)
+  })
+
+  test('chunk 帧在 turn/start 前到达被忽略', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 0, text: 'x' }))
+    await drain(rt)
+    expect(calls).toEqual([])
+  })
+
+  test('chunk 帧无 start 基线（attempt 未开始）被忽略', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 0, text: 'x' }))
+    await drain(rt)
+    expect(calls).toEqual([])
+  })
+
+  test('assistant/message 对账补齐缺帧正文：尾 text 段替换为权威全文', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 0, text: '你好' }))
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: '你好，世界' }] } } })
+    await drain(rt)
+    expect(calls).toEqual([
+      { op: 'beginTurn' },
+      { op: 'update', arg: 'text:你好' },
+      { op: 'update', arg: 'text:你好，世界' },
+    ])
+    expect(rt.turn!.segments).toEqual([{ kind: 'text', content: '你好，世界' }])
+  })
+
+  test('assistant/message 对账对 process 段零改动', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'reasoning-delta', index: 0, text: '想' }))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 1, text: '你好' }))
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: '你好，世界' }] } } })
+    await drain(rt)
+    expect(rt.turn!.segments).toEqual([
+      { kind: 'process', content: '想' },
+      { kind: 'text', content: '你好，世界' },
+    ])
+    const last = calls[calls.length - 1]!
+    expect(last).toEqual({ op: 'update', arg: 'process:想 | text:你好，世界' })
+  })
+
+  test('assistant/attempt 被忽略：不产生 update，turn/end 照常定格', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'reasoning-delta', index: 0, text: '想' }))
+    outbound.handleSessionEvent('s1', { type: 'assistant/attempt', data: { turn: 1, step: 1, stream: [] } })
+    outbound.handleSessionEvent('s1', { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
+    await drain(rt)
+    expect(calls).toEqual([
+      { op: 'beginTurn' },
+      { op: 'update', arg: 'process:想' },
+      { op: 'finalize', arg: 'done' },
+    ])
+  })
+
+  test('防护：step2 正文帧全部丢失时对账跳过，step1 已提交正文不被 step2 权威全文覆盖', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 0, text: 'A' }))
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'A' }] } } })
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 2, message: { content: [{ type: 'text', text: 'B' }] } } })
+    await drain(rt)
+    expect(rt.turn!.segments).toEqual([{ kind: 'text', content: 'A' }])
+    expect(calls[calls.length - 1]).toEqual({ op: 'update', arg: 'text:A' })
+  })
+
+  test('防护反向：step2 至少应用过一帧 text-delta 时对账正常补齐', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 0, text: 'A' }))
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'A' }] } } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 2))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 0, text: 'B' }))
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 2, message: { content: [{ type: 'text', text: 'BC' }] } } })
+    await drain(rt)
+    expect(rt.turn!.segments).toEqual([{ kind: 'text', content: 'BC' }])
+    expect(calls[calls.length - 1]).toEqual({ op: 'update', arg: 'text:BC' })
+  })
+
+  test('turn 内两 step 交错次序：按宿主发射顺序喂入，段序列与 update 次数正确', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'reasoning-delta', index: 0, text: '想一' }))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 1, text: '你好' }))
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: '你好' }] } } })
+    outbound.handleSessionEvent('s1', { type: 'tool/call', data: { turn: 1, step: 1, callId: 'c1', name: 'fs_read', arguments: '{}' } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 2))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'reasoning-delta', index: 0, text: '再想' }))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 1, text: '世界' }))
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 2, message: { content: [{ type: 'text', text: '世界' }] } } })
+    outbound.handleSessionEvent('s1', { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
+    await drain(rt)
+    expect(rt.turn).toBeUndefined()
+    expect(calls).toEqual([
+      { op: 'beginTurn' },
+      { op: 'update', arg: 'process:想一' },
+      { op: 'update', arg: 'process:想一 | text:你好' },
+      { op: 'update', arg: 'process:想一 | text:你好 | process:🔧 fs_read — {}\n\n' },
+      { op: 'update', arg: 'process:想一 | text:你好 | process:🔧 fs_read — {}\n\n再想' },
+      { op: 'update', arg: 'process:想一 | text:你好 | process:🔧 fs_read — {}\n\n再想 | text:世界' },
+      { op: 'finalize', arg: 'done' },
+    ])
+  })
+})
+
+describe('applyStreamChunk / reconcileTrailingText / lastTextOf', () => {
+  test('applyStreamChunk：三类消费，其余返回 false', () => {
+    const segments: { kind: 'text' | 'process'; content: string }[] = []
+    expect(applyStreamChunk(segments, { type: 'text-delta', index: 0, text: 'a' })).toBe(true)
+    expect(applyStreamChunk(segments, { type: 'reasoning-delta', index: 0, text: '想' })).toBe(true)
+    expect(applyStreamChunk(segments, { type: 'block-end', index: 0, block: { type: 'reasoning', text: '想' } })).toBe(true)
+    expect(applyStreamChunk(segments, { type: 'block-start', index: 0, blockType: 'text' })).toBe(false)
+    expect(applyStreamChunk(segments, { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } })).toBe(false)
+    expect(applyStreamChunk(segments, { type: 'finish', reason: { kind: 'stop' } })).toBe(false)
+    expect(applyStreamChunk(segments, { type: 'tool-call-delta', index: 0, id: 'c1' as never, argumentsDelta: '{}' })).toBe(false)
+    expect(segments).toEqual([
+      { kind: 'text', content: 'a' },
+      { kind: 'process', content: '想\n\n' },
+    ])
+  })
+
+  test('reconcileTrailingText 幂等：内容相等返回 false 且不改段', () => {
+    const segments: TurnSegment[] = [{ kind: 'text', content: 'abc' }]
+    expect(reconcileTrailingText(segments, 'abc')).toBe(false)
+    expect(segments).toEqual([{ kind: 'text', content: 'abc' }])
+  })
+
+  test('reconcileTrailingText 补齐前缀：返回 true 且替换为权威全文', () => {
+    const segments: TurnSegment[] = [{ kind: 'text', content: 'ab' }]
+    expect(reconcileTrailingText(segments, 'abcd')).toBe(true)
+    expect(segments).toEqual([{ kind: 'text', content: 'abcd' }])
+  })
+
+  test('reconcileTrailingText：authoritative 为空不改段，无 text 段返回 false', () => {
+    expect(reconcileTrailingText([{ kind: 'text', content: 'abc' }], '')).toBe(false)
+    const processOnly: TurnSegment[] = [{ kind: 'process', content: '想' }]
+    expect(reconcileTrailingText(processOnly, 'abc')).toBe(false)
+    expect(processOnly).toEqual([{ kind: 'process', content: '想' }])
+  })
+
+  test('reconcileTrailingText 多 text 段只改尾段（不动前序 text 与 process）', () => {
+    const segments: TurnSegment[] = [
+      { kind: 'process', content: 'p1' },
+      { kind: 'text', content: 'A' },
+      { kind: 'process', content: 'p2' },
+      { kind: 'text', content: 'B' },
+    ]
+    expect(reconcileTrailingText(segments, 'B2')).toBe(true)
+    expect(segments).toEqual([
+      { kind: 'process', content: 'p1' },
+      { kind: 'text', content: 'A' },
+      { kind: 'process', content: 'p2' },
+      { kind: 'text', content: 'B2' },
+    ])
+  })
+
+  test('lastTextOf 无 text 块返回空串（非 undefined）', () => {
+    expect(lastTextOf([{ type: 'reasoning', text: 'r' }, { type: 'tool-call', id: 'c' }])).toBe('')
+    expect(lastTextOf([])).toBe('')
+    expect(lastTextOf([{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }])).toBe('b')
+  })
+
+  test('lastTextOf 多 text 块只取最后块，不与前序块串接', () => {
+    expect(lastTextOf([{ type: 'text', text: '前序' }, { type: 'reasoning', text: 'r' }, { type: 'text', text: '末尾' }])).toBe('末尾')
+    expect(lastTextOf([{ type: 'text', text: '前序' }, { type: 'text', text: '末尾' }])).toBe('末尾')
   })
 })
 
