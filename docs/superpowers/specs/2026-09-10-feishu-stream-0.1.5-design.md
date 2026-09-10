@@ -1,7 +1,7 @@
 # 飞书流式输出 0.1.5 迁移设计（assistant/chunk → agent/assistant-stream + assistant/message）
 
 日期：2026-09-10
-状态：已设计（待实施）
+状态：已实施（2026-09-10，commit 0422164acb）
 来源：`docs/superpowers/plans/2026-09-10-dsh-0.1.5-compat-upgrade.md` 待办④
 
 ## 背景与问题

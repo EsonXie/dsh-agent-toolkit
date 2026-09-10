@@ -71,13 +71,13 @@ function* events(turn: number): Generator<Feed> {
     for (let i = 0; i < 8; i++) {
       yield { kind: 'frame', frame: chunkFrame({ type: 'reasoning-delta', index: 0, text: `思考片段 r${round}.${i}。` }) }
     }
-    yield { kind: 'session', event: { type: 'tool/call', data: { turn, step: round * 2 + 1, name: 'fs_read', arguments: '{"path":"src/main.ts"}' } } }
     const text = `第 ${round} 轮正文输出。`.repeat(80)
     for (let i = 1; i <= 10; i++) {
       const piece = text.slice(Math.floor((i - 1) * text.length / 10), Math.floor(i * text.length / 10))
       yield { kind: 'frame', frame: chunkFrame({ type: 'text-delta', index: 1, text: piece }) }
     }
     yield { kind: 'session', event: { type: 'assistant/message', data: { turn, step: round * 2 + 1, message: { content: [{ type: 'text', text }] } } } }
+    yield { kind: 'session', event: { type: 'tool/call', data: { turn, step: round * 2 + 1, name: 'fs_read', arguments: '{"path":"src/main.ts"}' } } }
   }
   yield { kind: 'session', event: { type: 'turn/end', data: { turn, reason: { kind: 'completed' } } } }
 }

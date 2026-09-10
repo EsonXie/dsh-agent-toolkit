@@ -200,6 +200,9 @@ export class Outbound {
       return
     }
     if (frame.type !== 'chunk') return
+    // start 帧丢失 → attemptStep 基线缺失，chunk 帧全部忽略：本 attempt 的正文+过程区同时缺席
+    // （比对账「只缺正文」的降级更广，assistant/message 对账因 lastTextStep 不匹配同样跳过）。
+    // 方向安全：不伪造内容，宁缺勿错（spec「防护的覆盖范围」段）。
     const step = turn.attemptStep
     if (step === undefined) return
     if (!applyStreamChunk(turn.segments, frame.chunk)) return
