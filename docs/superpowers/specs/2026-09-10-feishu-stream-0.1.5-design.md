@@ -117,11 +117,20 @@ ctx.on('agent/assistant-stream', ({ agent, frame }) => {
 ```ts
 handleAssistantFrame(sessionId: string, frame: AssistantStreamFrame): void {
   const rt = this.sessions.get(sessionId)
-  if (rt === undefined || frame.type !== 'chunk') return          // start/end 帧不消费
+  if (rt === undefined) return
   const turn = rt.turn
-  if (turn === undefined || turn.n !== frame.turn) return          // 同现状 turn 过滤
-  if (!applyStreamChunk(turn.segments, frame.chunk)) return        // 抽取的旧分流逻辑
-  if (frame.chunk.type === 'text-delta') turn.lastTextStep = frame.step  // 对账防护：尾 text 段的归属 step
+  if (turn === undefined) return
+  if (frame.type === 'start') {
+    // 本 attempt 的 turn/step 基线：chunk 帧不携带 turn/step，只能从 start 帧取（宿主 accumulator 同款）。
+    if (turn.n !== frame.turn) return
+    turn.attemptStep = frame.step
+    return
+  }
+  if (frame.type !== 'chunk') return
+  const step = turn.attemptStep
+  if (step === undefined) return
+  if (!applyStreamChunk(turn.segments, frame.chunk)) return
+  if (frame.chunk.type === 'text-delta') turn.lastTextStep = step  // 对账防护：尾 text 段的归属 step
   const snapshot = turn.segments.map((s) => ({ ...s }))
   this.enqueue(rt, async () => {
     if (rt.reply === undefined) return
@@ -132,9 +141,10 @@ handleAssistantFrame(sessionId: string, frame: AssistantStreamFrame): void {
 ```
 
 - **提取纯函数** `applyStreamChunk(segments: TurnSegment[], chunk: StreamChunk): boolean`：把旧 89-97 的分流体（text-delta → text、reasoning-delta → process、block-end(block.type==='reasoning') 且尾段为 process → 追加 `\n\n`，其余返回 false）平移进来，便于单测。
-- **`start`/`end` 帧明确不消费**：turn 生命周期由 `turn/start`/`turn/end` 驱动；end 帧的 `outcome.seq`/`eventType` 为宿主内部结算信息，toolkit 不需要（对账用 `assistant/message` 事件本身）。
-- **`turn.lastTextStep`（对账防护前提，必需）**：`SessionRuntime.turn` 形态从 `{ n, segments, began }` 扩展为 `{ n, segments, began, lastTextStep?: number }`（`ports.ts:73`），`turn/start` 处置 `undefined`。每个**成功应用**的 text-delta 帧把 `lastTextStep` 置为该帧的 `step`。它回答「尾 text 段属于哪个 step」——这是对账「只替换本 step 尾段」的安全前提，见下节 `assistant/message` 分支的防护守卫。
-- **不校验 `frame.index` 连续性 / revision**：toolkit 按 `turn` 号匹配（现状即按 turn），且无「重连基线」需求（区别于宿主 session-controller accumulator 需为 Web follower 重建快照，`packages/api/session-controller/src/assistant-stream.ts:38-78`）；帧按投递序 append 即可。若实现时希望多一层保险，可仿 accumulator 在 chunk 帧 `frame.index` 不连续时置一个 `dirty` 标记、触发对账——但**不作为必需**（见未决点 2）。
+- **`start` 帧只建 attempt 基线、`end` 帧不消费**：turn 生命周期仍由 `turn/start`/`turn/end` 驱动（start/end 帧不驱动生命周期）；`end` 帧的 `outcome.seq`/`eventType` 为宿主内部结算信息，toolkit 不需要（对账用 `assistant/message` 事件本身）。
+- **`turn.attemptStep`（attempt 基线，裁定）**：宿主 `AssistantStreamFrame` 的 **chunk 帧不携带 `turn`/`step`**（`runtime-types.ts:137-146`，仅 `start` 帧有，134-135），因此 `handleAssistantFrame` 在 `start` 帧校验 `turn.n === frame.turn` 并把 `frame.step` 记入 `rt.turn.attemptStep`；chunk 帧按基线归属当前 attempt，错 turn 过滤在 start 帧完成。取数与宿主官方 accumulator 同款（`packages/api/session-controller/src/assistant-stream.ts:52-59` 在 start 帧取 turn/step、chunk 帧按 attemptId/index 归并）。> **Adjudication 注记（2026-09-10 实现期裁定）**：chunk 帧无 turn/step 字段，start 帧取基线；原稿误读 chunk 帧的 `frame.turn`/`frame.step`，经实现期冲突上报后裁定方案 A。
+- **`turn.lastTextStep`（对账防护前提，必需）**：`SessionRuntime.turn` 形态从 `{ n, segments, began }` 扩展为 `{ n, segments, began, lastTextStep?: number, attemptStep?: number }`（`ports.ts:73`），`turn/start` 处置 `undefined`。每个**成功应用**的 text-delta 帧把 `lastTextStep` 置为该帧所属 attempt 的 `step`（`turn.attemptStep`）。它回答「尾 text 段属于哪个 step」——这是对账「只替换本 step 尾段」的安全前提，见下节 `assistant/message` 分支的防护守卫。
+- **不校验 `frame.index` 连续性 / revision**：chunk 帧无 turn 号，turn 匹配移到 start 帧（`turn.n !== frame.turn`）；toolkit 无「重连基线」需求（区别于宿主 session-controller accumulator 需为 Web follower 重建快照，`packages/api/session-controller/src/assistant-stream.ts:38-78`）；帧按投递序 append 即可。若实现时希望多一层保险，可仿 accumulator 在 chunk 帧 `frame.index` 不连续时置一个 `dirty` 标记、触发对账——但**不作为必需**（见未决点 2）。
 
 **`handleSessionEvent` 新增 `assistant/message` 分支（对账）**：
 
@@ -184,8 +194,8 @@ if (event.type === 'assistant/message') {
 | 文件 | 改动 |
 |---|---|
 | `packages/toolkit/src/bots/index.ts` | +`agent/assistant-stream` 订阅（约 3 行） |
-| `packages/toolkit/src/channels/ports.ts` | `SessionRuntime.turn` 形态 +`lastTextStep?: number`（对账防护前提；`outbound.ts` `turn/start` 处置 undefined） |
-| `packages/toolkit/src/channels/outbound.ts` | 删 `assistant/chunk` 分支；+`handleAssistantFrame`（含 `lastTextStep` 跟踪）、`applyStreamChunk`、`reconcileTrailingText`、`lastTextOf`、`assistant/message` 对账分支（含 `lastTextStep` 守卫） |
+| `packages/toolkit/src/channels/ports.ts` | `SessionRuntime.turn` 形态 +`lastTextStep?: number` / `attemptStep?: number`（attempt 基线 + 对账防护前提；`outbound.ts` `turn/start` 处置 undefined） |
+| `packages/toolkit/src/channels/outbound.ts` | 删 `assistant/chunk` 分支；+`handleAssistantFrame`（含 `start` 帧建 `attemptStep` 基线 + `lastTextStep` 跟踪）、`applyStreamChunk`、`reconcileTrailingText`、`lastTextOf`、`assistant/message` 对账分支（含 `lastTextStep` 守卫） |
 | `packages/toolkit/src/channels/outbound.test.ts` | chunk 事件改为帧调用；新增对账/防护/次序用例（见测试方案） |
 | `packages/toolkit/src/channels/feishu/feishu-stream-integrity.test.ts` | 事件流生成器 `events()` 改为「session 事件 + 帧」混合喂入 |
 | `docs/domains/feishu.md` | 出站段同步现状（0.1.5 后按 task 7 台账统一更新） |
@@ -205,12 +215,12 @@ if (event.type === 'assistant/message') {
 ## 测试方案
 
 1. **`outbound.test.ts` 适配与新增**：
-   - 现有 4 个含 `assistant/chunk` 的用例（71-74、93-94、110-112、165）改为：`turn/start`/`tool/call`/`turn/end` 仍走 `handleSessionEvent`，chunk 改走 `handleAssistantFrame`（帧对象按 `AssistantStreamFrame` 形状构造），断言不变。
-   - 新增：`start`/`end` 帧被忽略；chunk 帧在 `turn/start` 前到达被忽略；错 turn 帧被忽略；`assistant/message` 对账补齐缺帧正文（先丢一个 text-delta，断言对账后 update 参数含权威全文）；对账对 process 段零改动；`assistant/attempt` 被忽略。
+   - 现有 4 个含 `assistant/chunk` 的用例（71-74、93-94、110-112、165）改为：`turn/start`/`tool/call`/`turn/end` 仍走 `handleSessionEvent`，chunk 改走 `handleAssistantFrame`（帧对象按 `AssistantStreamFrame` 形状构造，chunk 帧前先发 `start` 帧建 attempt 基线——chunk 帧无 turn/step），断言不变。
+   - 新增：`start` 帧只建基线不产生卡操作、`end` 帧被忽略；chunk 帧在 `turn/start` 前到达被忽略；chunk 帧无 start 基线被忽略；错 turn 的 `start` 帧被忽略；`assistant/message` 对账补齐缺帧正文（先丢一个 text-delta，断言对账后 update 参数含权威全文）；对账对 process 段零改动；`assistant/attempt` 被忽略。
    - **防护用例（Important）**：step 1 正文「A」已提交 → step 2 正文帧**全部丢失**（只发 step 2 的 `assistant/message`，不发任何 step 2 帧）→ 断言对账**跳过**，step 1 的「A」不被 step 2 权威全文覆盖（`rt.turn.segments` 与 update 参数均保持「A」）；反向用例：step 2 至少应用过一帧 text-delta（`lastTextStep=2`）→ 对账正常补齐。
    - 对账纯函数 `reconcileTrailingText` / `lastTextOf` 单测：幂等（相等返回 false）；补齐前缀；`authoritative===''` 不改段；`lastTextOf` 无 text 块返回 `''`（非 `undefined`）；多 text 段只改尾段；多 text 块只取最后块（不与前序段串）。
-2. **`feishu-stream-integrity.test.ts` 重写事件生成器**（`events()`，53-67）：`assistant/chunk` 两处改发对应帧（reasoning-delta 帧、text-delta 帧），同时喂入 `assistant/message`（content 用该轮 text 块）与既有 `tool/call`/`turn/*`；`drive()`（71-89）对 session 事件走 `handleSessionEvent`、对帧走 `handleAssistantFrame`。既有两条「正文逐字节完整」断言（含注入 200860/200850 抖动）必须保持通过——这是端到端内容完整性的回归底线。
-3. **交错次序用例**：一个 turn 内两 step（step1 思考+正文 → tool/call → step2 思考+正文），按新宿主真实发射顺序（turn/start → 帧 → assistant/message → tool/call → … → turn/end）喂入，断言段序列与 update 次数正确（复现 agent.ts:278-339 顺序）。
+2. **`feishu-stream-integrity.test.ts` 重写事件生成器**（`events()`，53-67）：`assistant/chunk` 两处改发对应帧（reasoning-delta 帧、text-delta 帧），每轮先发 `start` 帧建基线，同时喂入 `assistant/message`（content 用该轮 text 块）与既有 `tool/call`/`turn/*`；`drive()`（71-89）对 session 事件走 `handleSessionEvent`、对帧走 `handleAssistantFrame`。既有两条「正文逐字节完整」断言（含注入 200860/200850 抖动）必须保持通过——这是端到端内容完整性的回归底线。
+3. **交错次序用例**：一个 turn 内两 step（step1 思考+正文 → tool/call → step2 思考+正文），按新宿主真实发射顺序（turn/start → start 帧 → chunk 帧 → assistant/message → tool/call → … → turn/end）喂入，断言段序列与 update 次数正确（复现 agent.ts:278-339 顺序）。
 4. 回归：两包 `test` + `typecheck` + `bundle`（usage 先 bundle 再跑 toolkit 测试，AGENTS.md 顺序约束）。
 
 ## 迁移与回滚注意点
