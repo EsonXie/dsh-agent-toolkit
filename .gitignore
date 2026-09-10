@@ -1,5 +1,6 @@
 # dsh 源码 checkout（独立 git 仓库，只读使用）
 deepseek-harness/
+deepseek-harness.old-0.1.2/
 
 # 依赖与产物
 node_modules/
