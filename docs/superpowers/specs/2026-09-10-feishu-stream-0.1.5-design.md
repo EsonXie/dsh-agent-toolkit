@@ -76,7 +76,7 @@ outbound.handleSessionEvent:
 
 | 候选 | 机制 | 证据 | 流式实时性 | 内容权威性/可恢复 | 结论 |
 |---|---|---|---|---|---|
-| A. `agent/assistant-stream` 帧 + `assistant/message` 对账 | app 级订阅 scoped 帧驱动打字机；每 step 结算时用持久 message 对账尾段 | 帧：runtime-types.ts:365-373、agent.ts:386；持久：types.ts:321-329、agent.ts:474-483；订阅先例：headless index.ts:112、history.ts:54 | ✅ 逐 chunk 帧实时 | ✅ 结算事件为权威；对账兜住瞬态帧丢失 | **推荐** |
+| A. `agent/assistant-stream` 帧 + `assistant/message` 对账 | app 级订阅 scoped 帧驱动打字机；每 step 结算时用持久 message 对账尾段 | 帧：runtime-types.ts:365-373、agent.ts:386；持久：types.ts:321-329、agent.ts:474-483；订阅先例：headless index.ts:112、history.ts:54 | ✅ 逐 chunk 帧实时 | ✅ 结算事件为权威；对账**有界**兜住部分瞬态帧丢失（尾 text 段存在且归属正确时） | **推荐** |
 | B. 仅消费持久 `assistant/message`（内嵌 `stream` 重建） | 从 `session/event` 收到的 `assistant/message` 里用 `assembleAssistantStream`/`joinAssistantStreamText` 重建文本 | types.ts:321-329；llm/assistant-stream.ts:406-454 | ❌ 无打字机：结算在整段流完成后才到达（agent.ts:474-483 在 stream 结束后 settle） | ✅ 完全权威 | 丢失飞书流式打字机核心体验，否决 |
 | C. 轮询 `session.seq`/`eventAt` 增量 | 定时拉取会话新事件 | types.ts 事件均带 seq/time | ❌ 无流式：增量里只有整段结算，无逐 chunk 记录（旧 chunk 已删） | ✅ | 无实时收益且引入轮询状态，否决 |
 
@@ -84,11 +84,11 @@ outbound.handleSessionEvent:
 
 ## 推荐方案与理由
 
-**方案 A**：新增 app 级订阅 `agent/assistant-stream`，chunk 帧驱动现有段构建/打字机逻辑（分流逻辑原样平移）；保留 `session/event` 消费 `turn/start`/`tool/call`/`turn/end`，并在 `assistant/message` 结算时对账「尾 text 段」，保证终卡正文与持久记录逐字节一致。`assistant/attempt` 有意忽略。
+**方案 A**：新增 app 级订阅 `agent/assistant-stream`，chunk 帧驱动现有段构建/打字机逻辑（分流逻辑原样平移）；保留 `session/event` 消费 `turn/start`/`tool/call`/`turn/end`，并在 `assistant/message` 结算时对账「尾 text 段」，**在可安全对账的范围内**（`turn.lastTextStep` 命中结算 step）保证终卡正文与持久记录一致。`assistant/attempt` 有意忽略。对账**不覆盖**「本 step 正文帧全丢且无前序 text 段」的缺席场景（宁缺勿错，见边界 7）。
 
 理由：
 1. **实时性**：帧逐 chunk 同步到达，打字机语义完整保留（与现状无感迁移）。
-2. **权威对账**：帧是瞬态（dispatch.ts:120-137 丢帧无重传），持久 `assistant/message` 的 `message.content` 是最终事实（`publish state only at its commit point` 惯例）；对账把「瞬态视图」收敛到「已提交视图」，兜住丢帧。
+2. **权威对账（有界）**：帧是瞬态（dispatch.ts:120-137 丢帧无重传），持久 `assistant/message` 的 `message.content` 是最终事实（`publish state only at its commit point` 惯例）；对账把「瞬态视图」收敛到「已提交视图」，兜住**部分**丢帧（尾 text 段存在且归属正确时）。全丢 step 因无安全替换目标而跳过，不伪造内容。
 3. **改动最小**：分流逻辑、段模型、卡片状态机（cards.ts/reply.ts）、`rt.tail` 保序机制全部复用；只改订阅源 + `outbound.ts` 消费分支。
 4. **与宿主自身消费模式一致**：headless bundle 与 session-controller history 都用 app 级订阅 + 按 session/agent 过滤，属官方先例而非猜 API。
 
@@ -121,6 +121,7 @@ handleAssistantFrame(sessionId: string, frame: AssistantStreamFrame): void {
   const turn = rt.turn
   if (turn === undefined || turn.n !== frame.turn) return          // 同现状 turn 过滤
   if (!applyStreamChunk(turn.segments, frame.chunk)) return        // 抽取的旧分流逻辑
+  if (frame.chunk.type === 'text-delta') turn.lastTextStep = frame.step  // 对账防护：尾 text 段的归属 step
   const snapshot = turn.segments.map((s) => ({ ...s }))
   this.enqueue(rt, async () => {
     if (rt.reply === undefined) return
@@ -132,6 +133,7 @@ handleAssistantFrame(sessionId: string, frame: AssistantStreamFrame): void {
 
 - **提取纯函数** `applyStreamChunk(segments: TurnSegment[], chunk: StreamChunk): boolean`：把旧 89-97 的分流体（text-delta → text、reasoning-delta → process、block-end(block.type==='reasoning') 且尾段为 process → 追加 `\n\n`，其余返回 false）平移进来，便于单测。
 - **`start`/`end` 帧明确不消费**：turn 生命周期由 `turn/start`/`turn/end` 驱动；end 帧的 `outcome.seq`/`eventType` 为宿主内部结算信息，toolkit 不需要（对账用 `assistant/message` 事件本身）。
+- **`turn.lastTextStep`（对账防护前提，必需）**：`SessionRuntime.turn` 形态从 `{ n, segments, began }` 扩展为 `{ n, segments, began, lastTextStep?: number }`（`ports.ts:73`），`turn/start` 处置 `undefined`。每个**成功应用**的 text-delta 帧把 `lastTextStep` 置为该帧的 `step`。它回答「尾 text 段属于哪个 step」——这是对账「只替换本 step 尾段」的安全前提，见下节 `assistant/message` 分支的防护守卫。
 - **不校验 `frame.index` 连续性 / revision**：toolkit 按 `turn` 号匹配（现状即按 turn），且无「重连基线」需求（区别于宿主 session-controller accumulator 需为 Web follower 重建快照，`packages/api/session-controller/src/assistant-stream.ts:38-78`）；帧按投递序 append 即可。若实现时希望多一层保险，可仿 accumulator 在 chunk 帧 `frame.index` 不连续时置一个 `dirty` 标记、触发对账——但**不作为必需**（见未决点 2）。
 
 **`handleSessionEvent` 新增 `assistant/message` 分支（对账）**：
@@ -140,6 +142,11 @@ handleAssistantFrame(sessionId: string, frame: AssistantStreamFrame): void {
 if (event.type === 'assistant/message') {
   const turn = rt.turn
   if (turn === undefined || turn.n !== (event.data.turn as number)) return
+  // 防护（必需）：仅当尾 text 段确实属于本结算 step（本 step 至少成功应用过一帧 text-delta，
+  // 即 turn.lastTextStep === event.data.step）才对账。dispatch 逐帧隔离 throw（agent/dispatch.ts:129-135）
+  // 使 session/event 照常送达——若本 step 正文帧全部丢失，lastTextStep 仍指向上一步，此时用本 step
+  // 权威全文覆盖会篡改上一步已提交正文（从「缺字」恶化成「内容被改」），因此必须跳过。
+  if (turn.lastTextStep !== (event.data.step as number)) return
   const content = (event.data.message as { content?: readonly unknown[] }).content ?? []
   const authoritative = lastTextOf(content)                    // 该 step 最后一个 text 块（见下）
   // 尾 text 段对账：本 step 正文段应为 authoritative；与已流式段前缀比对，补齐丢帧。
@@ -154,13 +161,15 @@ if (event.type === 'assistant/message') {
 }
 ```
 
-- `lastTextOf(content)`：返回 `content` 里**最后一个 `type==='text'` 块的 `text`**（复用现有 `textOf` 的过滤模式，outbound.ts:12-17）。为什么不是 `textOf` 全量拼接：一个 step 结算 message 的正文通常单 text 块，`lastTextOf === textOf`；极少数多 text 块且块间夹非 text 块时，段模型的「最后 text 段」只对应最后那个 text 块，用全量拼接会**错误替换**掉前序段，因此对账只对最后一个 text 块（同段内更早 text 块内容已在早先段里，未流到不补——与过程区丢帧同样接受，见未决点 2 的成本权衡）。
+- `lastTextOf(content): string`（返回契约钉死）：返回 `content` 里**最后一个 `type==='text'` 块的 `text`**；**无 text 块时返回 `''`（不是 `undefined`）**，使下文 `authoritative === ''` 守卫成立。复用现有 `textOf` 的过滤模式（outbound.ts:12-17）。为什么不是 `textOf` 全量拼接：一个 step 结算 message 的正文通常单 text 块，`lastTextOf === textOf`；极少数多 text 块且块间夹非 text 块时，段模型的「最后 text 段」只对应最后那个 text 块，用全量拼接会**错误替换**掉前序段，因此对账只对最后一个 text 块（同段内更早 text 块内容已在早先段里，未流到不补——与过程区丢帧同样接受，见未决点 2 的成本权衡）。
 
-新纯函数 `reconcileTrailingText(segments: TurnSegment[], authoritative: string): boolean`：
+新纯函数 `reconcileTrailingText(segments: TurnSegment[], authoritative: string): boolean`（调用前置条件：调用方已保证 `turn.lastTextStep === 结算 step`，即尾 text 段必属本 step）：
 - 若 `authoritative === ''` → 本 step 无正文，不改段，返回 false；
-- 取**最后一个** `kind === 'text'` 段（本 step 正文段；因 step 内 text deltas 连续、与上一步被 process 段隔开，最后 text 段必为本 step 的）；
+- 取**最后一个** `kind === 'text'` 段（前置条件下它即本 step 正文段；step 内 text deltas 连续、与上一步被 process 段隔开）；
 - 若其 content 已等于 `authoritative` → 返回 false（常态无操作）；
 - 否则替换其 content 为 `authoritative`，返回 true（丢帧补齐）。
+
+**防护的覆盖范围（如实标注）**：对账是**替换式**，只恢复「已存在尾 text 段」的本 step 正文。若某 step 正文帧**全部丢失**（`lastTextStep` 不匹配 → 整体跳过，不篡改上一步；见上守卫）或该 step 是首正文 step 且一帧未收（无前序 text 段可作恢复目标），本 step 正文在该卡上缺席——这是设计接受的降级，不伪造内容，宁缺勿错。
 
 **`assistant/attempt` 不消费**：它表示该 attempt 无表面消息（types.ts:331-335）；流错误/取消时已通过帧显示的过程区内容留在段里，turn/end 兜底定格。加一行注释说明即可，不写分支。
 
@@ -175,8 +184,9 @@ if (event.type === 'assistant/message') {
 | 文件 | 改动 |
 |---|---|
 | `packages/toolkit/src/bots/index.ts` | +`agent/assistant-stream` 订阅（约 3 行） |
-| `packages/toolkit/src/channels/outbound.ts` | 删 `assistant/chunk` 分支；+`handleAssistantFrame`、`applyStreamChunk`、`reconcileTrailingText`、`assistant/message` 对账分支 |
-| `packages/toolkit/src/channels/outbound.test.ts` | chunk 事件改为帧调用；新增对账/次序用例（见测试方案） |
+| `packages/toolkit/src/channels/ports.ts` | `SessionRuntime.turn` 形态 +`lastTextStep?: number`（对账防护前提；`outbound.ts` `turn/start` 处置 undefined） |
+| `packages/toolkit/src/channels/outbound.ts` | 删 `assistant/chunk` 分支；+`handleAssistantFrame`（含 `lastTextStep` 跟踪）、`applyStreamChunk`、`reconcileTrailingText`、`lastTextOf`、`assistant/message` 对账分支（含 `lastTextStep` 守卫） |
+| `packages/toolkit/src/channels/outbound.test.ts` | chunk 事件改为帧调用；新增对账/防护/次序用例（见测试方案） |
 | `packages/toolkit/src/channels/feishu/feishu-stream-integrity.test.ts` | 事件流生成器 `events()` 改为「session 事件 + 帧」混合喂入 |
 | `docs/domains/feishu.md` | 出站段同步现状（0.1.5 后按 task 7 台账统一更新） |
 
@@ -188,7 +198,7 @@ if (event.type === 'assistant/message') {
 4. **重连 / 重绑（`/new`、解绑后 resume）**：retire 语义不变（runtime.ts:124-132）——旧 rt 保留到 `whenIdle`+`rt.tail` 落定才摘除，期间 `turn/end` 正常送达旧句柄 finalize；新会话新 rt、`turn` 从新号起（loop 从 turnBoundary 投影续号，agent.ts:108）。帧按 sessionId 过滤天然隔离新旧。
 5. **多会话并发**：`handleAssistantFrame` 与 `handleSessionEvent` 同查 `sessions.get(sessionId)`，各自的 `rt.tail` 链互不干扰（现状不变式）。
 6. **非本插件 agent（委派子会话 / cron / 其他用户会话）**：帧里 `agent.session.id` 不在 sessions map → 忽略（同 session/event 现状 outbound.ts:77-78）。
-7. **瞬态帧丢失**：`agent/assistant-stream` 为 fire-and-forget（dispatch.ts:126-136），丢帧后无重传；`assistant/message` 对账把**正文**收敛到持久记录（丢帧只可能缺字，对账补全）。过程区（reasoning/tool 行）不参与对账——丢帧时过程区可能缺字，属可接受降级（思考内容非终稿承诺），记入未决点 2 的成本权衡。
+7. **瞬态帧丢失（有界恢复）**：`agent/assistant-stream` 为 fire-and-forget（dispatch.ts:126-136），丢帧后无重传。对账把**正文**收敛到持久记录，但只恢复「尾 text 段存在且 `lastTextStep` 命中结算 step」的情况（部分丢帧 → 补齐；本 step 正文帧全部丢失或首正文 step 一帧未收 → **整体跳过，该 step 正文缺席**，不篡改上一步已提交正文）。过程区（reasoning/tool 行）不参与对账——丢帧时过程区可能缺字，属可接受降级（思考内容非终稿承诺），记入未决点 2 的成本权衡。
 8. **卡片 commit 与 seq 语义保持**：对账只是产生**新的 segments 快照**交给 `update`，不碰 planSync/commit/seq；卡片状态机对「段内容变化」无感知差异，拆卡/重放/定格行为不变。
 9. **`assistant/attempt` 独步的 turn**（只有 attempt、无 message、无 error detail）：如取消无内容（agent.ts:421-424），`turn/end(aborted)` → 无卡无 detail，finalize 空操作（现状 outbound.ts:136 的 `(turn.began || detail)` 守卫已覆盖）。
 
@@ -197,7 +207,8 @@ if (event.type === 'assistant/message') {
 1. **`outbound.test.ts` 适配与新增**：
    - 现有 4 个含 `assistant/chunk` 的用例（71-74、93-94、110-112、165）改为：`turn/start`/`tool/call`/`turn/end` 仍走 `handleSessionEvent`，chunk 改走 `handleAssistantFrame`（帧对象按 `AssistantStreamFrame` 形状构造），断言不变。
    - 新增：`start`/`end` 帧被忽略；chunk 帧在 `turn/start` 前到达被忽略；错 turn 帧被忽略；`assistant/message` 对账补齐缺帧正文（先丢一个 text-delta，断言对账后 update 参数含权威全文）；对账对 process 段零改动；`assistant/attempt` 被忽略。
-   - 对账纯函数 `reconcileTrailingText` / `lastTextOf` 单测：幂等（相等返回 false）；补齐前缀；`authoritative===''` 不改段；多 text 段只改尾段；多 text 块只取最后块（不与前序段串）。
+   - **防护用例（Important）**：step 1 正文「A」已提交 → step 2 正文帧**全部丢失**（只发 step 2 的 `assistant/message`，不发任何 step 2 帧）→ 断言对账**跳过**，step 1 的「A」不被 step 2 权威全文覆盖（`rt.turn.segments` 与 update 参数均保持「A」）；反向用例：step 2 至少应用过一帧 text-delta（`lastTextStep=2`）→ 对账正常补齐。
+   - 对账纯函数 `reconcileTrailingText` / `lastTextOf` 单测：幂等（相等返回 false）；补齐前缀；`authoritative===''` 不改段；`lastTextOf` 无 text 块返回 `''`（非 `undefined`）；多 text 段只改尾段；多 text 块只取最后块（不与前序段串）。
 2. **`feishu-stream-integrity.test.ts` 重写事件生成器**（`events()`，53-67）：`assistant/chunk` 两处改发对应帧（reasoning-delta 帧、text-delta 帧），同时喂入 `assistant/message`（content 用该轮 text 块）与既有 `tool/call`/`turn/*`；`drive()`（71-89）对 session 事件走 `handleSessionEvent`、对帧走 `handleAssistantFrame`。既有两条「正文逐字节完整」断言（含注入 200860/200850 抖动）必须保持通过——这是端到端内容完整性的回归底线。
 3. **交错次序用例**：一个 turn 内两 step（step1 思考+正文 → tool/call → step2 思考+正文），按新宿主真实发射顺序（turn/start → 帧 → assistant/message → tool/call → … → turn/end）喂入，断言段序列与 update 次数正确（复现 agent.ts:278-339 顺序）。
 4. 回归：两包 `test` + `typecheck` + `bundle`（usage 先 bundle 再跑 toolkit 测试，AGENTS.md 顺序约束）。
