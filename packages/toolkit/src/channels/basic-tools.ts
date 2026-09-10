@@ -15,8 +15,13 @@ export interface BasicTool {
 
 export const BASIC_TOOLS: BasicTool[] = [
   {
+    // 0.1.5-rc.1 起 dsh-persona Config 由 { text } 改为 { prefix, suffix? }（prefix 必填，
+    // suffix 渲染在 first-party 指导之后）；拆分方式对齐 standard preset 的 persona 行。
     id: '@deepseek-ai/dsh-persona',
-    config: { text: 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. If you need information or a decision from the user, ask directly in your reply and wait for their next message.' },
+    config: {
+      prefix: 'You are a coding agent powered by the {{model}} model. If you need information or a decision from the user, ask directly in your reply and wait for their next message.',
+      suffix: 'Your working directory is {{cwd}}.',
+    },
   },
   {
     id: '@deepseek-ai/dsh-agent-instructions',

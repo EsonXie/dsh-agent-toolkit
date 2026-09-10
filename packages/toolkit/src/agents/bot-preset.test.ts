@@ -9,7 +9,7 @@ describe('botPresetComposition', () => {
     const shellId = process.platform === 'win32' ? 'tool-pwsh' : 'tool-bash'
     const shellName = process.platform === 'win32' ? '@deepseek-ai/dsh-tool-pwsh' : '@deepseek-ai/dsh-tool-bash'
     expect(rows).toEqual([
-      { id: 'persona', name: '@deepseek-ai/dsh-persona', config: { text: 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. If you need information or a decision from the user, ask directly in your reply and wait for their next message.' } },
+      { id: 'persona', name: '@deepseek-ai/dsh-persona', config: { prefix: 'You are a coding agent powered by the {{model}} model. If you need information or a decision from the user, ask directly in your reply and wait for their next message.', suffix: 'Your working directory is {{cwd}}.' } },
       { id: 'agent-instructions', name: '@deepseek-ai/dsh-agent-instructions', config: { maxBytes: 65536 } },
       { id: shellId, name: shellName },
       { id: 'tool-fs', name: '@deepseek-ai/dsh-tool-fs' },
