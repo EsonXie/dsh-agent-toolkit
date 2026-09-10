@@ -17,7 +17,7 @@ function fakeTable() {
   }
 }
 
-const HEADER: SessionHeader = { version: 0, id: 'sess-1' as SessionId, createdAt: 0, cwd: 'D:\\proj' }
+const HEADER: SessionHeader = { version: 3, isSeeded: false, id: 'sess-1' as SessionId, createdAt: 0, cwd: 'D:\\proj' }
 
 /** 2026-08-27 12:00 Asia/Shanghai；usage 可省略（省略即走估算路径）。 */
 function usageEvent(time: number, usage?: { inputTokens: number; outputTokens: number }): SessionEvent {
@@ -42,8 +42,8 @@ function makeDeps(events: SessionEvent[], opts: {
   const meta = fakeTable()
   const warn = vi.fn()
   const persistence: BackfillPersistence = {
-    list: vi.fn(async () => [HEADER]),
-    readFrom: vi.fn(async () => ({ meta: HEADER, events })),
+    list: vi.fn(async () => [{ header: HEADER }]),
+    open: vi.fn(async () => ({ read: async () => ({ events }), close: async () => {} })),
     ...opts.persistence,
   }
   const enqueue = (job: () => Promise<unknown>) => job()
@@ -98,14 +98,14 @@ test('无 usage 的 assistant/message 走估算路径', async () => {
   expect(rec.totals.estimatedCalls).toBe(1)
 })
 
-test('单会话 readFrom 失败：warn 跳过，其余会话仍补齐，标记仍落地', async () => {
+test('单会话 open 失败：warn 跳过，其余会话仍补齐，标记仍落地', async () => {
   const other: SessionHeader = { ...HEADER, id: 'sess-2' as SessionId }
   const { daily, meta, warn, deps } = makeDeps([], {
     persistence: {
-      list: vi.fn(async () => [HEADER, other]),
-      readFrom: vi.fn(async (id: SessionId) => {
+      list: vi.fn(async () => [{ header: HEADER }, { header: other }]),
+      open: vi.fn(async (id: SessionId) => {
         if (id === HEADER.id) throw new Error('corrupt')
-        return { meta: other, events: [usageEvent(T2, { inputTokens: 7, outputTokens: 3 })] }
+        return { read: async () => ({ events: [usageEvent(T2, { inputTokens: 7, outputTokens: 3 })] }), close: async () => {} }
       }),
     },
   })
@@ -176,10 +176,10 @@ test('刷新：单会话读失败 warn 跳过，其余日期照常重建，faile
   const other: SessionHeader = { ...HEADER, id: 'sess-2' as SessionId }
   const { daily, warn, refresh } = makeRefreshDeps([], {
     persistence: {
-      list: vi.fn(async () => [HEADER, other]),
-      readFrom: vi.fn(async (id: SessionId) => {
+      list: vi.fn(async () => [{ header: HEADER }, { header: other }]),
+      open: vi.fn(async (id: SessionId) => {
         if (id === HEADER.id) throw new Error('corrupt')
-        return { meta: other, events: [usageEvent(T2, { inputTokens: 7, outputTokens: 3 })] }
+        return { read: async () => ({ events: [usageEvent(T2, { inputTokens: 7, outputTokens: 3 })] }), close: async () => {} }
       }),
     },
   })
@@ -193,10 +193,10 @@ test('刷新：单会话读失败跳过删除 pass，读不出的日期旧记录
   const other: SessionHeader = { ...HEADER, id: 'sess-2' as SessionId }
   const { daily, warn, refresh } = makeRefreshDeps([], {
     persistence: {
-      list: vi.fn(async () => [HEADER, other]),
-      readFrom: vi.fn(async (id: SessionId) => {
+      list: vi.fn(async () => [{ header: HEADER }, { header: other }]),
+      open: vi.fn(async (id: SessionId) => {
         if (id === HEADER.id) throw new Error('corrupt')
-        return { meta: other, events: [usageEvent(T2, { inputTokens: 7, outputTokens: 3 })] }
+        return { read: async () => ({ events: [usageEvent(T2, { inputTokens: 7, outputTokens: 3 })] }), close: async () => {} }
       }),
     },
   })
@@ -275,8 +275,8 @@ async function flushAll() {
 
 test('接线：计量主启动后自动回填缺失日期并落地标记', async () => {
   const persistence = {
-    list: vi.fn(async () => [HEADER]),
-    readFrom: vi.fn(async () => ({ meta: HEADER, events: [usageEvent(T1, { inputTokens: 5, outputTokens: 1 })] })),
+    list: vi.fn(async () => [{ header: HEADER }]),
+    open: vi.fn(async () => ({ read: async () => ({ events: [usageEvent(T1, { inputTokens: 5, outputTokens: 1 })] }), close: async () => {} })),
   }
   const { ctx, tables } = makeSetupCtx(persistence)
   setupUsage(ctx, { timezone: 'Asia/Shanghai' }, 'pkg-a')
@@ -296,7 +296,7 @@ test('接线：sessionPersistence 缺失时 warn 跳过且不落地标记', asyn
 })
 
 test('接线：already-open 停用方不回填', async () => {
-  const persistence = { list: vi.fn(), readFrom: vi.fn() }
+  const persistence = { list: vi.fn(), open: vi.fn() }
   const { ctx } = makeSetupCtx(persistence, { alreadyOpen: true })
   setupUsage(ctx, { timezone: 'Asia/Shanghai' }, 'pkg-b')
   await flushAll()
@@ -307,13 +307,15 @@ test('接线：/token-usage refresh 重建范围内日期并输出逐日对照',
   // 启动回填先填 1 call；随后日志变到 2 条事件，refresh 重建后是 2 calls。
   let extra = false
   const persistence = {
-    list: vi.fn(async () => [HEADER]),
-    readFrom: vi.fn(async () => ({
-      meta: HEADER,
-      events: [
-        usageEvent(T1, { inputTokens: 100, outputTokens: 10 }),
-        ...(extra ? [usageEvent(T1, { inputTokens: 200, outputTokens: 20 })] : []),
-      ],
+    list: vi.fn(async () => [{ header: HEADER }]),
+    open: vi.fn(async () => ({
+      read: async () => ({
+        events: [
+          usageEvent(T1, { inputTokens: 100, outputTokens: 10 }),
+          ...(extra ? [usageEvent(T1, { inputTokens: 200, outputTokens: 20 })] : []),
+        ],
+      }),
+      close: async () => {},
     })),
   }
   const { ctx, tables } = makeSetupCtx(persistence)
@@ -343,7 +345,7 @@ test('接线：refresh 在 sessionPersistence 缺失时返回错误文案且不�
 })
 
 test('接线：refresh 在非计量主实例被拒绝', async () => {
-  const persistence = { list: vi.fn(), readFrom: vi.fn() }
+  const persistence = { list: vi.fn(), open: vi.fn() }
   const { ctx } = makeSetupCtx(persistence, { seedMeta: { meter_owner: { value: 'other-pkg' } } })
   setupUsage(ctx, { timezone: 'Asia/Shanghai' }, 'pkg-a')
   await flushAll()

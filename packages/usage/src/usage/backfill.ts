@@ -7,16 +7,22 @@ import type { DailyRecord } from './store.ts'
 
 export const BACKFILL_DONE_KEY = 'backfill_done'
 
-/** ctx.sessionPersistence 的最小消费面（结构子类型，详见 dsh-session-persistence 的 Service Definition）。 */
+/** ctx.sessionPersistence 的最小消费面（结构子类型，详见 dsh-session-persistence 的 Service Definition）。
+ *  0.1.5-rc.1 起：readFrom 删除，改 open(id,'read') → SessionHandle.read；list 返回快照（header 挂在快照上）。 */
+export interface BackfillHandle {
+  read(offset?: number, length?: number, options?: { signal?: AbortSignal }): Promise<{ events: readonly SessionEvent[] }>
+  close(): Promise<void>
+}
+
 export interface BackfillPersistence {
-  list(signal?: AbortSignal): Promise<SessionHeader[]>
-  readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+  list(options?: { signal?: AbortSignal }): Promise<readonly { header: SessionHeader }[]>
+  open(id: SessionId, access: 'read'): Promise<BackfillHandle>
 }
 
 /**
- * 扫描全部会话日志聚合为按日记录：list → 逐会话 readFrom → 逐事件 sampleFromEvent/addSample。
+ * 扫描全部会话日志聚合为按日记录：list → 逐会话 open+read+close → 逐事件 sampleFromEvent/addSample。
  * 尽力而为：list 整体失败 warn 并返回 undefined（调用方据此决定是否落地完成标记/是否报失败）。
- * 单会话 readFrom 失败 warn 跳过该会话并把 readFailed 置 true，把「聚合结果不完整」传给调用方
+ * 单会话 open/read 失败 warn 跳过该会话并把 readFailed 置 true，把「聚合结果不完整」传给调用方
  *（对会做删除语义的调用方这是关键信号：读不出的日期看起来"无事件"）。本函数不抛错。
  */
 export async function aggregateLogs(
@@ -25,23 +31,28 @@ export async function aggregateLogs(
   estimate: (message: Message) => number,
   warn: (msg: string) => void,
 ): Promise<{ byDate: Map<string, DailyRecord>; readFailed: boolean } | undefined> {
-  let headers: SessionHeader[]
+  let snapshots: readonly { header: SessionHeader }[]
   try {
-    headers = await persistence.list()
+    snapshots = await persistence.list()
   } catch (error) {
     warn(`用量日志列表读取失败：${String(error)}`)
     return undefined
   }
   const byDate = new Map<string, DailyRecord>()
   let readFailed = false
-  for (const header of headers) {
+  for (const { header } of snapshots) {
     let events: readonly SessionEvent[]
+    let handle: BackfillHandle | undefined
     try {
-      events = (await persistence.readFrom(header.id, 0)).events
+      handle = await persistence.open(header.id, 'read')
+      events = (await handle.read(0)).events
     } catch (error) {
       warn(`用量日志扫描跳过会话 ${String(header.id)}：读取失败 ${String(error)}`)
       readFailed = true
       continue
+    } finally {
+      // close 失败不回标 readFailed：事件已读出，聚合完整性与句柄收尾无关。
+      if (handle) await handle.close().catch(() => undefined)
     }
     // sampleFromEvent 只读 session.header 的 id/cwd：给最小会话形态。
     const stub = { header } as unknown as Session
