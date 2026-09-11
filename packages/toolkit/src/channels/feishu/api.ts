@@ -16,6 +16,10 @@ export interface FeishuApi {
   downloadImage(messageId: string, fileKey: string): Promise<InboundImage>
   /** 本机器人的 open_id（bot/v3/info）；群消息 @ 身份校验用。 */
   getBotOpenId(): Promise<string>
+  /** 上传文件到消息资源库（im/v1 files，file_type=stream），返回 file_key。 */
+  uploadFile(name: string, data: Uint8Array): Promise<string>
+  /** 发送文件消息（msg_type=file）。 */
+  sendFile(chatId: string, fileKey: string): Promise<void>
 }
 
 /** 从 lark SDK 抛出的 axios 错误提取飞书业务错误码（无则 undefined）。 */
@@ -135,6 +139,22 @@ export function createFeishuApi(client: lark.Client): FeishuApi {
         throw new Error(`获取机器人信息失败：code=${res.code} msg=${res.msg}`)
       }
       return openId
+    },
+    async uploadFile(name, data) {
+      const res = await client.im.file.create({ data: { file_type: 'stream', file_name: name, file: Buffer.from(data) } })
+      // SDK 该接口 typegen 漏了 code/msg/data 信封（运行时仍返回完整信封），按真实形态取数。
+      const body = res as unknown as { code?: number; msg?: string; data?: { file_key?: string } } | null
+      const fileKey = body?.data?.file_key
+      if (typeof fileKey !== 'string' || fileKey.length === 0) {
+        throw new Error(`文件上传失败：code=${body?.code} msg=${body?.msg}`)
+      }
+      return fileKey
+    },
+    async sendFile(chatId, fileKey) {
+      await client.im.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: { receive_id: chatId, msg_type: 'file', content: JSON.stringify({ file_key: fileKey }) },
+      })
     },
   }
 }
