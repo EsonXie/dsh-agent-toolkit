@@ -353,3 +353,90 @@ describe('Router 发起人提示段', () => {
     })
   })
 })
+
+describe('Router.switchTo（/switch）', () => {
+  test('boundSessionId：读绑定表（不要求进程内有 runtime）', async () => {
+    const { router, bindings } = setup()
+    expect(router.boundSessionId('reviewer', 'oc_1')).toBeUndefined()
+    await bindings.set('reviewer', 'oc_1', 'sess-x')
+    expect(router.boundSessionId('reviewer', 'oc_1')).toBe('sess-x')
+  })
+
+  test('切到不在内存的会话：resume 接管（装配照常）+ 绑定覆盖不 delete', async () => {
+    const { router, bindings, resumed, defaultModel } = setup()
+    const old = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    const rt = await router.switchTo(fakeBot(), 'oc_1', 'sess-target', reply, 'ou_u2')
+    expect(resumed).toHaveLength(1)
+    expect(resumed[0].input.sessionId).toBe('sess-target')
+    expect(defaultModel).toHaveBeenCalledTimes(2)   // create + resume 各一次
+    expect(rt.sessionId).toBe('sess-target')
+    expect(rt.initiatorOpenId).toBe('ou_u2')         // 切换人成为发起人（审批校验用）
+    expect(bindings.get('reviewer', 'oc_1')).toBe('sess-target')
+    expect(old.agent.cancel).not.toHaveBeenCalled()  // 旧会话不取消
+  })
+
+  test('切到已在内存的会话：直接复用 runtime，不 resume、initiator 不变', async () => {
+    const { router, bindings, sessions, resumed } = setup()
+    await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    await router.switchTo(fakeBot(), 'oc_1', 'sess-b', reply, 'ou_u1')
+    const rtB = sessions.get('sess-b')!
+    const back = await router.switchTo(fakeBot(), 'oc_1', 'sess-b', reply, 'ou_u2')
+    expect(back).toBe(rtB)
+    expect(back.initiatorOpenId).toBe('ou_u1')
+    expect(resumed).toHaveLength(1)                  // 仅第一次切 sess-b 时 resume
+    expect(bindings.get('reviewer', 'oc_1')).toBe('sess-b')
+  })
+
+  test('切走的旧 runtime 不 retire：idle 落定且未重新绑定后摘出 sessions', async () => {
+    const { router, sessions } = setup()
+    const old = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    const oldId = old.sessionId
+    await router.switchTo(fakeBot(), 'oc_1', 'sess-target', reply, 'ou_u1')
+    await new Promise((r) => setTimeout(r, 0))        // releaseUnbound 落定
+    expect(sessions.has(oldId)).toBe(false)
+    expect(old.agent.cancel).not.toHaveBeenCalled()
+  })
+
+  test('旧会话有在飞 turn：等 whenIdle 落定后才摘除（卡片照常收尾）', async () => {
+    const { router, sessions } = setup()
+    const old = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    const oldId = old.sessionId
+    let idle!: () => void
+    old.agent.whenIdle = () => new Promise<void>((resolve) => { idle = resolve })
+    await router.switchTo(fakeBot(), 'oc_1', 'sess-target', reply, 'ou_u1')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(sessions.has(oldId)).toBe(true)            // turn 未落定不摘
+    idle()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(sessions.has(oldId)).toBe(false)
+  })
+
+  test('摘除窗口内被切回：runtime 保留不误删', async () => {
+    const { router, sessions } = setup()
+    const old = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    const oldId = old.sessionId
+    let idle!: () => void
+    old.agent.whenIdle = () => new Promise<void>((resolve) => { idle = resolve })
+    await router.switchTo(fakeBot(), 'oc_1', 'sess-target', reply, 'ou_u1')
+    await router.switchTo(fakeBot(), 'oc_1', oldId, reply, 'ou_u1')   // 切回（内存复用）
+    idle()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(sessions.get(oldId)).toBe(old)             // 重新绑定后不摘
+  })
+
+  test('resume 失败：binding 不变，旧 runtime 不动', async () => {
+    const { router, bindings, sessions, agents } = setup()
+    const old = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    const oldId = old.sessionId
+    agents.resume = async () => { throw new Error('session corrupted') }
+    await expect(router.switchTo(fakeBot(), 'oc_1', 'sess-bad', reply, 'ou_u1')).rejects.toThrow('session corrupted')
+    expect(bindings.get('reviewer', 'oc_1')).toBe(oldId)
+    expect(sessions.get(oldId)).toBe(old)
+  })
+
+  test('switchTo 后 attach 目标会话到 bot 项目 workspace（幂等兜底归组）', async () => {
+    const { router, workspace } = setup()
+    await router.switchTo(fakeBot(), 'oc_1', 'sess-target', reply, 'ou_u1')
+    expect(workspace.attach).toHaveBeenCalledWith('D:\\work\\demo', 'sess-target')
+  })
+})

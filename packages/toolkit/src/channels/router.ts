@@ -118,6 +118,47 @@ export class Router {
     return bound === undefined ? undefined : this.sessions.get(bound)
   }
 
+  /** 当前绑定 sessionId（不要求进程内有 runtime；/sessions ✓ 标记与 /switch 已是当前判定用）。 */
+  boundSessionId(botId: string, chatId: string): string | undefined {
+    return this.bindings.get(botId, chatId)
+  }
+
+  /**
+   * /switch：把 chat 的绑定覆盖到目标会话。
+   * 目标已在内存且非 retiring → 直接复用（initiator 不变）；否则 resume + adopt（切换人成为发起人）。
+   * binding 在 resume 成功后才覆盖（resume 失败绑定不变）。
+   * 切走的旧 runtime 不 retire（在飞 turn 卡片在本 chat 照常收尾），闲置落定后仍未重新绑定才摘除。
+   */
+  async switchTo(bot: BotRecord, chatId: string, sessionId: string, reply: ReplyHandle, userId: string): Promise<SessionRuntime> {
+    const oldBound = this.bindings.get(bot.id, chatId)
+    const existing = this.sessions.get(sessionId)
+    let rt: SessionRuntime
+    if (existing !== undefined && !existing.retiring) {
+      rt = existing
+    } else {
+      const agent = await this.agents.resume({ sessionId, ...this.resolveSession(bot, userId) })
+      await this.attach(bot.project, sessionId)
+      rt = this.adopt(bot.id, chatId, userId, sessionId, agent, reply)
+    }
+    await this.bindings.set(bot.id, chatId, sessionId)
+    if (oldBound !== undefined && oldBound !== sessionId) {
+      const old = this.sessions.get(oldBound)
+      if (old !== undefined && old !== rt && !old.retiring) this.releaseUnbound(bot.id, chatId, oldBound, old)
+    }
+    return rt
+  }
+
+  /** 未绑定会话闲置落定（在飞 turn 卡片收尾）后，仍未被重新绑定才摘出 sessions（摘除窗口内被切回不误删）。 */
+  private releaseUnbound(botId: string, chatId: string, sessionId: string, rt: SessionRuntime): void {
+    void (async () => {
+      await rt.agent.whenIdle().catch(() => undefined)
+      await rt.tail.catch(() => undefined)
+      if (this.sessions.get(sessionId) === rt && this.bindings.get(botId, chatId) !== sessionId) {
+        this.sessions.delete(sessionId)
+      }
+    })()
+  }
+
   private adopt(botId: string, chatId: string, userId: string, sessionId: string, agent: SessionRuntime['agent'], reply: ReplyHandle): SessionRuntime {
     const rt: SessionRuntime = {
       botId, chatId, sessionId, initiatorOpenId: userId, agent, reply,
