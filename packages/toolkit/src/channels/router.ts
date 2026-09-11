@@ -126,21 +126,29 @@ export class Router {
   /**
    * /switch：把 chat 的绑定覆盖到目标会话。
    * 目标已在内存且非 retiring → 直接复用（initiator 不变）；否则 resume + adopt（切换人成为发起人）。
-   * binding 在 resume 成功后才覆盖（resume 失败绑定不变）。
+   * binding 在 resume 成功后才覆盖（resume 失败绑定不变；覆盖失败摘除本次 adopt 的 runtime，不留孤儿）。
    * 切走的旧 runtime 不 retire（在飞 turn 卡片在本 chat 照常收尾），闲置落定后仍未重新绑定才摘除。
    */
   async switchTo(bot: BotRecord, chatId: string, sessionId: string, reply: ReplyHandle, userId: string): Promise<SessionRuntime> {
     const oldBound = this.bindings.get(bot.id, chatId)
     const existing = this.sessions.get(sessionId)
     let rt: SessionRuntime
+    let adopted = false
     if (existing !== undefined && !existing.retiring) {
       rt = existing
     } else {
       const agent = await this.agents.resume({ sessionId, ...this.resolveSession(bot, userId) })
       await this.attach(bot.project, sessionId)
       rt = this.adopt(bot.id, chatId, userId, sessionId, agent, reply)
+      adopted = true
     }
-    await this.bindings.set(bot.id, chatId, sessionId)
+    try {
+      await this.bindings.set(bot.id, chatId, sessionId)
+    } catch (error) {
+      // 本次 adopt 的 runtime 未写进绑定即失败：摘除不留孤儿（复用路径 runtime 先于本次调用存在，不动）。
+      if (adopted && this.sessions.get(sessionId) === rt) this.sessions.delete(sessionId)
+      throw error
+    }
     if (oldBound !== undefined && oldBound !== sessionId) {
       const old = this.sessions.get(oldBound)
       if (old !== undefined && old !== rt && !old.retiring) this.releaseUnbound(bot.id, chatId, oldBound, old)

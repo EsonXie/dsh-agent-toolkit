@@ -434,6 +434,14 @@ describe('Router.switchTo（/switch）', () => {
     expect(sessions.get(oldId)).toBe(old)
   })
 
+  test('binding 覆盖失败：摘除本次 adopt 的 runtime 并抛错（不留孤儿）', async () => {
+    const { router, bindings, sessions } = setup()
+    const original = bindings.set.bind(bindings)
+    bindings.set = async (..._args: Parameters<typeof original>) => { throw new Error('storage down') }
+    await expect(router.switchTo(fakeBot(), 'oc_1', 'sess-target', reply, 'ou_u1')).rejects.toThrow('storage down')
+    expect(sessions.has('sess-target')).toBe(false)
+  })
+
   test('switchTo 后 attach 目标会话到 bot 项目 workspace（幂等兜底归组）', async () => {
     const { router, workspace } = setup()
     await router.switchTo(fakeBot(), 'oc_1', 'sess-target', reply, 'ou_u1')
