@@ -16,7 +16,7 @@
 
 ## 路径解析与安全护栏
 
-新模块 `channels/doc-command.ts`（渠道无关核心），职责单一：`resolveDocPath(project, arg) → { ok: absolutePath } | { err: 原因 }`。
+新模块 `channels/doc-command.ts`（渠道无关核心），职责单一：`resolveDocPath(project, arg, maxBytes) → { ok: true; path; name } | { ok: false; reason }`。
 
 - 根目录：当前 bot 的 `bot.project`（即会话 cwd；`/switch` 切换会话不改变项目根）。
 - 拒绝：绝对路径（`path.isAbsolute`，含 Windows 盘符与 UNC）；resolve 后越出项目根（`path.relative` 以 `..` 开头或为绝对结果）；不存在；非普通文件（目录/符号链接，用 `lstat` 判定，与宿主 workspaceFiles 同款护栏）。
@@ -28,7 +28,7 @@
 `channels/feishu/api.ts` 的 `FeishuApi` 新增两个方法，复用现有 `lark.Client` 与 WS 长连接，无新增网络面：
 
 - `uploadFile(name: string, data: Uint8Array): Promise<string>`：`client.im.file.create`，`file_type: 'stream'`，`file_name` 保留原始文件名（含 `.md` 扩展名，保证飞书预览按类型识别）；返回 `file_key`，缺失按现有风格抛 `code/msg`。
-- `sendFile(chatId: string, fileKey: string, name: string): Promise<void>`：`client.im.message.create`，`msg_type: 'file'`，content `{ file_key, file_name }`（字段名以实现时 SDK 类型为准）。
+- `sendFile(chatId: string, fileKey: string): Promise<void>`：`client.im.message.create`，`msg_type: 'file'`，content `{ file_key }`（字段名以实现时 SDK 类型为准）。
 
 流程：`/doc` 分支 → `resolveDocPath` → 读文件（`node:fs/promises`，读入内存——已受 docMaxBytes 上界约束）→ `uploadFile` → `sendFile` → 完成（可选 `notice('已发送：<name>')` 省略，文件消息自身即反馈）。
 
@@ -42,7 +42,7 @@
 | 路径越界/绝对路径 | 仅允许项目目录内相对路径 |
 | 文件不存在 | 附解析后的相对路径 |
 | 非普通文件 | 不支持目录/链接 |
-| 超大小 | 附实际上限与文件大小 |
+| 超大小 | 附实际上限 |
 | 上传/发送失败 | 复用现有 `feishuErrorCode` 摘要，notice 带回渠道（2026-09-03 /new 事故教训：错误摘要必须回传渠道，不只写 warn） |
 
 ## Config
@@ -64,7 +64,7 @@
 
 ## 集成注意
 
-- 本设计与进行中的 `/sessions /switch` 工作（`2026-09-11-feishu-session-switch-design.md`，inbound.ts 未提交改动）同触 `directive.ts`/`inbound.ts`：实施时以该分支落地后的分发形态为准，两处命令分支互不耦合。
+- 本设计与已落地的 `/sessions /switch` 工作（`2026-09-11-feishu-session-switch-design.md`，含 8aa42d1250 / 99be3825c4 两个后续 fix）同触 `directive.ts`/`inbound.ts`：分发形态已定（directive 分支链 new→stop→status→help→sessions→switch→ensure，/doc 分支加在链尾 ensure 之前），两处命令分支互不耦合。
 - `/doc` 只读文件系统，不影响会话状态、路由映射与卡片状态机。
 
 ## 后续增强（不在本 spec）

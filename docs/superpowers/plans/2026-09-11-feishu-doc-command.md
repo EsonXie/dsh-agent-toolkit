@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 当前分支 `feat/feishu-session-switch` 有未提交的 session-switch 改动（`inbound.ts` / `inbound.test.ts`）。**执行 Task 1 前先确认这些改动已提交**（本计划在其之上叠加；未提交就先由用户处理，不要把别人的改动卷进本计划任何 commit）。
+- session-switch（/sessions /switch /help）已落地 master（含 8aa42d1250、99be3825c4 两个后续 fix），本计划直接在其上叠加。当前工作区有两份 untracked 的 session-switch spec/plan 文档，不要卷进本计划任何 commit。
 - 每个 Task 的 commit 只 stage 本 Task 触及的文件。
 - commit message 风格照仓库现状：`feat(toolkit): …` / `test(toolkit): …` / `docs: …`。
 - 单文件测试命令（仓库根执行）：`pnpm --filter dsh-agent-toolkit exec vitest run src/channels/<file>.test.ts`；全量：`pnpm --filter dsh-agent-toolkit test`；类型：`pnpm --filter dsh-agent-toolkit typecheck`；构建：`pnpm --filter dsh-agent-toolkit bundle`。
@@ -330,7 +330,7 @@ Expected: FAIL（`api.uploadFile is not a function`）
 
 - [ ] **Step 3: 实现**
 
-`api.ts` 的 `FeishuApi` 接口追加（放在 `downloadImage` 声明之后）：
+`api.ts` 的 `FeishuApi` 接口末尾追加（`getBotOpenId` 之后）：
 
 ```ts
   /** 上传文件到消息资源库（im/v1 files，file_type=stream），返回 file_key。 */
@@ -467,7 +467,7 @@ git commit -m "feat(toolkit): ReplyHandle 可选能力 sendFile，飞书实现�
 
 **Files:**
 - Modify: `packages/toolkit/src/index.ts`（feishu schema + 默认值对象 + 注释「9 个」→「10 个」）
-- Modify: `packages/toolkit/src/bots/index.ts`（`BotsModuleConfig` + `BotRuntime` 构造传参）
+- Modify: `packages/toolkit/src/bots/index.ts`（`BotsModuleConfig` + doc 注释「9 个」同步 + `BotRuntime` 构造传参）
 - Modify: `packages/toolkit/src/channels/runtime.ts`（`BotRuntime` deps + 传 `Inbound`）
 - Modify: `packages/toolkit/src/channels/inbound.ts`（仅 `InboundDeps` 接口加字段，行为在 Task 6）
 - Test: `packages/toolkit/src/bots/smoke.test.ts`、`packages/toolkit/src/index.test.ts`、`packages/toolkit/src/channels/runtime.test.ts`、`packages/toolkit/src/channels/inbound.test.ts`（harness 补字段）
@@ -506,7 +506,7 @@ Expected: FAIL（`BotsModuleConfig` 缺 `docMaxBytes` 等连锁报错）
   }),
 ```
 
-注释「feishu 9 个全局可调参数」改「10 个」。
+`index.ts` 注释「feishu 9 个全局可调参数」改「10 个」；`bots/index.ts` `BotsModuleConfig` 的 doc 注释同步改写（docMaxBytes 为本次新增第 10 项、非 archive 平移——保留 archive 溯源表述并加注）。
 
 `bots/index.ts` `BotsModuleConfig` 追加：
 
