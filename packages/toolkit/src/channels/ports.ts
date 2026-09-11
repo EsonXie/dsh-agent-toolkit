@@ -55,6 +55,17 @@ export interface BindingStore {
   deleteBot(botId: string): Promise<void>
 }
 
+/** /sessions 候选会话项（title 取不到时缺省，渲染层显示 (无标题)）。 */
+export interface SessionCatalogEntry {
+  sessionId: string
+  title?: string
+}
+
+/** 候选会话目录端口：列出 bot 项目 workspace 下的可切换会话（真实适配器在 session-catalog.ts）。 */
+export interface SessionCatalogPort {
+  list(project: string): Promise<readonly SessionCatalogEntry[]>
+}
+
 /** 一个活跃会话的运行时状态（inbound/outbound 共享）。 */
 export interface SessionRuntime {
   readonly botId: string
