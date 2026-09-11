@@ -1,4 +1,7 @@
-import { describe, expect, test, vi } from 'vitest'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { Disposer, InboundMessage, ReplyHandle } from './channel.ts'
 import { Inbound, type AttachmentsPort, type InboundDeps } from './inbound.ts'
@@ -24,10 +27,12 @@ interface Recorded {
 function harness(opts: {
   createError?: unknown
   resumeError?: unknown
+  project?: string
   attachments?: () => AttachmentsPort | undefined
   catalog?: () => SessionCatalogPort | undefined
 } = {}) {
   const rec: Recorded = { notices: [], acked: 0, followups: [], cancels: 0, hookInputs: [] }
+  const bot: BotRecord = { ...BOT, ...(opts.project !== undefined ? { project: opts.project } : {}) }
   const agents: AgentsPort = {
     get: () => undefined,
     create: async (input) => {
@@ -59,19 +64,19 @@ function harness(opts: {
   const router = new Router(agents, bindings, sessions, () => ({ provider: 'deepseek', model: 'deepseek-v4' }), { attach: async () => undefined }, () => undefined, registry)
   const inbound = new Inbound({
     router,
-    bots: { get: (id) => (id === BOT.id ? BOT : undefined) },
+    bots: { get: (id) => (id === bot.id ? bot : undefined) },
     maxErrorDetailChars: 200,
     docMaxBytes: 1024 * 1024,
     ...(opts.attachments !== undefined ? { attachments: opts.attachments } : {}),
     ...(opts.catalog !== undefined ? { catalog: opts.catalog } : {}),
     onError: () => undefined,
   })
-  function msg(text: string, chatId = 'oc_1', loadImages?: InboundMessage['loadImages']): InboundMessage {
+  function msg(text: string, chatId = 'oc_1', loadImages?: InboundMessage['loadImages'], reply?: ReplyHandle): InboundMessage {
     return {
       botId: BOT.id, chatId, userId: 'ou_u1', messageId: `om_${Math.random()}`,
       text,
       ...(loadImages !== undefined ? { loadImages } : {}),
-      reply: fakeReply(rec),
+      reply: reply ?? fakeReply(rec),
       ackProcessing: async (): Promise<Disposer> => {
         rec.acked += 1
         return () => undefined
@@ -391,4 +396,60 @@ test('/switch 目标写句柄被占用（web 界面打开中）：占用提示�
   inbound.onMessage(msg('/switch aaaa1111'))
   await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('正被占用'))).toBe(true) })
   expect(router.boundSessionId('reviewer', 'oc_1')).toBe(before)
+})
+
+describe('/doc 指令', () => {
+  let project: string
+  beforeAll(async () => {
+    project = await mkdtemp(path.join(tmpdir(), 'dsh-doc-inbound-'))
+    await writeFile(path.join(project, 'report.md'), '# 报告\n', 'utf8')
+  })
+  afterAll(async () => { await rm(project, { recursive: true, force: true }) })
+
+  function fileReply(rec: Recorded) {
+    const files: { name: string; data: Uint8Array }[] = []
+    const reply: ReplyHandle = { ...fakeReply(rec), sendFile: async (name, data) => { files.push({ name, data }) } }
+    return { reply, files }
+  }
+
+  test('/doc 发送项目内文件', async () => {
+    const { rec, inbound, msg } = harness({ project })
+    const { reply, files } = fileReply(rec)
+    inbound.onMessage(msg('/doc report.md', 'oc_1', undefined, reply))
+    await vi.waitFor(() => { expect(files).toHaveLength(1) })
+    expect(files[0].name).toBe('report.md')
+    expect(new TextDecoder().decode(files[0].data)).toBe('# 报告\n')
+    expect(rec.followups).toHaveLength(0)  // 不进会话 turn
+  })
+
+  test('/doc 无参提示用法', async () => {
+    const { rec, inbound, msg } = harness({ project })
+    inbound.onMessage(msg('/doc'))
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('用法：/doc'))).toBe(true) })
+  })
+
+  test('/doc 越界路径拒绝', async () => {
+    const { rec, inbound, msg } = harness({ project })
+    inbound.onMessage(msg('/doc ../secret.md'))
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('项目目录内'))).toBe(true) })
+  })
+
+  test('/doc 文件不存在', async () => {
+    const { rec, inbound, msg } = harness({ project })
+    inbound.onMessage(msg('/doc nope.md'))
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('文件不存在'))).toBe(true) })
+  })
+
+  test('/doc 渠道不支持 sendFile 时降级提示', async () => {
+    const { rec, inbound, msg } = harness({ project })
+    inbound.onMessage(msg('/doc report.md'))  // fakeReply 无 sendFile
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('不支持发送文件'))).toBe(true) })
+  })
+
+  test('/doc 上传失败 notice 摘要', async () => {
+    const { rec, inbound, msg } = harness({ project })
+    const reply: ReplyHandle = { ...fakeReply(rec), sendFile: async () => { throw new Error('上传失败：code=230002') } }
+    inbound.onMessage(msg('/doc report.md', 'oc_1', undefined, reply))
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('发送文件失败'))).toBe(true) })
+  })
 })

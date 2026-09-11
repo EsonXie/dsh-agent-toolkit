@@ -4,6 +4,7 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { BotRecord } from '../bots/store.ts'
 import type { InboundMessage } from './channel.ts'
 import { parseDirective } from './directive.ts'
+import { docRejectText, readDocFile, resolveDocPath } from './doc-command.ts'
 import { truncateDetail } from './outbound.ts'
 import type { Router } from './router.ts'
 import type { SessionCatalogEntry, SessionCatalogPort } from './ports.ts'
@@ -34,6 +35,7 @@ const HELP_TEXT = [
   '/status 查看项目与会话状态',
   '/sessions 列出本项目可切换的会话',
   '/switch <序号|id前缀> 切换到指定会话',
+  '/doc <相对路径> 发送项目内文件（如对话产出的 Markdown 文档）',
   '/help 显示本帮助',
 ].join('\n')
 
@@ -81,6 +83,10 @@ export class Inbound {
     }
     if (directive?.name === 'help') {
       await msg.reply.notice(HELP_TEXT)
+      return
+    }
+    if (directive?.name === 'doc') {
+      await this.sendDoc(bot, msg, directive.arg)
       return
     }
     if (directive?.name === 'sessions') {
@@ -198,5 +204,30 @@ export class Inbound {
       throw error
     }
     await msg.reply.notice(`已切换到会话：${target.title ?? '(无标题)'}（${target.sessionId.slice(0, 8)}）`)
+  }
+
+  private async sendDoc(bot: BotRecord, msg: InboundMessage, arg: string | undefined): Promise<void> {
+    if (arg === undefined || arg.length === 0) {
+      await msg.reply.notice('用法：/doc <相对路径>（相对项目目录，如 docs/report.md）')
+      return
+    }
+    const res = await resolveDocPath(bot.project, arg, this.deps.docMaxBytes)
+    if (!res.ok) {
+      await msg.reply.notice(docRejectText(res.reason, arg, this.deps.docMaxBytes))
+      return
+    }
+    const sendFile = msg.reply.sendFile?.bind(msg.reply)
+    if (sendFile === undefined) {
+      await msg.reply.notice('当前渠道不支持发送文件')
+      return
+    }
+    // 护栏判定后的读取失败（如竞态删除）抛给 onMessage 统一错误路径。
+    const data = await readDocFile(res.path)
+    try {
+      await sendFile(res.name, data)
+    } catch (error) {
+      const detail = truncateDetail(error instanceof Error ? error.message : String(error), this.deps.maxErrorDetailChars)
+      await msg.reply.notice(`发送文件失败：${detail}`)
+    }
   }
 }
