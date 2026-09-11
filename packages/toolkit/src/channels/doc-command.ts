@@ -1,6 +1,6 @@
 /** /doc 指令的路径解析与护栏：仅允许项目目录内、存在的普通文件、大小受控。 */
 import type { Stats } from 'node:fs'
-import { lstat, readFile } from 'node:fs/promises'
+import { lstat, readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 
 export type DocReject = 'outside' | 'not-found' | 'not-file' | 'too-large'
@@ -9,7 +9,8 @@ export type DocResolution =
   | { ok: true; path: string; name: string }
   | { ok: false; reason: DocReject }
 
-/** 相对项目根解析 arg；绝对路径与 .. 越界一律拒绝；符号链接按 lstat 拒绝（不追随）。 */
+/** 相对项目根解析 arg；绝对路径与 .. 越界一律拒绝；最终组件符号链接按 lstat 拒绝，
+ * 中间目录符号链接经 realpath 父目录包含校验（越出项目根同样拒绝）。 */
 export async function resolveDocPath(project: string, arg: string, maxBytes: number): Promise<DocResolution> {
   if (path.isAbsolute(arg)) return { ok: false, reason: 'outside' }
   const abs = path.resolve(project, arg)
@@ -24,6 +25,13 @@ export async function resolveDocPath(project: string, arg: string, maxBytes: num
   }
   if (!st.isFile()) return { ok: false, reason: 'not-file' }
   if (st.size > maxBytes) return { ok: false, reason: 'too-large' }
+  // 词法包含校验只拦最终组件上的链接；中间目录若是符号链接，lstat 会跟随其指向，
+  // 导致 linkdir/secret.txt 越界读到项目外文件。这里用 realpath 把两侧归一后重新判包含，
+  // 两侧都用真实路径比较，避免根路径本身带符号链接/8.3 短名时文本不一致误判。
+  const realRoot = await realpath(project)
+  const realParent = await realpath(path.dirname(abs))
+  const realRel = path.relative(realRoot, realParent)
+  if (realRel.startsWith('..') || path.isAbsolute(realRel)) return { ok: false, reason: 'outside' }
   return { ok: true, path: abs, name: path.basename(abs) }
 }
 

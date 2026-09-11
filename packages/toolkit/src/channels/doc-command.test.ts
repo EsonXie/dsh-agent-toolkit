@@ -52,6 +52,24 @@ describe('resolveDocPath', () => {
     expect(await resolveDocPath(root, 'link.md', 1024)).toEqual({ ok: false, reason: 'not-file' })
   })
 
+  test('拒绝经中间目录符号链接越出项目根', async (t) => {
+    const outside = await mkdtemp(path.join(tmpdir(), 'dsh-doc-out-'))
+    const link = path.join(root, 'linkdir')
+    try {
+      await symlink(outside, link, 'junction')
+    } catch {
+      await rm(outside, { recursive: true, force: true })
+      t.skip('当前环境不允许创建符号链接')
+      return
+    }
+    try {
+      await writeFile(path.join(outside, 'secret.txt'), '# 外部\n', 'utf8')
+      expect(await resolveDocPath(root, 'linkdir/secret.txt', 1024)).toEqual({ ok: false, reason: 'outside' })
+    } finally {
+      await rm(outside, { recursive: true, force: true })
+    }
+  })
+
   test('超过大小上限拒绝', async () => {
     expect(await resolveDocPath(root, 'big.bin', 8)).toEqual({ ok: false, reason: 'too-large' })
     expect(await resolveDocPath(root, 'big.bin', 16)).toMatchObject({ ok: true })
