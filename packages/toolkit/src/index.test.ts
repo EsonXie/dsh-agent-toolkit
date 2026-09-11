@@ -139,6 +139,7 @@ describe('Config 默认值', () => {
       errorDetailMaxChars: 500,
       injectSender: true,
       approval: true,
+      docMaxBytes: 31_457_280,
     })
     expect(config.agentTeamPreset).toEqual({
       enabled: true,

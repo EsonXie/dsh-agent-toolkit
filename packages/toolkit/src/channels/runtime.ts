@@ -24,6 +24,8 @@ export interface RuntimeDeps {
   tunables: ChannelTunables
   /** 回传渠道的错误摘要最大字符数。 */
   maxErrorDetailChars: number
+  /** /doc 发送文件的大小上限（字节）。 */
+  docMaxBytes: number
   /** 可选：宿主附件服务的惰性取用器（消息时解析；返回 undefined = 图片降级提示）。 */
   attachments?: () => AttachmentsPort | undefined
   /** 可选：候选会话目录的惰性取用器（/sessions、/switch；缺席时两指令降级文案）。 */
@@ -52,6 +54,7 @@ export class BotRuntime {
       router: this.router,
       bots: deps.bots,
       maxErrorDetailChars: deps.maxErrorDetailChars,
+      docMaxBytes: deps.docMaxBytes,
       ...(deps.attachments !== undefined ? { attachments: deps.attachments } : {}),
       ...(deps.catalog !== undefined ? { catalog: deps.catalog } : {}),
       onError: (m) => deps.log.warn(m),

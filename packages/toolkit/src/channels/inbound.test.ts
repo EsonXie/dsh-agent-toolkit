@@ -61,6 +61,7 @@ function harness(opts: {
     router,
     bots: { get: (id) => (id === BOT.id ? BOT : undefined) },
     maxErrorDetailChars: 200,
+    docMaxBytes: 1024 * 1024,
     ...(opts.attachments !== undefined ? { attachments: opts.attachments } : {}),
     ...(opts.catalog !== undefined ? { catalog: opts.catalog } : {}),
     onError: () => undefined,

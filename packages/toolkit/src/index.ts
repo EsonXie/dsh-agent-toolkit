@@ -80,7 +80,7 @@ export const Config: z<unknown, Config> = z.object({
   timezone: z.string().default('Asia/Shanghai'),
   provider: z.string().default('spawn'),
   toolName: z.string().default('team_delegate'),
-  // feishu 9 个全局可调参数照归档 project-bot/src/index.ts:38-45，字段名/默认值原样平移。
+  // feishu 10 个全局可调参数：9 个照归档 project-bot/src/index.ts:38-45 原样平移，docMaxBytes 为 Task 5 新增第 10 项（非 archive 平移）。
   feishu: z.object({
     cardUpdateThrottleMs: z.number().default(500),
     cardMaxBytes: z.number().default(26_000),
@@ -91,6 +91,8 @@ export const Config: z<unknown, Config> = z.object({
     errorDetailMaxChars: z.number().default(500),
     injectSender: z.boolean().default(true),
     approval: z.boolean().default(true),
+    /** /doc 发送文件的大小上限（字节）。 */
+    docMaxBytes: z.number().default(30 * 1024 * 1024),
   }).default({
     cardUpdateThrottleMs: 500,
     cardMaxBytes: 26_000,
@@ -101,6 +103,7 @@ export const Config: z<unknown, Config> = z.object({
     errorDetailMaxChars: 500,
     injectSender: true,
     approval: true,
+    docMaxBytes: 30 * 1024 * 1024,
   }),
   // agent-team preset 自动生成：派生 shipped standard、禁用 subagent 工具族 4 行，
   // 写入首个 trust=user root；另生成 bot 会话最小 preset（botsId，委派子会话 composeFrom 认父的前提）

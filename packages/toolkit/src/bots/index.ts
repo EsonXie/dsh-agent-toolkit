@@ -33,7 +33,7 @@ import { createApiHandler } from './api.ts'
 import { RegisterAppService } from './register-app.ts'
 import { projectBotDomain, type Binding, type BotRecord } from './store.ts'
 
-/** project-bot Config 的 9 个全局可调参数（字段名不变；schemastery 定义与默认值源：archive/2026-08-26-merged-plugins/project-bot/src/index.ts:38-45，由 Task 15 平移进 suite Config）。 */
+/** project-bot Config 的 10 个全局可调参数：9 个字段名不变（schemastery 定义与默认值源：archive/2026-08-26-merged-plugins/project-bot/src/index.ts:38-45，由 Task 15 平移进 suite Config）；docMaxBytes 为 Task 5 新增第 10 项（/doc 发送文件上限，非 archive 平移）。 */
 export interface BotsModuleConfig {
   /** 卡片流式更新节流间隔（毫秒）。 */
   cardUpdateThrottleMs: number
@@ -53,6 +53,8 @@ export interface BotsModuleConfig {
   injectSender: boolean
   /** 飞书审批卡片：bot 会话的工具提权申请改由飞书卡片审批（仅会话发起人可点）。 */
   approval: boolean
+  /** /doc 发送文件的大小上限（字节）。 */
+  docMaxBytes: number
 }
 
 /** setupBots 的宿主接线依赖（registry 供运行时委派/API 消费；prompt 无消费方，Task 13 定案不装配 persona）。 */
@@ -178,6 +180,7 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
       channels,
       tunables,
       maxErrorDetailChars: config.errorDetailMaxChars,
+      docMaxBytes: config.docMaxBytes,
       attachments: attachmentsOf,
       catalog: catalogOf,
       injectSender: config.injectSender,

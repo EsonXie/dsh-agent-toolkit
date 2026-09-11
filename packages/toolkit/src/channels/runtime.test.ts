@@ -60,6 +60,7 @@ function harness(overrides: Partial<RuntimeDeps> = {}) {
     channels: new Map([['feishu', channel]]),
     tunables: { cardUpdateThrottleMs: 10, cardMaxBytes: 1024, processMaxBytes: 1024, cardPrintStep: 5, processingReactionEmoji: 'OneSecond' },
     maxErrorDetailChars: 500,
+    docMaxBytes: 1024,
     resolveSecret: async () => 'secret',
     validateProject: () => true,
     log: { warn: (m) => { warns.push(m) }, info: () => undefined },

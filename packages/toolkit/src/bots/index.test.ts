@@ -15,6 +15,7 @@ function makeConfig(approval: boolean): BotsModuleConfig {
     errorDetailMaxChars: 500,
     injectSender: true,
     approval,
+    docMaxBytes: 0,
   }
 }
 

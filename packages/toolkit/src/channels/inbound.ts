@@ -17,6 +17,8 @@ export interface InboundDeps {
   router: Router
   bots: { get(botId: string): BotRecord | undefined }
   maxErrorDetailChars: number
+  /** /doc 发送文件的大小上限（字节）。 */
+  docMaxBytes: number
   /** 可选：宿主附件服务的惰性取用器（消息时解析；apply 期服务注册未必就绪）。 */
   attachments?: () => AttachmentsPort | undefined
   /** 可选：候选会话目录的惰性取用器（attachments 同款"消息时解析"）；缺席 = /sessions、/switch 降级文案。 */
