@@ -2,15 +2,30 @@ import { describe, expect, test } from 'vitest'
 import { parseDirective, stripMentionPlaceholders } from './directive.ts'
 
 describe('parseDirective', () => {
-  test('识别三个指令（忽略大小写与首尾空白）', () => {
-    expect(parseDirective('/new')).toBe('new')
-    expect(parseDirective('  /Stop ')).toBe('stop')
-    expect(parseDirective('/STATUS')).toBe('status')
+  test('识别三个原指令（忽略大小写与首尾空白）', () => {
+    expect(parseDirective('/new')).toEqual({ name: 'new' })
+    expect(parseDirective('  /Stop ')).toEqual({ name: 'stop' })
+    expect(parseDirective('/STATUS')).toEqual({ name: 'status' })
   })
 
-  test('普通文本与带参数的指令都不算', () => {
+  test('识别新指令 /sessions 与 /help（整条精确匹配）', () => {
+    expect(parseDirective('/sessions')).toEqual({ name: 'sessions' })
+    expect(parseDirective('  /Help ')).toEqual({ name: 'help' })
+  })
+
+  test('/switch 带参：首词判定，余串为 arg', () => {
+    expect(parseDirective('/switch 2')).toEqual({ name: 'switch', arg: '2' })
+    expect(parseDirective('/switch  a1b2c3d4 ')).toEqual({ name: 'switch', arg: 'a1b2c3d4' })
+  })
+
+  test('/switch 无参：命中且 arg 缺省（由 Inbound 提示用法）', () => {
+    expect(parseDirective('/switch')).toEqual({ name: 'switch' })
+  })
+
+  test('普通文本与带参数的精确指令都不算', () => {
     expect(parseDirective('你好')).toBeNull()
     expect(parseDirective('/new 请重来')).toBeNull()
+    expect(parseDirective('/sessions 请')).toBeNull()
     expect(parseDirective('/unknown')).toBeNull()
   })
 })
