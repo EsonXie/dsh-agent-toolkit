@@ -22,6 +22,8 @@ import { createAgentsPort } from '../channels/agents-port.ts'
 import type { BotChannel, ChannelTunables } from '../channels/channel.ts'
 import { feishuChannel } from '../channels/feishu/index.ts'
 import type { AttachmentsPort } from '../channels/inbound.ts'
+import type { SessionCatalogPort } from '../channels/ports.ts'
+import { createSessionCatalog, type CatalogSessionTitle, type CatalogSessions, type CatalogWorkspaceRegistry } from '../channels/session-catalog.ts'
 import type { WorkspacePort } from '../channels/ports.ts'
 import { BotRuntime } from '../channels/runtime.ts'
 import { createScopeJoiner, type ScopeJoiner } from '../channels/scope-joiner.ts'
@@ -127,6 +129,14 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
     }
   }
 
+  // 候选会话目录（/sessions、/switch）：三服务均为可选，取用与 list 时惰性解析（attachments 同款）。
+  const catalogOf = (): SessionCatalogPort | undefined =>
+    createSessionCatalog(() => ({
+      workspaceRegistry: ctx.get('workspaceRegistry', false) as CatalogWorkspaceRegistry | undefined,
+      sessions: ctx.get('sessions', false) as CatalogSessions | undefined,
+      sessionTitle: ctx.get('sessionTitle', false) as CatalogSessionTitle | undefined,
+    }))
+
   // 存储域：open 失败挂 rejection handler 防次生崩溃，调用方仍感知失败（token-usage 同款）。
   // 卸载顺序由 openDomainSafely 的 beforeClose 保证：先等启动链落定、排空在飞会话与出站链
   // （stopAll 内含卡片定格 drain），再关存储域——close 一旦开始就拒绝新入队的写。
@@ -169,6 +179,7 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
       tunables,
       maxErrorDetailChars: config.errorDetailMaxChars,
       attachments: attachmentsOf,
+      catalog: catalogOf,
       injectSender: config.injectSender,
       resolveSecret: async (ref) => (await ctx.credentials.resolve(credentialRef(ref)))?.value,
       validateProject: (path) => existsSync(path),

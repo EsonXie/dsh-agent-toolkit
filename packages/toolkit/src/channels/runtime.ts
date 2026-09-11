@@ -5,7 +5,7 @@ import { bindingKey, type Binding, type BotRecord } from '../bots/store.ts'
 import type { BotChannel, ChannelHandle, ChannelStatus, ChannelTunables } from './channel.ts'
 import { Inbound } from './inbound.ts'
 import { Outbound } from './outbound.ts'
-import type { AgentsPort, BindingStore, DefaultModelAccessor, SessionRuntime, WorkspacePort } from './ports.ts'
+import type { AgentsPort, BindingStore, DefaultModelAccessor, SessionCatalogPort, SessionRuntime, WorkspacePort } from './ports.ts'
 import { Router } from './router.ts'
 import type { AttachmentsPort } from './inbound.ts'
 import { ApprovalCenter } from './approval/center.ts'
@@ -26,6 +26,8 @@ export interface RuntimeDeps {
   maxErrorDetailChars: number
   /** 可选：宿主附件服务的惰性取用器（消息时解析；返回 undefined = 图片降级提示）。 */
   attachments?: () => AttachmentsPort | undefined
+  /** 可选：候选会话目录的惰性取用器（/sessions、/switch；缺席时两指令降级文案）。 */
+  catalog?: () => SessionCatalogPort | undefined
   /** 发起人提示段开关（缺省 true；见 Config feishu.injectSender）。 */
   injectSender?: boolean
   resolveSecret(ref: string): Promise<string | undefined>
@@ -51,6 +53,7 @@ export class BotRuntime {
       bots: deps.bots,
       maxErrorDetailChars: deps.maxErrorDetailChars,
       ...(deps.attachments !== undefined ? { attachments: deps.attachments } : {}),
+      ...(deps.catalog !== undefined ? { catalog: deps.catalog } : {}),
       onError: (m) => deps.log.warn(m),
     })
     this.outbound = new Outbound(this.sessions, (m) => deps.log.warn(m), deps.maxErrorDetailChars)
