@@ -22,6 +22,19 @@ describe('parseDirective', () => {
     expect(parseDirective('/switch')).toEqual({ name: 'switch' })
   })
 
+  test('/doc 带参：首词判定，路径参数保留原始大小写', () => {
+    expect(parseDirective('/doc docs/report.md')).toEqual({ name: 'doc', arg: 'docs/report.md' })
+    expect(parseDirective('/DOC  Docs/Report.MD ')).toEqual({ name: 'doc', arg: 'Docs/Report.MD' })
+  })
+
+  test('/doc 无参：命中且 arg 缺省（由 Inbound 提示用法）', () => {
+    expect(parseDirective('/doc')).toEqual({ name: 'doc' })
+  })
+
+  test('/doc 前缀不误伤：/docx 不是指令', () => {
+    expect(parseDirective('/docx')).toBeNull()
+  })
+
   test('普通文本与带参数的精确指令都不算', () => {
     expect(parseDirective('你好')).toBeNull()
     expect(parseDirective('/new 请重来')).toBeNull()
