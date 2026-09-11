@@ -4,7 +4,10 @@ import type * as lark from '@larksuiteoapi/node-sdk'
 import { createFeishuApi } from './api.ts'
 
 function mockClient() {
-  const fileCreate = vi.fn(async (payload: { data: { file_type: string; file_name: string; file: Buffer } }): Promise<{ code: number; msg: string; data: { file_key?: string } }> => ({ code: 0, msg: 'success', data: { file_key: 'file_v3_xxx' } }))
+  // 注意与真实 SDK 形态一致：im.file.create 在响应拦截器剥掉 axios 层后再剥一层信封
+  // （lib: `return res?.data || null`），resolve 的是内层 data（{ file_key } 或 null），
+  // 信封 code/msg 被 SDK 丢弃。已用真实应用凭证实测验证（2026-09-11）。
+  const fileCreate = vi.fn(async (payload: { data: { file_type: string; file_name: string; file: Buffer } }): Promise<{ file_key?: string } | null> => ({ file_key: 'file_v3_xxx' }))
   const messageCreate = vi.fn(async () => ({ code: 0, msg: 'success', data: {} }))
   const client = { im: { file: { create: fileCreate }, message: { create: messageCreate } } }
   return { client: client as unknown as lark.Client, fileCreate, messageCreate }
@@ -22,11 +25,11 @@ describe('FeishuApi.uploadFile / sendFile', () => {
     expect(Buffer.isBuffer(call.data.file)).toBe(true)
   })
 
-  test('uploadFile：缺 file_key 抛 code/msg', async () => {
+  test('uploadFile：SDK 丢弃信封（resolve null）时抛出可读错误', async () => {
     const { client, fileCreate } = mockClient()
-    fileCreate.mockResolvedValueOnce({ code: 230002, msg: 'denied', data: {} })
+    fileCreate.mockResolvedValueOnce(null)
     const api = createFeishuApi(client)
-    await expect(api.uploadFile('a.md', new Uint8Array(1))).rejects.toThrow('文件上传失败：code=230002 msg=denied')
+    await expect(api.uploadFile('a.md', new Uint8Array(1))).rejects.toThrow('文件上传失败：飞书接口未返回 file_key')
   })
 
   test('sendFile：msg_type=file 且 content 携带 file_key', async () => {

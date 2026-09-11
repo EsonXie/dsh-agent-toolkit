@@ -142,11 +142,12 @@ export function createFeishuApi(client: lark.Client): FeishuApi {
     },
     async uploadFile(name, data) {
       const res = await client.im.file.create({ data: { file_type: 'stream', file_name: name, file: Buffer.from(data) } })
-      // SDK 该接口 typegen 漏了 code/msg/data 信封（运行时仍返回完整信封），按真实形态取数。
-      const body = res as unknown as { code?: number; msg?: string; data?: { file_key?: string } } | null
-      const fileKey = body?.data?.file_key
+      // SDK 该端点在响应拦截器（剥 axios 层）之后再剥一层信封（lib: `return res?.data || null`），
+      // resolve 的是内层 data（{ file_key } 或 null）——typegen 类型本来就是对的，信封 code/msg 已被 SDK 丢弃。
+      // （2026-09-11 实测：上一版按信封取数导致上传成功也误判失败。）
+      const fileKey = res?.file_key
       if (typeof fileKey !== 'string' || fileKey.length === 0) {
-        throw new Error(`文件上传失败：code=${body?.code} msg=${body?.msg}`)
+        throw new Error('文件上传失败：飞书接口未返回 file_key（可能缺 im:resource 权限、文件超 30 MB 或为空文件）')
       }
       return fileKey
     },
