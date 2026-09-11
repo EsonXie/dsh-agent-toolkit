@@ -53,7 +53,7 @@ function harness(overrides: Partial<RuntimeDeps> = {}) {
   const deps: RuntimeDeps = {
     bots: fakeTable<BotRecord>({ reviewer: BOT }) as unknown as RuntimeDeps['bots'],
     bindings: fakeTable() as unknown as RuntimeDeps['bindings'],
-    agents: { create: vi.fn(), resume: vi.fn() } as unknown as RuntimeDeps['agents'],
+    agents: { create: vi.fn(), resume: vi.fn(), get: () => undefined } as unknown as RuntimeDeps['agents'],
     registry: fakeRegistry,
     defaultModel: () => ({ provider: 'deepseek', model: 'deepseek-v4' }),
     workspace: { attach: async () => undefined },
@@ -130,6 +130,7 @@ test('未绑定 bot：reconcile 不启动渠道、不告警，statusOf 返回 un
 test('injectSender: false：入站建会话 hooks 不含 sender 段', async () => {
   const hookInputs: { hooks: unknown }[] = []
   const agents = {
+    get: () => undefined,
     create: async (input: { sessionId: string; hooks: unknown }) => {
       hookInputs.push({ hooks: input.hooks })
       return { sessionId: input.sessionId, followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined }
@@ -151,9 +152,10 @@ test('unbindBot 停渠道并取消在飞会话，但保留绑定表', async () =
   await runtime.startAll()
   await deps.bindings.put('reviewer:oc_1', { sessionId: 's1' })
   const cancelled: string[] = []
+  const disposed: string[] = []
   runtime.sessions.set('s1', {
     botId: 'reviewer', chatId: 'oc_1', sessionId: 's1', initiatorOpenId: 'ou_x',
-    agent: { sessionId: 's1', followup: () => undefined, cancel: () => { cancelled.push('s1') }, whenIdle: async () => undefined },
+    agent: { sessionId: 's1', followup: () => undefined, cancel: () => { cancelled.push('s1') }, whenIdle: async () => undefined, dispose: async () => { disposed.push('s1') } },
     reply: undefined, inflight: undefined, tail: Promise.resolve(), turn: undefined, retiring: false,
   })
   await runtime.unbindBot('reviewer')
@@ -161,12 +163,14 @@ test('unbindBot 停渠道并取消在飞会话，但保留绑定表', async () =
   expect(cancelled).toEqual(['s1'])
   // 会话映射改为「落定后清空」（whenIdle + tail 落定才摘出，让旧卡 finalize）——见计划 Task 5。
   await vi.waitFor(() => { expect(runtime.sessions.has('s1')).toBe(false) })
+  expect(disposed).toEqual(['s1'])   // 释放写句柄：重绑后 resume 不再 already owned
   expect(deps.bindings.get('reviewer:oc_1')).toEqual({ sessionId: 's1' })
 })
 
 test('unbindBot 重绑窗口：旧 rt 收尾期间的消息不复用已取消 agent，新 rt 不被旧 retire 摘除', async () => {
   const { runtime, deps } = harness({
     agents: {
+      get: () => undefined,
       create: async (input: { sessionId: string }) => ({
         sessionId: input.sessionId, followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined,
       }),
@@ -182,6 +186,7 @@ test('unbindBot 重绑窗口：旧 rt 收尾期间的消息不复用已取消 ag
   const oldAgent = {
     sessionId: 's1', followup: () => undefined,
     cancel: vi.fn(), whenIdle: () => new Promise<void>((r) => { releaseIdle = r }),
+    dispose: async () => undefined,
   }
   runtime.sessions.set('s1', {
     botId: 'reviewer', chatId: 'oc_1', sessionId: 's1', initiatorOpenId: 'ou_x',
@@ -237,6 +242,7 @@ function approvalHarness() {
   const { runtime } = harness({
     channels: new Map([['feishu', channel]]),
     agents: {
+      get: () => undefined,
       create: async (input: { sessionId: string }) => ({
         sessionId: input.sessionId,
         followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined,

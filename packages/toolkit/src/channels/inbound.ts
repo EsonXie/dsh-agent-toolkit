@@ -185,7 +185,16 @@ export class Inbound {
       await msg.reply.notice('已是当前会话')
       return
     }
-    await this.deps.router.switchTo(bot, msg.chatId, target.sessionId, msg.reply, msg.userId)
+    try {
+      await this.deps.router.switchTo(bot, msg.chatId, target.sessionId, msg.reply, msg.userId)
+    } catch (error) {
+      // 目标会话写句柄被占用（web 界面打开中或正收尾）：绑定不变，提示占用而非「处理失败」。
+      if (error instanceof Error && error.name === 'SessionAlreadyOwnedError') {
+        await msg.reply.notice('该会话正被占用（可能在 web 界面打开中），请关闭后重试')
+        return
+      }
+      throw error
+    }
     await msg.reply.notice(`已切换到会话：${target.title ?? '(无标题)'}（${target.sessionId.slice(0, 8)}）`)
   }
 }

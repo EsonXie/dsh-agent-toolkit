@@ -47,10 +47,12 @@ function makeDeps(over: {
     followup: vi.fn(),
     cancel: vi.fn(),
     whenIdle: () => Promise.resolve(),
+    dispose: () => Promise.resolve(),
     ...over.agent,
   }
   const deps: ExecutorDeps = {
     agents: {
+      get: () => undefined,
       create: over.createImpl ?? (async (input) => { calls.push(input); return agent }),
       resume: async () => { throw new Error('not used') },
     },

@@ -43,7 +43,8 @@ export class Router {
       // 活跃会话不替换 reply：运行中 turn 的出站必须留在原句柄收尾；
       // reply 的刷新由 Inbound 在 in-flight 准入通过后执行。
       if (existing !== undefined && !existing.retiring) return existing
-      const agent = await this.agents.resume({ sessionId: bound, ...this.resolveSession(bot, userId) })
+      // 宿主内存中已存活（web 界面等持有写句柄）→ 接管复用；冷会话才 resume（避免 already owned）。
+      const agent = this.agents.get(bound) ?? await this.agents.resume({ sessionId: bound, ...this.resolveSession(bot, userId) })
       await this.attach(bot.project, bound)
       return this.adopt(bot.id, chatId, userId, bound, agent, reply)
     }
@@ -102,15 +103,24 @@ export class Router {
     return this.ensure(bot, chatId, reply, userId)
   }
 
-  /** 取消会话并等出站链落定后摘出 sessions（让在飞 turn 的 turn/end 正常 finalize 旧卡）。 */
+  /** 取消会话并等出站链落定后摘出 sessions（让在飞 turn 的 turn/end 正常 finalize 旧卡），随后 dispose 释放写句柄。 */
   private retire(sessionId: string, rt: SessionRuntime): void {
     rt.retiring = true
     rt.agent.cancel()
     void (async () => {
       await rt.agent.whenIdle().catch(() => undefined)
       await rt.tail.catch(() => undefined)
-      if (this.sessions.get(sessionId) === rt) this.sessions.delete(sessionId)
+      if (this.sessions.get(sessionId) !== rt) return
+      this.sessions.delete(sessionId)
+      await this.disposeAgent(sessionId, rt)
     })()
+  }
+
+  /** 摘除后释放宿主写句柄：不 dispose 则该会话在宿主侧永远 already owned，无法再 resume。 */
+  private async disposeAgent(sessionId: string, rt: SessionRuntime): Promise<void> {
+    await rt.agent.dispose().catch((error) => {
+      this.onWarn(`[project-bot] 会话 ${sessionId} 的 agent 释放失败：${error instanceof Error ? error.message : String(error)}`)
+    })
   }
 
   lookup(botId: string, chatId: string): SessionRuntime | undefined {
@@ -125,8 +135,9 @@ export class Router {
 
   /**
    * /switch：把 chat 的绑定覆盖到目标会话。
-   * 目标已在内存且非 retiring → 直接复用（initiator 不变）；否则 resume + adopt（切换人成为发起人）。
-   * binding 在 resume 成功后才覆盖（resume 失败绑定不变；覆盖失败摘除本次 adopt 的 runtime，不留孤儿）。
+   * 目标已在内存且非 retiring → 直接复用（initiator 不变）；在宿主内存存活（web 界面等持有写句柄）→
+   * 接管复用（保持其当前装配，setup 不重跑）；冷会话才 resume + adopt（套用 bot 装配，切换人成为发起人）。
+   * binding 在接管/resume 成功后才覆盖（失败绑定不变；覆盖失败摘除本次 adopt 的 runtime，不留孤儿）。
    * 切走的旧 runtime 不 retire（在飞 turn 卡片在本 chat 照常收尾），闲置落定后仍未重新绑定才摘除。
    */
   async switchTo(bot: BotRecord, chatId: string, sessionId: string, reply: ReplyHandle, userId: string): Promise<SessionRuntime> {
@@ -137,7 +148,7 @@ export class Router {
     if (existing !== undefined && !existing.retiring) {
       rt = existing
     } else {
-      const agent = await this.agents.resume({ sessionId, ...this.resolveSession(bot, userId) })
+      const agent = this.agents.get(sessionId) ?? await this.agents.resume({ sessionId, ...this.resolveSession(bot, userId) })
       await this.attach(bot.project, sessionId)
       rt = this.adopt(bot.id, chatId, userId, sessionId, agent, reply)
       adopted = true
@@ -145,8 +156,11 @@ export class Router {
     try {
       await this.bindings.set(bot.id, chatId, sessionId)
     } catch (error) {
-      // 本次 adopt 的 runtime 未写进绑定即失败：摘除不留孤儿（复用路径 runtime 先于本次调用存在，不动）。
-      if (adopted && this.sessions.get(sessionId) === rt) this.sessions.delete(sessionId)
+      // 本次 adopt 的 runtime 未写进绑定即失败：摘除并释放写句柄不留孤儿（复用路径 runtime 先于本次调用存在，不动）。
+      if (adopted && this.sessions.get(sessionId) === rt) {
+        this.sessions.delete(sessionId)
+        await this.disposeAgent(sessionId, rt)
+      }
       throw error
     }
     if (oldBound !== undefined && oldBound !== sessionId) {
@@ -156,14 +170,14 @@ export class Router {
     return rt
   }
 
-  /** 未绑定会话闲置落定（在飞 turn 卡片收尾）后，仍未被重新绑定才摘出 sessions（摘除窗口内被切回不误删）。 */
+  /** 未绑定会话闲置落定（在飞 turn 卡片收尾）后，仍未被重新绑定才摘出 sessions 并 dispose（摘除窗口内被切回不误删）。 */
   private releaseUnbound(botId: string, chatId: string, sessionId: string, rt: SessionRuntime): void {
     void (async () => {
       await rt.agent.whenIdle().catch(() => undefined)
       await rt.tail.catch(() => undefined)
-      if (this.sessions.get(sessionId) === rt && this.bindings.get(botId, chatId) !== sessionId) {
-        this.sessions.delete(sessionId)
-      }
+      if (this.sessions.get(sessionId) !== rt || this.bindings.get(botId, chatId) === sessionId) return
+      this.sessions.delete(sessionId)
+      await this.disposeAgent(sessionId, rt)
     })()
   }
 

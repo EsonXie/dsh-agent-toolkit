@@ -23,17 +23,20 @@ interface Recorded {
 
 function harness(opts: {
   createError?: unknown
+  resumeError?: unknown
   attachments?: () => AttachmentsPort | undefined
   catalog?: () => SessionCatalogPort | undefined
 } = {}) {
   const rec: Recorded = { notices: [], acked: 0, followups: [], cancels: 0, hookInputs: [] }
   const agents: AgentsPort = {
+    get: () => undefined,
     create: async (input) => {
       if (opts.createError !== undefined) throw opts.createError
       rec.hookInputs.push(input.hooks)
       return fakeAgent(input.sessionId, rec)
     },
     resume: async (input) => {
+      if (opts.resumeError !== undefined) throw opts.resumeError
       rec.hookInputs.push(input.hooks)
       return fakeAgent(input.sessionId, rec)
     },
@@ -86,6 +89,7 @@ function fakeAgent(sessionId: string, rec: Recorded): AgentPort {
     },
     cancel: () => { rec.cancels += 1 },
     whenIdle: async () => undefined,
+    dispose: async () => undefined,
   }
 }
 
@@ -372,4 +376,18 @@ test('/switch 边界：无参 / 序号无缓存 / 已是当前 / 前缀零命中
   const degraded = harness()
   degraded.inbound.onMessage(degraded.msg('/switch 1'))
   await vi.waitFor(() => { expect(degraded.rec.notices).toContain('会话切换在当前环境不可用') })
+})
+
+test('/switch 目标写句柄被占用（web 界面打开中）：占用提示，绑定不变，不走 onError', async () => {
+  const owned = Object.assign(
+    new Error('session "aaaa1111-0000-0000-0000-000000000000" is already owned by an active write handle'),
+    { name: 'SessionAlreadyOwnedError' },
+  )
+  const { rec, inbound, router, msg } = harness({ resumeError: owned, catalog: () => ({ list: async () => CATALOG_ENTRIES }) })
+  inbound.onMessage(msg('建会话'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  const before = router.boundSessionId('reviewer', 'oc_1')
+  inbound.onMessage(msg('/switch aaaa1111'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('正被占用'))).toBe(true) })
+  expect(router.boundSessionId('reviewer', 'oc_1')).toBe(before)
 })

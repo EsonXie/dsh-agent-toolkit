@@ -123,14 +123,18 @@ export class BotRuntime {
     }
   }
 
-  /** 取消会话并等出站链落定后摘出 sessions（让在飞 turn 的 turn/end 正常 finalize 旧卡）。 */
+  /** 取消会话并等出站链落定后摘出 sessions（让在飞 turn 的 turn/end 正常 finalize 旧卡），随后 dispose 释放写句柄（重绑 resume 前提）。 */
   private retire(sessionId: string, rt: SessionRuntime): void {
     rt.retiring = true
     rt.agent.cancel()
     void (async () => {
       await rt.agent.whenIdle().catch(() => undefined)
       await rt.tail.catch(() => undefined)
-      if (this.sessions.get(sessionId) === rt) this.sessions.delete(sessionId)
+      if (this.sessions.get(sessionId) !== rt) return
+      this.sessions.delete(sessionId)
+      await rt.agent.dispose().catch((error) => {
+        this.deps.log.warn(`[project-bot] 会话 ${sessionId} 的 agent 释放失败：${error instanceof Error ? error.message : String(error)}`)
+      })
     })()
   }
 

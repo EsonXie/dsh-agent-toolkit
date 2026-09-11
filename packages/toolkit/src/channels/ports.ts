@@ -8,6 +8,8 @@ export interface AgentPort {
   followup(message: unknown): void
   cancel(): void
   whenIdle(): Promise<void>
+  /** 释放宿主写句柄（AgentHandle.dispose）：停止 loop、注销 agent。摘除 runtime 时必须调用，否则会话永远 already owned。 */
+  dispose(): Promise<void>
 }
 
 /** 一个创作期注册到 agent 系统提示的提示段（name/order/text 与 LayerConfig 同构）。 */
@@ -37,6 +39,11 @@ export interface AgentsPort {
     agentOptions?: { provider?: string; model?: string }
     hooks: AgentHooks
   }): Promise<AgentPort>
+  /**
+   * 宿主内存中已存活的 agent（web 界面等持有写句柄）：接管复用（宿主 session-controller
+   * createOrAdopt 同款 live 复用），保持其当前装配（setup 不重跑）；其 dispose 为空操作（句柄归原主）。
+   */
+  get(sessionId: string): AgentPort | undefined
 }
 
 /** main 形态会话（bot 未自配 agentOptions 时）与未配置模型的角色的模型来源（取 {provider, model}）。 */

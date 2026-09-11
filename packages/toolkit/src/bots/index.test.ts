@@ -41,7 +41,7 @@ function makeCtx(): { ctx: Context; on: ReturnType<typeof vi.fn> } {
     effect: () => {},
     on,
     credentials: { set: vi.fn(async () => {}), resolve: vi.fn(async () => undefined), unset: vi.fn(async () => {}) },
-    agents: { create: vi.fn(), resume: vi.fn() },
+    agents: { create: vi.fn(), resume: vi.fn(), get: vi.fn(() => undefined) },
     agentDefaultModel: { currentSelection: () => ({ provider: 'spawn', model: 'deepseek-chat' }) },
     get: () => undefined,
     inject: () => {},

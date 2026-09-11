@@ -40,7 +40,7 @@ function fakeBot(overrides: Partial<BotRecord> = {}): BotRecord {
 }
 
 function fakeAgent(sessionId: string) {
-  return { sessionId, followup: vi.fn(), cancel: vi.fn(), whenIdle: vi.fn(async () => undefined) }
+  return { sessionId, followup: vi.fn(), cancel: vi.fn(), whenIdle: vi.fn(async () => undefined), dispose: vi.fn(async () => undefined) }
 }
 
 function fakeBindings(): BindingStore & { map: Map<string, string> } {
@@ -62,7 +62,9 @@ function setup(
 ) {
   const created: { input: Record<string, unknown>; agent: AgentPort }[] = []
   const resumed: { input: Record<string, unknown>; agent: AgentPort }[] = []
+  const live = new Map<string, AgentPort>()
   const agents: AgentsPort = {
+    get: (sessionId) => live.get(sessionId),
     create: async (input) => { const agent = fakeAgent(input.sessionId); created.push({ input: input as unknown as Record<string, unknown>, agent }); return agent },
     resume: async (input) => { const agent = fakeAgent(input.sessionId); resumed.push({ input: input as unknown as Record<string, unknown>, agent }); return agent },
   }
@@ -71,7 +73,7 @@ function setup(
   const defaultModelFn = vi.fn(defaultModel)
   const workspace: WorkspacePort & { attach: ReturnType<typeof vi.fn> } = { attach: vi.fn(async () => undefined) }
   const onWarn = vi.fn()
-  return { agents, bindings, sessions, workspace, onWarn, router: new Router(agents, bindings, sessions, defaultModelFn, workspace, onWarn, registry), created, resumed, defaultModel: defaultModelFn }
+  return { agents, bindings, sessions, workspace, onWarn, router: new Router(agents, bindings, sessions, defaultModelFn, workspace, onWarn, registry), created, resumed, live, defaultModel: defaultModelFn }
 }
 
 describe('Router.ensure', () => {
@@ -435,16 +437,78 @@ describe('Router.switchTo（/switch）', () => {
   })
 
   test('binding 覆盖失败：摘除本次 adopt 的 runtime 并抛错（不留孤儿）', async () => {
-    const { router, bindings, sessions } = setup()
+    const { router, bindings, sessions, resumed } = setup()
     const original = bindings.set.bind(bindings)
     bindings.set = async (..._args: Parameters<typeof original>) => { throw new Error('storage down') }
     await expect(router.switchTo(fakeBot(), 'oc_1', 'sess-target', reply, 'ou_u1')).rejects.toThrow('storage down')
     expect(sessions.has('sess-target')).toBe(false)
+    expect(resumed[0].agent.dispose).toHaveBeenCalledTimes(1)   // 释放写句柄，否则重试即 already owned
+  })
+
+  test('摘除时 dispose 释放宿主写句柄：之后可 resume 切回（already owned 回归）', async () => {
+    const { router, sessions, resumed } = setup()
+    const old = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    const oldId = old.sessionId
+    await router.switchTo(fakeBot(), 'oc_1', 'sess-target', reply, 'ou_u1')
+    await new Promise((r) => setTimeout(r, 0))        // releaseUnbound 落定
+    expect(sessions.has(oldId)).toBe(false)
+    expect(old.agent.dispose).toHaveBeenCalledTimes(1)
+    // 写句柄已释放：切回走 resume（真实宿主此时不再报 already owned）
+    await router.switchTo(fakeBot(), 'oc_1', oldId, reply, 'ou_u1')
+    expect(resumed.filter((r) => r.input.sessionId === oldId)).toHaveLength(1)
+  })
+
+  test('摘除窗口内被切回：不 dispose（runtime 仍存活复用）', async () => {
+    const { router, sessions } = setup()
+    const old = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    const oldId = old.sessionId
+    let idle!: () => void
+    old.agent.whenIdle = () => new Promise<void>((resolve) => { idle = resolve })
+    await router.switchTo(fakeBot(), 'oc_1', 'sess-target', reply, 'ou_u1')
+    await router.switchTo(fakeBot(), 'oc_1', oldId, reply, 'ou_u1')   // 切回（内存复用）
+    idle()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(sessions.get(oldId)).toBe(old)
+    expect(old.agent.dispose).not.toHaveBeenCalled()
   })
 
   test('switchTo 后 attach 目标会话到 bot 项目 workspace（幂等兜底归组）', async () => {
     const { router, workspace } = setup()
     await router.switchTo(fakeBot(), 'oc_1', 'sess-target', reply, 'ou_u1')
     expect(workspace.attach).toHaveBeenCalledWith('D:\\work\\demo', 'sess-target')
+  })
+
+  test('/new retire：收尾落定后 dispose 释放写句柄（旧会话之后可被 /switch resume 接管）', async () => {
+    const { router, sessions } = setup()
+    const old = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    const oldId = old.sessionId
+    await router.reset(fakeBot(), 'oc_1', reply, 'ou_u1')
+    await new Promise((r) => setTimeout(r, 0))        // retire 收尾落定
+    expect(old.agent.cancel).toHaveBeenCalled()
+    expect(sessions.has(oldId)).toBe(false)
+    expect(old.agent.dispose).toHaveBeenCalledTimes(1)
+  })
+
+  test('目标在宿主内存存活（web 界面持有写句柄）：接管复用，不 resume（宿主 createOrAdopt 同款）', async () => {
+    const { router, bindings, live, resumed, defaultModel } = setup()
+    await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    const webOwned = fakeAgent('sess-web')
+    live.set('sess-web', webOwned)
+    const rt = await router.switchTo(fakeBot(), 'oc_1', 'sess-web', reply, 'ou_u2')
+    expect(resumed).toHaveLength(0)                   // live 直接复用，resume 会 already owned
+    expect(rt.agent).toBe(webOwned)
+    expect(rt.initiatorOpenId).toBe('ou_u2')          // 切换人成为发起人（审批校验用）
+    expect(defaultModel).toHaveBeenCalledTimes(1)     // 接管不重跑装配（保持其当前装配）
+    expect(bindings.get('reviewer', 'oc_1')).toBe('sess-web')
+  })
+
+  test('ensure：绑定会话在宿主存活但不在插件 map（重启窗口外被 web 接管）→ 复用不 resume', async () => {
+    const { router, bindings, live, resumed } = setup()
+    await bindings.set('reviewer', 'oc_1', 'sess-web')
+    const webOwned = fakeAgent('sess-web')
+    live.set('sess-web', webOwned)
+    const rt = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    expect(resumed).toHaveLength(0)
+    expect(rt.agent).toBe(webOwned)
   })
 })

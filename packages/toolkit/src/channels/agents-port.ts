@@ -2,7 +2,7 @@
  *  sessionId 记入 ownedSessions（插件自有会话集合，cron_* 工具注册门控据此排除 bot/schedule 会话）。 */
 import type { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type { AgentHandle } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import { setupAgentScope } from './agent-setup.ts'
 import type { AgentPort, AgentsPort } from './ports.ts'
 import type { ScopeJoiner } from './scope-joiner.ts'
@@ -15,6 +15,17 @@ export function createAgentsPort(ctx: Context, joiner: ScopeJoiner, ownedSession
       followup: (message) => agent.followup(message as Parameters<typeof agent.followup>[0]),
       cancel: () => agent.cancel({ kind: 'user' }),
       whenIdle: () => agent.whenIdle(),
+      dispose: () => handle.dispose(),
+    }
+  }
+  /** 接管宿主内存中已存活的 agent（web 界面等）：dispose 为空操作——写句柄归原主，本插件不释放。 */
+  function adaptLive(agent: Agent): AgentPort {
+    return {
+      sessionId: String(agent.id),
+      followup: (message) => agent.followup(message as Parameters<typeof agent.followup>[0]),
+      cancel: () => agent.cancel({ kind: 'user' }),
+      whenIdle: () => agent.whenIdle(),
+      dispose: async () => undefined,
     }
   }
   return {
@@ -36,6 +47,10 @@ export function createAgentsPort(ctx: Context, joiner: ScopeJoiner, ownedSession
         setup: (agentCtx) => setupAgentScope(agentCtx, input.hooks, joiner),
       })
       return adaptAgent(handle)
+    },
+    get(sessionId) {
+      const agent = ctx.agents.get(SessionId(sessionId))
+      return agent === undefined ? undefined : adaptLive(agent)
     },
   }
 }

@@ -6,7 +6,7 @@ import type { SessionRuntime } from '../ports.ts'
 function fakeRt(sessionId: string, botId = 'reviewer', initiatorOpenId = 'ou_initiator'): SessionRuntime {
   return {
     botId, chatId: 'oc_chat1', sessionId, initiatorOpenId,
-    agent: { sessionId, followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined },
+    agent: { sessionId, followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined, dispose: async () => undefined },
     reply: undefined, inflight: undefined, tail: Promise.resolve(), turn: undefined, retiring: false,
   }
 }

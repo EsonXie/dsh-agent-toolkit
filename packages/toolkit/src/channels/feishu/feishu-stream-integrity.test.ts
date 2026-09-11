@@ -90,7 +90,7 @@ async function drive(failures: Map<string, number[]>) {
   const reply = new FeishuReplyHandle(api, 'oc_1', TUNABLES, () => undefined)
   const rt = {
     botId: 'b', chatId: 'oc_1', sessionId: 's1', initiatorOpenId: 'ou_1',
-    agent: { sessionId: 's1', followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined },
+    agent: { sessionId: 's1', followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined, dispose: async () => undefined },
     reply, inflight: undefined, tail: Promise.resolve(), turn: undefined, retiring: false,
   } as SessionRuntime
   const sessions = new Map([['s1', rt]])
