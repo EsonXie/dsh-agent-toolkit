@@ -6,6 +6,7 @@ import type { InboundMessage } from './channel.ts'
 import { parseDirective } from './directive.ts'
 import { truncateDetail } from './outbound.ts'
 import type { Router } from './router.ts'
+import type { SessionCatalogEntry, SessionCatalogPort } from './ports.ts'
 
 /** 图片附件库端口（宿主 ctx.attachments 的窄化；缺席时图片降级为提示）。 */
 export interface AttachmentsPort {
@@ -18,11 +19,27 @@ export interface InboundDeps {
   maxErrorDetailChars: number
   /** 可选：宿主附件服务的惰性取用器（消息时解析；apply 期服务注册未必就绪）。 */
   attachments?: () => AttachmentsPort | undefined
+  /** 可选：候选会话目录的惰性取用器（attachments 同款"消息时解析"）；缺席 = /sessions、/switch 降级文案。 */
+  catalog?: () => SessionCatalogPort | undefined
   onError(message: string): void
 }
 
+/** /help 输出文本。 */
+const HELP_TEXT = [
+  '可用指令：',
+  '/new 开启新会话（旧会话保留，可用 /switch 切回）',
+  '/stop 停止当前任务',
+  '/status 查看项目与会话状态',
+  '/sessions 列出本项目可切换的会话',
+  '/switch <序号|id前缀> 切换到指定会话',
+  '/help 显示本帮助',
+].join('\n')
+
 export class Inbound {
   constructor(private readonly deps: InboundDeps) {}
+
+  /** 最近一次 /sessions 输出（per chat 序号缓存；进程重启即失效）。 */
+  private readonly lastLists = new Map<string, readonly string[]>()
 
   onMessage(msg: InboundMessage): void {
     void this.handle(msg).catch(async (error) => {
@@ -38,12 +55,12 @@ export class Inbound {
     if (bot === undefined) return
 
     const directive = parseDirective(msg.text)
-    if (directive === 'new') {
+    if (directive?.name === 'new') {
       await this.deps.router.reset(bot, msg.chatId, msg.reply, msg.userId)
       await msg.reply.notice('已开启新会话')
       return
     }
-    if (directive === 'stop') {
+    if (directive?.name === 'stop') {
       const rt = this.deps.router.lookup(bot.id, msg.chatId)
       if (rt?.inflight !== undefined) {
         rt.agent.cancel()
@@ -53,11 +70,23 @@ export class Inbound {
       }
       return
     }
-    if (directive === 'status') {
+    if (directive?.name === 'status') {
       const rt = this.deps.router.lookup(bot.id, msg.chatId)
       await msg.reply.notice(rt === undefined
         ? `项目：${bot.project}\n会话：未创建（发送消息即创建）`
         : `项目：${bot.project}\n会话：${rt.sessionId}\n状态：${rt.inflight !== undefined ? '处理中' : '空闲'}`)
+      return
+    }
+    if (directive?.name === 'help') {
+      await msg.reply.notice(HELP_TEXT)
+      return
+    }
+    if (directive?.name === 'sessions') {
+      await this.listSessions(bot, msg)
+      return
+    }
+    if (directive?.name === 'switch') {
+      await this.switchSession(bot, msg, directive.arg)
       return
     }
 
@@ -100,5 +129,63 @@ export class Inbound {
       await ack?.()
       throw error
     }
+  }
+
+  private async listSessions(bot: BotRecord, msg: InboundMessage): Promise<void> {
+    const catalog = this.deps.catalog?.()
+    if (catalog === undefined) {
+      await msg.reply.notice('会话切换在当前环境不可用')
+      return
+    }
+    const entries = await catalog.list(bot.project)
+    if (entries.length === 0) {
+      await msg.reply.notice('当前项目下还没有可切换的会话（发消息即创建）')
+      return
+    }
+    const current = this.deps.router.boundSessionId(bot.id, msg.chatId)
+    this.lastLists.set(`${bot.id}:${msg.chatId}`, entries.map((e) => e.sessionId))
+    const lines = entries.map((e, i) =>
+      `${i + 1}. ${e.sessionId === current ? '✓ ' : ''}${e.title ?? '(无标题)'}（${e.sessionId.slice(0, 8)}）`)
+    await msg.reply.notice(`会话列表（/switch <序号|id前缀> 切换）：\n${lines.join('\n')}`)
+  }
+
+  private async switchSession(bot: BotRecord, msg: InboundMessage, arg: string | undefined): Promise<void> {
+    const catalog = this.deps.catalog?.()
+    if (catalog === undefined) {
+      await msg.reply.notice('会话切换在当前环境不可用')
+      return
+    }
+    if (arg === undefined || arg.length === 0) {
+      await msg.reply.notice('用法：/switch <序号|id前缀>（序号见 /sessions）')
+      return
+    }
+    const entries = await catalog.list(bot.project)
+    let target: SessionCatalogEntry | undefined
+    if (/^\d+$/.test(arg)) {
+      const ids = this.lastLists.get(`${bot.id}:${msg.chatId}`)
+      const id = ids?.[Number(arg) - 1]
+      target = id !== undefined ? entries.find((e) => e.sessionId === id) : undefined
+      if (target === undefined) {
+        await msg.reply.notice('序号无效或列表已过期，请先发送 /sessions 查看最新列表')
+        return
+      }
+    } else {
+      const matches = entries.filter((e) => e.sessionId.startsWith(arg))
+      if (matches.length === 0) {
+        await msg.reply.notice(`没有 id 前缀为 "${arg}" 的会话`)
+        return
+      }
+      if (matches.length > 1) {
+        await msg.reply.notice(`id 前缀 "${arg}" 命中多个会话，请加长前缀`)
+        return
+      }
+      target = matches[0]
+    }
+    if (target.sessionId === this.deps.router.boundSessionId(bot.id, msg.chatId)) {
+      await msg.reply.notice('已是当前会话')
+      return
+    }
+    await this.deps.router.switchTo(bot, msg.chatId, target.sessionId, msg.reply, msg.userId)
+    await msg.reply.notice(`已切换到会话：${target.title ?? '(无标题)'}（${target.sessionId.slice(0, 8)}）`)
   }
 }

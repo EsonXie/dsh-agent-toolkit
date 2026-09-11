@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from 'vitest'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { Disposer, InboundMessage, ReplyHandle } from './channel.ts'
 import { Inbound, type AttachmentsPort, type InboundDeps } from './inbound.ts'
-import type { AgentPort, AgentsPort, BindingStore, SessionRuntime } from './ports.ts'
+import type { AgentPort, AgentsPort, BindingStore, SessionCatalogPort, SessionRuntime } from './ports.ts'
 import { Router } from './router.ts'
 import type { AgentRegistry } from '../agents/registry.ts'
 import type { BotRecord } from '../bots/store.ts'
@@ -21,7 +21,11 @@ interface Recorded {
   hookInputs: unknown[]
 }
 
-function harness(opts: { createError?: unknown; attachments?: () => AttachmentsPort | undefined } = {}) {
+function harness(opts: {
+  createError?: unknown
+  attachments?: () => AttachmentsPort | undefined
+  catalog?: () => SessionCatalogPort | undefined
+} = {}) {
   const rec: Recorded = { notices: [], acked: 0, followups: [], cancels: 0, hookInputs: [] }
   const agents: AgentsPort = {
     create: async (input) => {
@@ -55,6 +59,7 @@ function harness(opts: { createError?: unknown; attachments?: () => AttachmentsP
     bots: { get: (id) => (id === BOT.id ? BOT : undefined) },
     maxErrorDetailChars: 200,
     ...(opts.attachments !== undefined ? { attachments: opts.attachments } : {}),
+    ...(opts.catalog !== undefined ? { catalog: opts.catalog } : {}),
     onError: () => undefined,
   })
   function msg(text: string, chatId = 'oc_1', loadImages?: InboundMessage['loadImages']): InboundMessage {
@@ -258,4 +263,113 @@ test('/new 指令：reset 路径同样携带 userId', async () => {
   inbound.onMessage(msg('/new'))
   await vi.waitFor(() => { expect(rec.hookInputs).toHaveLength(1) })
   expect(rec.hookInputs[0]).toMatchObject({ sections: [{ name: 'dsh-agent-toolkit:channel:sender' }] })
+})
+
+const CATALOG_ENTRIES = [
+  { sessionId: 'aaaa1111-0000-0000-0000-000000000000', title: '修复登录闪退' },
+  { sessionId: 'bbbb2222-0000-0000-0000-000000000000' },
+]
+
+function catalogHarness(entries = CATALOG_ENTRIES) {
+  return harness({ catalog: () => ({ list: async () => entries }) })
+}
+
+test('/help：列出全部指令', async () => {
+  const { rec, inbound, msg } = harness()
+  inbound.onMessage(msg('/help'))
+  await vi.waitFor(() => { expect(rec.notices).toHaveLength(1) })
+  for (const cmd of ['/new', '/stop', '/status', '/sessions', '/switch', '/help']) {
+    expect(rec.notices[0]).toContain(cmd)
+  }
+})
+
+test('/sessions：列表含标题、id 前缀与当前绑定 ✓ 标记', async () => {
+  // catalog 内容可变：先建会话拿到真实绑定 id，再让列表包含它
+  let entries: { sessionId: string; title?: string }[] = [...CATALOG_ENTRIES]
+  const { rec, inbound, router, msg } = harness({ catalog: () => ({ list: async () => entries }) })
+  inbound.onMessage(msg('先建会话'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  const current = router.boundSessionId('reviewer', 'oc_1')!
+  entries = [CATALOG_ENTRIES[0], { sessionId: current, title: '当前这个' }, CATALOG_ENTRIES[1]]
+  inbound.onMessage(msg('/sessions'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('会话列表'))).toBe(true) })
+  const list = rec.notices.find((n) => n.includes('会话列表'))!
+  expect(list).toContain('1. 修复登录闪退（aaaa1111）')
+  expect(list).toContain(`2. ✓ 当前这个（${current.slice(0, 8)}）`)
+  expect(list).toContain(`3. (无标题)（bbbb2222）`)
+})
+
+test('/sessions：无标题会话显示 (无标题)，catalog 缺席降级文案', async () => {
+  const { rec, inbound, msg } = catalogHarness([{ sessionId: 'cccc3333-0000-0000-0000-000000000000' }])
+  inbound.onMessage(msg('/sessions'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('(无标题)') && n.includes('cccc3333'))).toBe(true) })
+
+  const degraded = harness() // 不传 catalog
+  degraded.inbound.onMessage(degraded.msg('/sessions'))
+  await vi.waitFor(() => { expect(degraded.rec.notices).toContain('会话切换在当前环境不可用') })
+})
+
+test('/sessions：空列表提示', async () => {
+  const { rec, inbound, msg } = catalogHarness([])
+  inbound.onMessage(msg('/sessions'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('还没有可切换的会话'))).toBe(true) })
+})
+
+test('/switch 序号：按最近一次 /sessions 列表切换并确认', async () => {
+  const { rec, inbound, router, msg } = catalogHarness()
+  inbound.onMessage(msg('建会话'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  const old = router.boundSessionId('reviewer', 'oc_1')!
+  inbound.onMessage(msg('/sessions'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('会话列表'))).toBe(true) })
+  inbound.onMessage(msg('/switch 1'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('已切换到会话'))).toBe(true) })
+  expect(router.boundSessionId('reviewer', 'oc_1')).toBe(CATALOG_ENTRIES[0].sessionId)
+  expect(router.boundSessionId('reviewer', 'oc_1')).not.toBe(old)
+  // 旧会话不取消
+  expect(rec.cancels).toBe(0)
+})
+
+test('/switch id 前缀：不依赖列表缓存直接切', async () => {
+  const { rec, inbound, router, msg } = catalogHarness()
+  inbound.onMessage(msg('建会话'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  inbound.onMessage(msg('/switch bbbb2222'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('已切换到会话'))).toBe(true) })
+  expect(router.boundSessionId('reviewer', 'oc_1')).toBe(CATALOG_ENTRIES[1].sessionId)
+})
+
+test('/switch 边界：无参 / 序号无缓存 / 已是当前 / 前缀零命中与多命中 / catalog 缺席', async () => {
+  const { rec, inbound, msg } = catalogHarness()
+  inbound.onMessage(msg('建会话'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+
+  inbound.onMessage(msg('/switch'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('用法：/switch'))).toBe(true) })
+
+  inbound.onMessage(msg('/switch 9'))   // 从未 /sessions：无缓存
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('序号无效'))).toBe(true) })
+
+  const h2entries: { sessionId: string; title?: string }[] = []
+  const h2 = harness({ catalog: () => ({ list: async () => h2entries }) })
+  h2.inbound.onMessage(h2.msg('建会话'))
+  await vi.waitFor(() => { expect(h2.rec.followups).toHaveLength(1) })
+  const h2Current = h2.router.boundSessionId('reviewer', 'oc_1')!
+  h2entries.push({ sessionId: h2Current, title: '自己' })
+  h2.inbound.onMessage(h2.msg(`/switch ${h2Current.slice(0, 8)}`))
+  await vi.waitFor(() => { expect(h2.rec.notices).toContain('已是当前会话') })
+
+  inbound.onMessage(msg('/switch zzzz'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('没有 id 前缀为'))).toBe(true) })
+
+  const dup = harness({ catalog: () => ({ list: async () => [
+    { sessionId: 'aaaa1111-0000-0000-0000-000000000000' },
+    { sessionId: 'aaaa9999-0000-0000-0000-000000000000' },
+  ] }) })
+  dup.inbound.onMessage(dup.msg('/switch aaaa'))
+  await vi.waitFor(() => { expect(dup.rec.notices.some((n) => n.includes('命中多个会话'))).toBe(true) })
+
+  const degraded = harness()
+  degraded.inbound.onMessage(degraded.msg('/switch 1'))
+  await vi.waitFor(() => { expect(degraded.rec.notices).toContain('会话切换在当前环境不可用') })
 })
