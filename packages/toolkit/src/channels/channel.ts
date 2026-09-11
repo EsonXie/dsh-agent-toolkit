@@ -19,6 +19,8 @@ export interface ReplyHandle {
   finalize(status: TurnStatus, detail?: string): Promise<void>
   /** 普通文本消息（准入拒绝、/status 应答等）。 */
   notice(text: string): Promise<void>
+  /** 发送文件消息（可选能力；渠道不支持时缺省，由核心降级提示）。错误向调用方传播。 */
+  sendFile?(name: string, data: Uint8Array): Promise<void>
 }
 
 /** 渠道图片下载产物（媒体类型为渠道侧判定的 MIME 子集；核心侧不感知宿主类型）。 */

@@ -57,6 +57,8 @@ function fakeFeishu(failures: Map<string, number[]>) {
     removeReaction: async () => undefined,
     downloadImage: async () => ({ data: new Uint8Array(), mediaType: 'image/png' }),
     getBotOpenId: async () => 'ou_bot',
+    uploadFile: async () => 'file_v3_xxx',
+    sendFile: async () => undefined,
   }
   return { api, cards }
 }

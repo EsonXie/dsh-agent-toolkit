@@ -26,6 +26,8 @@ function fakeApi() {
     removeReaction: async (...args) => { calls.push({ op: 'removeReaction', args }) },
     downloadImage: async (...args) => { calls.push({ op: 'downloadImage', args }); return { data: new Uint8Array(), mediaType: 'image/png' } },
     getBotOpenId: async () => 'ou_bot_self',
+    uploadFile: vi.fn(async (name: string) => { calls.push({ op: 'uploadFile', args: [name] }); return 'file_v3_xxx' }),
+    sendFile: vi.fn(async (...args) => { calls.push({ op: 'sendFile', args }) }),
   }
   return { api, calls }
 }
@@ -371,4 +373,23 @@ describe('确认式出站与失败治理', () => {
     expect(closes[0].args[2]).toBeGreaterThan(updates[0].args[3] as number)
     expect(inserts[2].args[3]).toBe(1)
   })
+})
+
+test('sendFile：上传后经 chatId 发文件消息，不走卡片串行链', async () => {
+  const { api, calls } = fakeApi()
+  const { reply } = make(api)
+  await reply.sendFile!('report.md', new TextEncoder().encode('# 报告'))
+  expect(calls.map((c) => c.op)).toEqual(['uploadFile', 'sendFile'])
+  expect(calls[0].args[0]).toBe('report.md')
+  expect(calls[1].args).toEqual(['oc_1', 'file_v3_xxx'])
+})
+
+test('sendFile：上传失败向调用方传播（重试耗尽后抛最后一次错误）', async () => {
+  const { api } = fakeApi()
+  vi.mocked(api.uploadFile).mockRejectedValue(new Error('网络错误'))
+  const { reply } = make(api)
+  const pending = reply.sendFile!('a.md', new Uint8Array(1))
+  const assertion = expect(pending).rejects.toThrow('网络错误')
+  await vi.advanceTimersByTimeAsync(3000)
+  await assertion
 })

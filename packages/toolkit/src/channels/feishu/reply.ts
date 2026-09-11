@@ -90,6 +90,14 @@ export class FeishuReplyHandle implements ReplyHandle {
     return this.tail.then(() => undefined)
   }
 
+  /** 文件消息与卡片序列无关：直接调用（不进 enqueue 串行链），带重试，错误传播给调用方。 */
+  async sendFile(name: string, data: Uint8Array): Promise<void> {
+    await withRetry(async () => {
+      const fileKey = await this.api.uploadFile(name, data)
+      await this.api.sendFile(this.chatId, fileKey)
+    })
+  }
+
   /**
    * 规划入串行链：planSync 在执行点读最新已确认状态与最新 segments，
    * 在飞期间到达的 flush 只标位不重复规划（杜绝重复建卡/重复 insert）。
