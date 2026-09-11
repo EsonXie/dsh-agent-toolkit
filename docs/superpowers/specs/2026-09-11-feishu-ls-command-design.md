@@ -15,7 +15,7 @@ bot 会话内发送 `/ls [相对路径] [关键字]`：无参罗列项目根目�
 | `/ls <路径> <关键字>` | 在该子目录**递归**搜索名称包含关键字的条目（不分大小写） |
 | `/ls . <关键字>` | 从项目根递归搜索（`.` = 根） |
 
-单参一律按路径处理，不做「单词猜路径还是关键字」的魔法。指令判定照 /doc 模式：首词 `/ls`（tolowerCase 判定），arg 取原始文本切片保留大小写；arg 缺省或 trim 后为空（如 `/ls ` 尾空白）都按无参处理（列项目根），不报用法错误。Inbound 内按首个空白把 arg 拆成 路径 + 关键字（关键字内含空白的场景不支持，YAGNI）。
+单参一律按路径处理，不做「单词猜路径还是关键字」的魔法。指令判定照 /doc 模式：首词 `/ls`（tolowerCase 判定），arg 取原始文本切片保留大小写；arg 缺省或 trim 后为空（如 `/ls ` 尾空白）都按无参处理（列项目根），不报用法错误。Inbound 内按空白把 arg 拆成 路径 + 关键字（多词关键字以空白 join，如 `/ls docs my report` → 关键字 `my report`）。
 
 ## 3. 输出格式
 
@@ -28,23 +28,25 @@ bot 会话内发送 `/ls [相对路径] [关键字]`：无参罗列项目根目�
 - **不追随符号链接**（防环防越界），符号链接条目本身不列出
 - 安全上限：匹配满 100 条或遍历满 10,000 条目即停；截断时末尾追加 `…已截断，用更精确的关键字或更小的目录细化`
 
-**空结果**：单层空目录 → `（空目录）`；搜索无匹配 → `无匹配条目：<关键字>（<路径>）`。
+**空结果**：单层空目录 → `（空目录：<路径>）`；搜索无匹配 → `无匹配条目：<关键字>（<路径>）`。
 
 ## 4. 护栏（与 /doc 同一套，抽出共享）
 
 - 仅接受相对项目根的相对路径；绝对路径、`..` 越界一律拒绝：`仅支持项目目录内的路径（相对路径，不越出项目根）：<arg>`
-- realpath 父目录包含校验防中间目录符号链接越界（复用 /doc 评审修复后的同一实现）
+- realpath 父目录包含校验防中间目录符号链接越界（复用 /doc 评审修复后的同一实现）；**目标参数本身是符号链接时按 outside 拒绝**（err-safe：链接指向不定，/doc 靠 lstat isFile 拒绝、/ls 无此保护故显式拒绝）；搜索遍历跳过符号链接条目（不追随、不列出）；单层列出时链接条目照列但不追随
 - 目标不存在 → `目录不存在：<arg>`；目标是普通文件 → `/ls 列目录，发文件请用 /doc <路径>`
 - 与 /doc 一样不进会话 turn、不占 in-flight 槽；一切失败摘要 notice 回传渠道（2026-09-03 教训）
 
 ## 5. 实现结构
 
-1. **`doc-command.ts` 抽共享护栏**：导出 `resolveProjectPath(project, arg): Promise<{ ok: true; abs: string } | { ok: false; reason: 'outside' | 'not-found' }>`（词法包含 + realpath 父目录校验，不含类型/大小检查）。`resolveDocPath` 改为薄封装（共享护栏 + lstat isFile + 大小上限），**对外行为与签名不变，现有测试不动**。
+1. **`doc-command.ts` 抽共享护栏**：导出 `resolveProjectPath(project, arg): Promise<{ ok: true; abs: string; st: Stats } | { ok: false; reason: 'outside' | 'not-found' }>`（词法包含 + lstat + realpath 父目录校验，`st` 为 lstat 结果供调用方判类型）。`resolveDocPath` 改为薄封装（共享护栏 + isFile + 大小上限），**对外行为与签名不变，现有测试不动**。
 2. **新增 `ls-command.ts`**（渠道无关核心）：
-   - `listProjectDir(project, arg): Promise<LsResult>` — 单层罗列
-   - `searchProjectTree(project, arg, keyword): Promise<LsResult>` — 递归名称过滤
-   - `LsResult = { ok: true; lines: string[]; truncated: 'cap' | 'walk' | null; remaining: number } | { ok: false; reason: LsReject }`，`LsReject = 'outside' | 'not-found' | 'not-dir'`；`truncated: 'cap'` 时 `remaining` 为未显示条数（供「还有 N 条」），`'walk'`（遍历上限）时剩余不可知，`remaining` 恒 0
-   - `formatLsLines(...)` 渲染最终文本行（排序、`/` 后缀、截断/空结果提示）
+   - `listProjectDir(project, arg): Promise<LsListing>` — 单层罗列
+   - `searchProjectTree(project, arg, keyword): Promise<LsListing>` — 递归名称过滤（关键字大小写不敏感；迭代式 DFS 显式栈防深目录爆栈）
+   - `LsEntry = { name: string; dir: boolean }`（单层模式 name 为条目名；搜索模式为相对项目根的 posix 化路径）
+   - `LsListing = { ok: true; entries: LsEntry[]; truncated: 'cap' | 'walk' | null; remaining: number } | { ok: false; reason: LsReject }`，`LsReject = 'outside' | 'not-found' | 'not-dir'`；`truncated: 'cap'` 时 `remaining` 为未显示条数（仅单层模式填；搜索模式恒 0），`'walk'` = 触及遍历上限
+   - `formatLsText(res, arg, keyword?): string` 渲染 notice 文本（排序已在收集侧完成：目录在前 + 名称 localeCompare / 搜索按路径排序；`/` 后缀、表头、空结果与截断提示）
+   - `lsRejectText(reason, arg): string` 拒绝文案（never 穷尽检查）
    - 常量：`LS_MAX_ENTRIES = 100`、`LS_MAX_WALK = 10_000`（不开放 Config，YAGNI）
 3. **`directive.ts`**：`Directive` 联合加 `'ls'`，解析分支照 /doc（`t === '/ls'`、`t.startsWith('/ls ')`），函数 doc 注释同步。
 4. **`inbound.ts`**：`/doc` 分支旁加 `/ls` 分支 → 私有 `sendLs(bot, msg, arg)`：拆参 → 护栏/罗列/搜索 → notice 输出；`HELP_TEXT` 在 `/doc` 行后补 `'/ls [相对路径] [关键字] 列出项目目录内容（带关键字时递归按名称搜索）'`。
