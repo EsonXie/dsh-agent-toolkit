@@ -74,7 +74,7 @@ describe('RegisterAppService', () => {
     await vi.waitFor(() => { expect(svc.get(id)?.status).toBe('done') })
     expect(receivedAddons).toEqual(FEISHU_REGISTER_APP_ADDONS)
     expect(receivedAddons).toMatchObject({
-      scopes: { tenant: expect.arrayContaining(['im:message', 'im:message:send_as_bot', 'cardkit:card:write', 'contact:user.base:readonly']) },
+      scopes: { tenant: expect.arrayContaining(['im:message', 'im:message:send_as_bot', 'im:resource', 'cardkit:card:write', 'contact:user.base:readonly']) },
       events: { items: { tenant: expect.arrayContaining(['im.message.receive_v1']) } },
     })
     svc.dispose()
@@ -82,5 +82,9 @@ describe('RegisterAppService', () => {
 
   test('addons 声明卡片回传回调（card.action.trigger）', () => {
     expect(FEISHU_REGISTER_APP_ADDONS.callbacks.items).toContain('card.action.trigger')
+  })
+
+  test('addons 声明文件上传权限（im:resource，/doc 需要）', () => {
+    expect(FEISHU_REGISTER_APP_ADDONS.scopes.tenant).toContain('im:resource')
   })
 })

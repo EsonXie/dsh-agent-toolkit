@@ -1,7 +1,7 @@
 /** 扫码一键创建飞书应用：lark.registerApp（OAuth 2.0 Device Authorization Grant）的状态机封装。 */
 import { randomUUID } from 'node:crypto'
 
-/** 扫码创建应用时申请的权限/事件/回调（流式卡片 + 收发消息 + 表情 + 通讯录基础信息 + 审批卡片回传）。
+/** 扫码创建应用时申请的权限/事件/回调（流式卡片 + 收发消息 + 表情 + 文件上传（/doc）+ 通讯录基础信息 + 审批卡片回传）。
  * 故意不加 as const：readonly 元组不可赋值给 SDK AppAddons 的 mutable string[]，
  * 否则 bots/index.ts 的 lark.registerApp(options) 透传会 typecheck 失败。 */
 export const FEISHU_REGISTER_APP_ADDONS = {
@@ -9,6 +9,7 @@ export const FEISHU_REGISTER_APP_ADDONS = {
     tenant: [
       'im:message',
       'im:message:send_as_bot',
+      'im:resource',
       'cardkit:card:write',
       'contact:user.base:readonly',
     ],
