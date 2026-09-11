@@ -8,6 +8,8 @@
 
 出站流式增量源（0.1.5 迁移）：app 级订阅 `agent/assistant-stream` 瞬态帧——`start` 帧校验 turn 并建 attempt 基线（chunk 帧不携带 turn/step，按基线归属当前 step），`chunk` 帧按 `text-delta`→正文 / `reasoning-delta`→过程 / `block-end(reasoning)`→过程段段落分隔分流入段，`end` 帧不消费；turn 生命周期仍由 `turn/start`/`turn/end` 驱动。帧为 fire-and-forget（丢帧无重传），持久 `assistant/message` 结算时对账「尾 text 段」有界恢复丢帧——`turn.lastTextStep` 命中结算 step 才以权威全文替换，否则整体跳过（宁缺勿错，不篡改上一步已提交正文）；`assistant/attempt`（无表面消息）不消费。设计依据：`docs/superpowers/specs/archive/2026-09-10-feishu-stream-0.1.5-design.md`。
 
+运维指令面（0.3.1 起）：`/new` `/stop` `/status` 为整条精确匹配指令；`/sessions` 列出 bot 项目 workspace 候选会话（workspaceRegistry 候选 + live 会话标题，标题取不到显示 (无标题)，三服务缺席降级）；`/switch <序号|id前缀>` 把 chat 绑定覆盖到目标会话（序号指最近一次 /sessions 输出的 per-chat 内存缓存；目标在内存直接复用、否则 resume 接管装配照常；binding 在 resume 成功后才覆盖；切走的旧 runtime 不 retire，在飞 turn 卡片照常收尾，闲置落定且未重新绑定后摘出 sessions）；`/help` 列出全部指令；workspaceRegistry 缺席时 /sessions 与 /switch 回复「会话切换在当前环境不可用」。
+
 ## 审批卡片与 ask_user
 
 飞书审批卡片（0.2.9）：bot 会话工具提权经 `channels/approval/`（ApprovalCenter 渠道无关核心 + 飞书 presenter）处理——`ctx.on('approval/request', …, { prepend: true })` 抢在 web api-proxy 前、按 sessions map 过滤自有会话（非自有 next() 透传）；按钮回调经 WS 长连接 `card.action.trigger`（同 dispatcher 注册，toast 走应答帧返回值）；仅会话发起人可批（`SessionRuntime.initiatorOpenId` 比对）；发卡失败回退 next() 不吞审批；开关 `feishu.approval` 默认 true；扫码建应用 addons 含 `callbacks: ['card.action.trigger']`（存量应用需在开发者后台补开卡片回传）。bot 会话工具面不含 ask_user（守护测试钉住），IM 场景模型直接在回复里提问（basic-tools.ts persona 引导句）。
