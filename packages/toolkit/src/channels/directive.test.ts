@@ -35,6 +35,20 @@ describe('parseDirective', () => {
     expect(parseDirective('/docx')).toBeNull()
   })
 
+  test('/ls 带参：首词判定，路径参数保留原始大小写', () => {
+    expect(parseDirective('/ls docs')).toEqual({ name: 'ls', arg: 'docs' })
+    expect(parseDirective('/LS  Docs/Sub key word ')).toEqual({ name: 'ls', arg: 'Docs/Sub key word' })
+  })
+
+  test('/ls 无参与尾空白：命中且 arg 缺省', () => {
+    expect(parseDirective('/ls')).toEqual({ name: 'ls' })
+    expect(parseDirective('/ls  ')).toEqual({ name: 'ls' })
+  })
+
+  test('/ls 前缀不误伤：/lsx 不是指令', () => {
+    expect(parseDirective('/lsx')).toBeNull()
+  })
+
   test('普通文本与带参数的精确指令都不算', () => {
     expect(parseDirective('你好')).toBeNull()
     expect(parseDirective('/new 请重来')).toBeNull()
