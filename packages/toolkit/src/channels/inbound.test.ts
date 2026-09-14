@@ -238,6 +238,46 @@ test('/status：汇报项目与会话状态', async () => {
   await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('D:\\work\\demo') && n.includes('处理中'))).toBe(true) })
 })
 
+test('/status：列出全部排队消息（前 20 字截断；纯图片显示 [图片]）', async () => {
+  const { rec, inbound, msg } = harness()
+  inbound.onMessage(msg('正在跑的任务'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  inbound.onMessage(msg('这是一条特别特别特别特别特别特别长的排队消息'))
+  inbound.onMessage(msg('', 'oc_1', async () => [{ data: new Uint8Array([1]), mediaType: 'image/png' }]))
+  inbound.onMessage(msg('短消息'))
+  await vi.waitFor(() => { expect(rec.notices.filter((n) => n.includes('已排队'))).toHaveLength(3) })
+  inbound.onMessage(msg('/status'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('排队（3）'))).toBe(true) })
+  const status = rec.notices.find((n) => n.includes('排队（3）'))!
+  expect(status).toContain('状态：处理中')
+  expect(status).toContain('1. 这是一条特别特别特别特别特别特别长的排队…')
+  expect(status).toContain('2. [图片]')
+  expect(status).toContain('3. 短消息')
+})
+
+test('/status：无排队时不出现队列段', async () => {
+  const { rec, inbound, msg } = harness()
+  inbound.onMessage(msg('建会话'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  inbound.onMessage(msg('/status'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('处理中'))).toBe(true) })
+  expect(rec.notices.find((n) => n.includes('处理中'))).not.toContain('排队')
+})
+
+test('/stop：无进行中任务但有排队消息时提示排队数', async () => {
+  const { rec, inbound, router, msg } = harness()
+  inbound.onMessage(msg('任务'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  inbound.onMessage(msg('排队一'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('已排队'))).toBe(true) })
+  // 模拟边界态：槽空但队列非空（正常流程不出现，防御文案分支）。
+  router.lookup('reviewer', 'oc_1')!.inflight = undefined
+  inbound.onMessage(msg('/stop'))
+  await vi.waitFor(() => {
+    expect(rec.notices).toContain('当前没有进行中的任务（1 条排队中，撤回原消息可取消）')
+  })
+})
+
 test('未知 botId 的消息直接丢弃', async () => {
   const { rec, inbound, msg } = harness()
   const m = msg('hello')

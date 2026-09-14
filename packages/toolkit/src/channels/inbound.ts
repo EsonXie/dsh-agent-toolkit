@@ -39,6 +39,7 @@ const HELP_TEXT = [
   '/doc <相对路径> 发送项目内文件（如对话产出的 Markdown 文档）',
   '/ls [相对路径] [关键字] 列出项目目录内容（图标 + 大小；带关键字时递归按名称搜索）',
   '/help 显示本帮助',
+  '排队：任务执行中发送的消息自动排队，撤回原消息可取消排队',
 ].join('\n')
 
 export class Inbound {
@@ -77,15 +78,30 @@ export class Inbound {
         rt.agent.cancel()
         await msg.reply.notice('已请求停止当前任务')
       } else {
-        await msg.reply.notice('当前没有进行中的任务')
+        const count = this.queues.get(`${bot.id}:${msg.chatId}`)?.length ?? 0
+        await msg.reply.notice(count > 0
+          ? `当前没有进行中的任务（${count} 条排队中，撤回原消息可取消）`
+          : '当前没有进行中的任务')
       }
       return
     }
     if (directive?.name === 'status') {
       const rt = this.deps.router.lookup(bot.id, msg.chatId)
-      await msg.reply.notice(rt === undefined
-        ? `项目：${bot.project}\n会话：未创建（发送消息即创建）`
-        : `项目：${bot.project}\n会话：${rt.sessionId}\n状态：${rt.inflight !== undefined ? '处理中' : '空闲'}`)
+      if (rt === undefined) {
+        await msg.reply.notice(`项目：${bot.project}\n会话：未创建（发送消息即创建）`)
+        return
+      }
+      const lines = [
+        `项目：${bot.project}`,
+        `会话：${rt.sessionId}`,
+        `状态：${rt.inflight !== undefined ? '处理中' : '空闲'}`,
+      ]
+      const queue = this.queues.get(`${bot.id}:${msg.chatId}`) ?? []
+      if (queue.length > 0) {
+        lines.push(`排队（${queue.length}）：`)
+        queue.forEach((m, i) => lines.push(`${i + 1}. ${queuedPreview(m)}`))
+      }
+      await msg.reply.notice(lines.join('\n'))
       return
     }
     if (directive?.name === 'help') {
