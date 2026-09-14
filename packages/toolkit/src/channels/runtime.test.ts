@@ -111,6 +111,20 @@ test('stopBot 停渠道并清理该 bot 的绑定与会话', async () => {
   expect(deps.bindings.get('other:oc_2')).toEqual({ sessionId: 's2' })
 })
 
+test('停止/解绑/全停路径均清空该 bot 的排队队列', async () => {
+  const { runtime } = harness()
+  await runtime.startAll()
+  const clearSpy = vi.spyOn(runtime.inbound, 'clearQueues')
+  await runtime.stopBot('reviewer')
+  expect(clearSpy).toHaveBeenCalledWith('reviewer')
+  clearSpy.mockClear()
+  await runtime.unbindBot('reviewer')
+  expect(clearSpy).toHaveBeenCalledWith('reviewer')
+  clearSpy.mockClear()
+  await runtime.stopAll()
+  expect(clearSpy).toHaveBeenCalledWith('reviewer')
+})
+
 test('stopAll 取消在飞会话并关闭全部渠道（幂等）', async () => {
   const { runtime, closed } = harness()
   await runtime.startAll()

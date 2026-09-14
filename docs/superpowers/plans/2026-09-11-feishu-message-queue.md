@@ -173,9 +173,11 @@ private async dispatch(rt: SessionRuntime, msg: InboundMessage): Promise<void> {
   } catch (error) {
     const ack = rt.inflight.ack
     rt.inflight = undefined
-    await ack?.()
     // 占槽期间可能已有新消息入队：回滚释放后继续排水，不滞留。
+    // 排水先于 ack：占槽转移须与释放同同步段完成（inflight 空 ⇒ 队列空 不变量），
+    // 否则 await ack 让出事件循环期间新到消息会插队到更早的排队消息之前。
     this.drain(rt.botId, rt.chatId)
+    await ack?.()
     throw error
   }
 }

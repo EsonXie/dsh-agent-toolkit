@@ -109,18 +109,22 @@ export class BotRuntime {
     }
   }
 
-  /** 删除 bot：停渠道、取消会话、清绑定。 */
+  /** 删除 bot：停渠道、取消会话、清队列、清绑定。 */
   async stopBot(botId: string): Promise<void> {
     await this.stopChannel(botId)
+    // 队列条目持有渠道句柄（含密钥）：bot 删除后必须清掉，否则永久残留且消息静默卡死。
+    this.inbound.clearQueues(botId)
     for (const [sessionId, rt] of [...this.sessions]) {
       if (rt.botId === botId) this.retire(sessionId, rt)
     }
     await this.bindingStore().deleteBot(botId)
   }
 
-  /** 解绑渠道：停渠道、取消在飞会话；绑定表与持久会话保留（重绑后 resume 接续）。 */
+  /** 解绑渠道：停渠道、清队列、取消在飞会话；绑定表与持久会话保留（重绑后 resume 接续）。 */
   async unbindBot(botId: string): Promise<void> {
     await this.stopChannel(botId)
+    // 解绑后渠道句柄失效：清排队队列（静默丢弃，见 Inbound.clearQueues）。
+    this.inbound.clearQueues(botId)
     for (const [sessionId, rt] of [...this.sessions]) {
       if (rt.botId === botId) this.retire(sessionId, rt)
     }
@@ -157,6 +161,8 @@ export class BotRuntime {
     await Promise.allSettled([...this.handles.values()].map((h) => h.close()))
     this.handles.clear()
     this.approval.dispose()
+    // 全停路径同样清排队队列：释放条目持有的渠道句柄（卸载时随实例回收，但显式清理不留悬垂）。
+    for (const botId of this.deps.bots.keys()) this.inbound.clearQueues(botId)
   }
 
   private async stopChannel(botId: string): Promise<void> {

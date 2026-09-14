@@ -170,9 +170,11 @@ export class Inbound {
     } catch (error) {
       const ack = rt.inflight.ack
       rt.inflight = undefined
-      await ack?.()
       // 占槽期间可能已有新消息入队：回滚释放后继续排水，不滞留。
+      // 排水先于 ack：占槽转移须与释放同同步段完成（inflight 空 ⇒ 队列空 不变量），
+      // 否则 await ack 让出事件循环期间新到消息会插队到更早的排队消息之前。
       this.drain(rt.botId, rt.chatId)
+      await ack?.()
       throw error
     }
   }
@@ -196,6 +198,18 @@ export class Inbound {
       this.deps.onError(`[project-bot] 入站处理失败：${detail}`)
       await msg.reply.notice(`处理失败：${detail}`).catch(() => undefined)
     })
+  }
+
+  /**
+   * 清空某 bot 全部 chat 的排队队列（bot 停止/解绑/删除时由 BotRuntime 调用）。
+   * 队列条目持有渠道 reply 句柄（含 lark.Client 与 appSecret），不清理会随 bot 删除永久残留、消息静默卡死。
+   * 静默丢弃、不发 notice：删除/解绑路径上渠道可能已关闭，通知会失败且无意义。
+   */
+  clearQueues(botId: string): void {
+    const prefix = `${botId}:`
+    for (const key of [...this.queues.keys()]) {
+      if (key.startsWith(prefix)) this.queues.delete(key)
+    }
   }
 
   /** 撤回原消息 = 撤销排队条目；已执行/不存在/正在执行的静默忽略（幂等，重推安全）。 */

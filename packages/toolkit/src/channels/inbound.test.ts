@@ -32,9 +32,11 @@ function harness(opts: {
   attachments?: () => AttachmentsPort | undefined
   catalog?: () => SessionCatalogPort | undefined
   followupThrowsOn?: string
+  extraBots?: BotRecord[]
 } = {}) {
   const rec: Recorded = { notices: [], acked: 0, followups: [], cancels: 0, hookInputs: [] }
   const bot: BotRecord = { ...BOT, ...(opts.project !== undefined ? { project: opts.project } : {}) }
+  const allBots = [bot, ...(opts.extraBots ?? [])]
   const agents: AgentsPort = {
     get: () => undefined,
     create: async (input) => {
@@ -66,25 +68,25 @@ function harness(opts: {
   const router = new Router(agents, bindings, sessions, () => ({ provider: 'deepseek', model: 'deepseek-v4' }), { attach: async () => undefined }, () => undefined, registry)
   const inbound = new Inbound({
     router,
-    bots: { get: (id) => (id === bot.id ? bot : undefined) },
+    bots: { get: (id) => allBots.find((b) => b.id === id) },
     maxErrorDetailChars: 200,
     docMaxBytes: 1024 * 1024,
     ...(opts.attachments !== undefined ? { attachments: opts.attachments } : {}),
     ...(opts.catalog !== undefined ? { catalog: opts.catalog } : {}),
     onError: () => undefined,
   })
-  function msg(text: string, chatId = 'oc_1', loadImages?: InboundMessage['loadImages'], reply?: ReplyHandle): InboundMessage {
+  function msg(text: string, chatId = 'oc_1', loadImages?: InboundMessage['loadImages'], reply?: ReplyHandle, ackProcessing?: InboundMessage['ackProcessing']): InboundMessage {
     return {
-      botId: BOT.id, chatId, userId: 'ou_u1', messageId: `om_${Math.random()}`,
-      text,
-      ...(loadImages !== undefined ? { loadImages } : {}),
-      reply: reply ?? fakeReply(rec),
-      ackProcessing: async (): Promise<Disposer> => {
-        rec.acked += 1
-        return () => undefined
-      },
-    }
+    botId: BOT.id, chatId, userId: 'ou_u1', messageId: `om_${Math.random()}`,
+    text,
+    ...(loadImages !== undefined ? { loadImages } : {}),
+    reply: reply ?? fakeReply(rec),
+    ackProcessing: ackProcessing ?? (async (): Promise<Disposer> => {
+      rec.acked += 1
+      return () => undefined
+    }),
   }
+}
   return { rec, inbound, sessions, router, msg }
 }
 
@@ -175,6 +177,40 @@ test('drain：无绑定会话或 retiring 时不排水', async () => {
   inbound.drain('reviewer', 'oc_1')
   await new Promise((r) => setTimeout(r, 20))
   expect(rec.followups).toHaveLength(1)
+})
+
+test('clearQueues：清空该 bot 全部 chat 的队列，不影响其他 bot', async () => {
+  const other: BotRecord = { ...BOT, id: 'writer', name: '写手' }
+  const { rec, inbound, router, msg } = harness({ extraBots: [other] })
+  // reviewer 占槽 + 排队
+  inbound.onMessage(msg('任务'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  inbound.onMessage(msg('排队'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('已排队'))).toBe(true) })
+  // writer 占槽 + 排队
+  const writerTask = msg('写手任务')
+  writerTask.botId = 'writer'
+  inbound.onMessage(writerTask)
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(2) })
+  const writerQueued = msg('写手排队')
+  writerQueued.botId = 'writer'
+  inbound.onMessage(writerQueued)
+  await vi.waitFor(() => { expect(rec.notices.filter((n) => n.includes('已排队'))).toHaveLength(2) })
+
+  inbound.clearQueues('reviewer')
+
+  // reviewer 队列已清：释放槽位排水不执行「排队」
+  const rtR = router.lookup('reviewer', 'oc_1')!
+  rtR.inflight = undefined
+  inbound.drain('reviewer', 'oc_1')
+  await new Promise((r) => setTimeout(r, 20))
+  expect(rec.followups.map((f) => f.text)).toEqual(['任务', '写手任务'])
+
+  // writer 队列不受影响：释放槽位排水执行「写手排队」
+  const rtW = router.lookup('writer', 'oc_1')!
+  rtW.inflight = undefined
+  inbound.drain('writer', 'oc_1')
+  await vi.waitFor(() => { expect(rec.followups.map((f) => f.text)).toEqual(['任务', '写手任务', '写手排队']) })
 })
 
 test('撤回排队消息：撤销并提示；撤回正在执行/不存在的消息静默忽略', async () => {
@@ -657,6 +693,38 @@ describe('排水接线（Outbound onTurnIdle + /new /switch 兜底）', () => {
     await vi.waitFor(() => { expect(rec.followups.some((f) => f.text === '第三条')).toBe(true) })
     expect(rec.notices.some((n) => n.includes('处理失败') && n.includes('投递失败'))).toBe(true)
     expect(rec.followups.map((f) => f.text)).toEqual(['第一条', '第三条'])
+  })
+
+  test('回滚路径：释放槽位后先排水再 ack，窗口内新到消息不插队', async () => {
+    const { rec, inbound, router, msg } = harness({ followupThrowsOn: '炸' })
+    // 占槽：任务一在飞
+    inbound.onMessage(msg('任务一'))
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+
+    // dispatch「炸」时 followup 抛错走回滚；ack disposer 悬挂，制造「释放后、ack 完成前」窗口
+    let releaseAck!: () => void
+    const pendingDisposer: Disposer = () => new Promise<void>((r) => { releaseAck = r })
+    inbound.onMessage(msg('炸', 'oc_1', undefined, undefined, async () => pendingDisposer))
+    inbound.onMessage(msg('旧队首'))
+    await vi.waitFor(() => { expect(rec.notices.filter((n) => n.includes('已排队'))).toHaveLength(2) })
+
+    // 触发排水：队首「炸」占槽后回滚释放；旧队首须在 await ack 前完成占槽转移
+    const rt = router.lookup('reviewer', 'oc_1')!
+    rt.inflight = undefined
+    inbound.drain('reviewer', 'oc_1')
+    await vi.waitFor(() => { expect(releaseAck).toBeDefined() })
+
+    // 窗口内新消息到达：排序错误会被直接 dispatch 插队到旧队首之前
+    inbound.onMessage(msg('新到消息'))
+    await new Promise((r) => setTimeout(r, 20))
+
+    releaseAck()
+    await new Promise((r) => setTimeout(r, 20))
+
+    // 释放槽位排水剩余队列（旧的排在其后）
+    rt.inflight = undefined
+    inbound.drain('reviewer', 'oc_1')
+    await vi.waitFor(() => { expect(rec.followups.map((f) => f.text)).toEqual(['任务一', '旧队首', '新到消息']) })
   })
 
   test('/stop 只停当前任务：队列保留，turn/end 后续上', async () => {

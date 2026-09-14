@@ -51,7 +51,7 @@
   1. `router.lookup(botId, chatId)` 取**当前绑定**的 rt；不存在 / `retiring` / `inflight !== undefined` / 队列空 → 返回。
   2. shift 队首 → 走 `dispatch`（内部完成占槽）。
   - 旧 rt（retiring 中）的 `turn/end` 触发 drain 时，`lookup` 找到的是 `/new` 后的新 rt，语义自动正确；`/switch` 后同理（切走的旧 rt 收尾触发的 drain 落在新绑定 rt 上）。
-- 兜底触发点：`/new`（`router.reset` 返回后）与 `/switch`（`router.switchTo` 返回后）在 Inbound 各补一次 `drain`——覆盖「无任务时 /new（旧 rt 无 turn/end）」的排水空窗；`dispatch` 内 followup 抛错回滚（inbound.ts:126-130，占槽期间可能已有新消息入队）释放 inflight 后同样补一次 `drain`。
+- 兜底触发点：`/new`（`router.reset` 返回后）与 `/switch`（`router.switchTo` 返回后）在 Inbound 各补一次 `drain`——覆盖「无任务时 /new（旧 rt 无 turn/end）」的排水空窗；`dispatch` 内 followup 抛错回滚（inbound.ts:126-130，占槽期间可能已有新消息入队）释放 inflight 后同样补一次 `drain`——**排水先于 `await ack()`**：占槽转移须与释放同同步段完成，否则窗口内新到消息会插队到更早的排队消息之前。
 - `/stop` 零改动：`cancel()` → 宿主 `turn/end` → 释放点自动排水。
 - drain 中 `dispatch` 的错误路径与 `onMessage` 一致（摘要 notice + `onError` warn）。
 
