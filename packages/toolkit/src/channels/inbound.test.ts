@@ -177,6 +177,34 @@ test('drain：无绑定会话或 retiring 时不排水', async () => {
   expect(rec.followups).toHaveLength(1)
 })
 
+test('撤回排队消息：撤销并提示；撤回正在执行/不存在的消息静默忽略', async () => {
+  const { rec, inbound, router, msg } = harness()
+  const m1 = msg('第一条')
+  inbound.onMessage(m1)
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  const m2 = msg('帮我总结一下这个仓库的结构')
+  inbound.onMessage(m2)
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('已排队'))).toBe(true) })
+
+  inbound.revokeQueued('reviewer', 'oc_1', m2.messageId)
+  await vi.waitFor(() => {
+    expect(rec.notices).toContain('已撤销排队消息：帮我总结一下这个仓库的结构')
+  })
+
+  // 正在执行的第一条与不存在的 messageId：静默忽略
+  inbound.revokeQueued('reviewer', 'oc_1', m1.messageId)
+  inbound.revokeQueued('reviewer', 'oc_1', 'om_ghost')
+  await new Promise((r) => setTimeout(r, 20))
+  expect(rec.notices.filter((n) => n.includes('已撤销'))).toHaveLength(1)
+
+  // 撤销后排水不再执行该消息
+  const rt = router.lookup('reviewer', 'oc_1')!
+  rt.inflight = undefined
+  inbound.drain('reviewer', 'oc_1')
+  await new Promise((r) => setTimeout(r, 20))
+  expect(rec.followups).toHaveLength(1)
+})
+
 test('/new：重置会话并确认', async () => {
   const { rec, inbound, sessions, msg } = harness()
   inbound.onMessage(msg('触发建会话'))

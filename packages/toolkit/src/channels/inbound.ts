@@ -182,6 +182,18 @@ export class Inbound {
     })
   }
 
+  /** 撤回原消息 = 撤销排队条目；已执行/不存在/正在执行的静默忽略（幂等，重推安全）。 */
+  revokeQueued(botId: string, chatId: string, messageId: string): void {
+    const key = `${botId}:${chatId}`
+    const queue = this.queues.get(key)
+    if (queue === undefined) return
+    const index = queue.findIndex((m) => m.messageId === messageId)
+    if (index < 0) return
+    const [removed] = queue.splice(index, 1)
+    if (queue.length === 0) this.queues.delete(key)
+    void removed!.reply.notice(`已撤销排队消息：${queuedPreview(removed!)}`).catch(() => undefined)
+  }
+
   private async listSessions(bot: BotRecord, msg: InboundMessage): Promise<void> {
     const catalog = this.deps.catalog?.()
     if (catalog === undefined) {

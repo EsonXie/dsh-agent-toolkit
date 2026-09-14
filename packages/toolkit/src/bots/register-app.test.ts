@@ -84,6 +84,10 @@ describe('RegisterAppService', () => {
     expect(FEISHU_REGISTER_APP_ADDONS.callbacks.items).toContain('card.action.trigger')
   })
 
+  test('addons 订阅消息撤回事件（im.message.recalled_v1）', () => {
+    expect(FEISHU_REGISTER_APP_ADDONS.events.items.tenant).toContain('im.message.recalled_v1')
+  })
+
   test('addons 声明文件上传权限（im:resource，/doc 需要）', () => {
     expect(FEISHU_REGISTER_APP_ADDONS.scopes.tenant).toContain('im:resource')
   })

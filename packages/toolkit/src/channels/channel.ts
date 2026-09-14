@@ -49,6 +49,8 @@ export interface ChannelIO {
   onMessage(msg: InboundMessage): void
   /** 卡片按钮回调入核（审批）；渠道无交互卡片时可不实现。返回值经渠道应答帧回执（toast）。 */
   onCardAction?(action: CardActionInput): CardActionAck | undefined
+  /** 消息撤回事件入核（撤销排队消息；仅排队中生效）；渠道不支持撤回事件时可不实现。 */
+  onMessageRecalled?(botId: string, chatId: string, messageId: string): void
 }
 
 export type ChannelStatus = 'connected' | 'connecting' | 'reconnecting' | 'idle' | 'failed'

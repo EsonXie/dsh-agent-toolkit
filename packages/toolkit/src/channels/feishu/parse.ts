@@ -120,3 +120,16 @@ export class MessageDedup {
     return true
   }
 }
+
+export interface ParsedRecall {
+  messageId: string
+  chatId: string
+}
+
+/** im.message.recalled_v1 事件解析：窄化为渠道无关的 ParsedRecall（兼容 { event } 包裹）；字段缺失返回 null。 */
+export function parseRecallEvent(data: unknown): ParsedRecall | null {
+  const wrapped = data as { event?: { message_id?: unknown; chat_id?: unknown } } & { message_id?: unknown; chat_id?: unknown }
+  const event = wrapped.event ?? wrapped
+  if (typeof event.message_id !== 'string' || typeof event.chat_id !== 'string') return null
+  return { messageId: event.message_id, chatId: event.chat_id }
+}

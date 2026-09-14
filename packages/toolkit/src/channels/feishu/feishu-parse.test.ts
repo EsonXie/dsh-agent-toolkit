@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { MessageDedup, parseMessageEvent } from './parse.ts'
+import { MessageDedup, parseMessageEvent, parseRecallEvent } from './parse.ts'
 
 /** 本机器人 open_id（渠道启动时经 bot/v3/info 取回）。 */
 const BOT = 'ou_bot_self'
@@ -110,6 +110,14 @@ describe('parseMessageEvent', () => {
       },
     }), BOT)).toBeNull()
   })
+})
+
+test('recalled 事件：提取 message_id/chat_id；兼容 { event } 包裹；字段缺失返回 null', () => {
+  expect(parseRecallEvent({ event: { message_id: 'om_1', chat_id: 'oc_1', recall_type: 'message_owner' } }))
+    .toEqual({ messageId: 'om_1', chatId: 'oc_1' })
+  expect(parseRecallEvent({ message_id: 'om_2', chat_id: 'oc_2' })).toEqual({ messageId: 'om_2', chatId: 'oc_2' })
+  expect(parseRecallEvent({ event: { chat_id: 'oc_1' } })).toBeNull()
+  expect(parseRecallEvent({})).toBeNull()
 })
 
 describe('MessageDedup', () => {

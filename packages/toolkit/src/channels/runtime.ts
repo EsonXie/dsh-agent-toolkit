@@ -99,7 +99,7 @@ export class BotRuntime {
     try {
       const handle = await channel.start(
         { record, secret },
-        { onMessage: (msg) => this.inbound.onMessage(msg), onCardAction: (action) => this.approval.handleCardAction(action) },
+        { onMessage: (msg) => this.inbound.onMessage(msg), onCardAction: (action) => this.approval.handleCardAction(action), onMessageRecalled: (botId, chatId, messageId) => this.inbound.revokeQueued(botId, chatId, messageId) },
         this.deps.tunables,
         (m) => this.deps.log.warn(m),
       )

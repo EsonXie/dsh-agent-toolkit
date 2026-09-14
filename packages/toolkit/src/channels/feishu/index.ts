@@ -2,7 +2,7 @@
 import * as lark from '@larksuiteoapi/node-sdk'
 import type { BotChannel, ChannelHandle } from '../channel.ts'
 import { createFeishuApi } from './api.ts'
-import { MessageDedup, parseMessageEvent } from './parse.ts'
+import { MessageDedup, parseMessageEvent, parseRecallEvent } from './parse.ts'
 import { FeishuReplyHandle, makeAck } from './reply.ts'
 import { FeishuApprovalPresenter } from '../approval/feishu.ts'
 import { toCardActionInput, toastResponse } from './card-action.ts'
@@ -40,6 +40,12 @@ export const feishuChannel: BotChannel = {
           reply,
           ackProcessing: makeAck(api, parsed.messageId, tunables.processingReactionEmoji),
         })
+      },
+      // 消息撤回：撤销排队消息（核心按 messageId 匹配，幂等无需去重）。
+      'im.message.recalled_v1': async (data: unknown) => {
+        const recalled = parseRecallEvent(data)
+        if (recalled === null) return
+        io.onMessageRecalled?.(bot.record.id, recalled.chatId, recalled.messageId)
       },
       // 卡片按钮回调（审批）：同步入核，toast 经 WS 应答帧回执。
       'card.action.trigger': (raw: unknown) => {
