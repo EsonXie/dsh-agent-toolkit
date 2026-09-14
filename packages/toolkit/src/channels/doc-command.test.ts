@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
-import { docRejectText, readDocFile, resolveDocPath } from './doc-command.ts'
+import { docRejectText, readDocFile, resolveDocPath, resolveProjectPath } from './doc-command.ts'
 
 let root: string
 
@@ -90,5 +90,36 @@ describe('docRejectText', () => {
     expect(docRejectText('not-found', 'a.md', 1024)).toContain('a.md')
     expect(docRejectText('not-file', 'docs', 1024)).toContain('docs')
     expect(docRejectText('too-large', 'b.bin', 1024)).toContain('b.bin')
+  })
+})
+
+describe('resolveProjectPath', () => {
+  test('命中：返回绝对路径与 lstat 结果', async () => {
+    const res = await resolveProjectPath(root, 'docs')
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.abs).toBe(path.join(root, 'docs'))
+    expect(res.st.isDirectory()).toBe(true)
+  })
+
+  test('拒绝越界与不存在', async () => {
+    expect(await resolveProjectPath(root, '../outside.md')).toEqual({ ok: false, reason: 'outside' })
+    expect(await resolveProjectPath(root, 'nope.md')).toEqual({ ok: false, reason: 'not-found' })
+  })
+
+  test('中间目录符号链接越出项目根拒绝', async (t) => {
+    const outside = await mkdtemp(path.join(tmpdir(), 'dsh-ls-out-'))
+    try {
+      try {
+        await symlink(outside, path.join(root, 'linkdir'), 'junction')
+      } catch {
+        t.skip('当前环境不允许创建符号链接')
+        return
+      }
+      expect(await resolveProjectPath(root, 'linkdir/x.md')).toEqual({ ok: false, reason: 'outside' })
+    } finally {
+      await rm(outside, { recursive: true, force: true })
+      await rm(path.join(root, 'linkdir'), { recursive: true, force: true })
+    }
   })
 })
