@@ -1,10 +1,11 @@
 # 飞书 /ls 命令设计——目录罗列与递归名称搜索
 
 > 2026-09-11 定稿（用户已批准）。衔接 /doc（docs/superpowers/specs/2026-09-11-feishu-doc-command-design.md）：/ls 探路、/doc 发文件。
+> 2026-09-14 修订（用户已批准）：单层罗列渲染升级为「树形连接符 + 类型图标 + 文件大小」，搜索模式渲染为「图标 + 路径 + 大小」；目录不再带 `/` 后缀（📁 图标表意）。
 
 ## 1. 目标
 
-bot 会话内发送 `/ls [相对路径] [关键字]`：无参罗列项目根目录单层条目；带路径罗列该子目录单层条目；带路径+关键字在该子树内递归按名称搜索。输出为 notice 纯文本，用户在飞书里直接看，搜索结果的路径可直接复制给 /doc。
+bot 会话内发送 `/ls [相对路径] [关键字]`：无参罗列项目根目录单层条目；带路径罗列该子目录单层条目；带路径+关键字在该子树内递归按名称搜索。输出为 notice 纯文本，用户在飞书里直接看；单层条目以树形连接符（├── └──）+ 类型图标 + 文件大小展示，搜索命中以「图标 + 路径 + 大小」展示（路径相对项目根，可复制给 /doc——需去掉首尾装饰）。
 
 ## 2. 语法与语义
 
@@ -19,14 +20,32 @@ bot 会话内发送 `/ls [相对路径] [关键字]`：无参罗列项目根目�
 
 ## 3. 输出格式
 
-**单层列出**：
-- 目录与文件混合；目录名带 `/` 后缀；目录在前，同类按名称 `localeCompare` 排序；隐藏文件照列（真 ls 语义）
+**单层列出**（树形连接符 + 类型图标 + 文件大小）：
+- 目录与文件混合；目录在前，同类按名称 `localeCompare` 排序；隐藏文件照列（真 ls 语义）
+- 每行格式：`├── <图标> <名称>[  <大小>]`，末条用 `└──`；目录**不带** `/` 后缀（📁 图标表意），文件大小与名称间两个空格
+- 大小仅普通文件展示（人类可读：`318 B` / `2.4 KB` / `15.6 MB` / `1.2 GB`，1024 进制，KB 起固定一位小数）；目录与符号链接条目无大小（链接指向不定，不 stat、不泄露界外目标信息，悬空链接也不炸）
 - 超 100 条截断，末尾追加 `…还有 N 条，用 /ls <子目录> 细化`
+- 示例：
+  ```
+  项目根目录：
+  ├── 📁 docs
+  ├── 📄 README.md  2.4 KB
+  └── 🔗 linkdir
+  ```
 
-**递归搜索**：
-- 文件与目录都参与匹配（目录带 `/` 后缀）；输出**相对项目根的路径**（可直接复制给 /doc）；按路径排序
+**类型图标映射**（按扩展名，不分大小写）：📁 目录；🔗 符号链接；📝 md/markdown/txt；🖼️ 图片（png/jpg/jpeg/gif/svg/webp/ico/bmp）；📦 压缩包（zip/tar/gz/tgz/7z/rar）；🎬 视频（mp4/mov/avi/mkv/webm）；🎵 音频（mp3/wav/flac/m4a/ogg）；📊 表格（csv/xlsx/xls）；📜 代码（ts/tsx/js/jsx/mjs/cjs/py/java/go/rs/c/cc/cpp/h/hpp/cs/sh/ps1/bat/vue/html/css/scss）；⚙️ 配置（json/yaml/yml/toml/xml/ini/env）；📕 pdf；📄 默认。
+
+**递归搜索**（图标 + 路径 + 大小，无连接符）：
+- 文件与目录都参与匹配（目录同样不带 `/` 后缀、📁 表意）；输出**相对项目根的路径**；按路径排序
+- 每行格式：`<图标> <路径>[  <大小>]`；已知取舍：带图标与大小后整行不再能原样复制给 /doc（需去掉首尾），为风格统一接受此成本
 - **不追随符号链接**（防环防越界），符号链接条目本身不列出
 - 安全上限：匹配满 100 条或遍历满 10,000 条目即停；截断时末尾追加 `…已截断，用更精确的关键字或更小的目录细化`
+- 示例：
+  ```
+  「md」的匹配条目（docs）：
+  📄 docs/report.md  2.4 KB
+  📄 docs/sub/notes.md  318 B
+  ```
 
 **空结果**：单层空目录 → `（空目录：<路径>）`；搜索无匹配 → `无匹配条目：<关键字>（<路径>）`。
 
@@ -43,23 +62,27 @@ bot 会话内发送 `/ls [相对路径] [关键字]`：无参罗列项目根目�
 2. **新增 `ls-command.ts`**（渠道无关核心）：
    - `listProjectDir(project, arg): Promise<LsListing>` — 单层罗列
    - `searchProjectTree(project, arg, keyword): Promise<LsListing>` — 递归名称过滤（关键字大小写不敏感；迭代式 DFS 显式栈防深目录爆栈）
-   - `LsEntry = { name: string; dir: boolean }`（单层模式 name 为条目名；搜索模式为相对项目根的 posix 化路径）
+   - `LsEntry = { name: string; dir: boolean; size?: number }`（单层模式 name 为条目名；搜索模式为相对项目根的 posix 化路径；`size` 仅普通文件有值，目录/符号链接条目无）
    - `LsListing = { ok: true; entries: LsEntry[]; truncated: 'cap' | 'walk' | null; remaining: number } | { ok: false; reason: LsReject }`，`LsReject = 'outside' | 'not-found' | 'not-dir'`；`truncated: 'cap'` 时 `remaining` 为未显示条数（仅单层模式填；搜索模式恒 0），`'walk'` = 触及遍历上限
-   - `formatLsText(res, arg, keyword?): string` 渲染 notice 文本（排序已在收集侧完成：目录在前 + 名称 localeCompare / 搜索按路径排序；`/` 后缀、表头、空结果与截断提示）
+   - 大小补全：两种模式都在**排序截断到 ≤100 条之后**对展示的普通文件条目逐个 `stat` 补 `size`（单条失败静默略过、照常罗列，保持 never-throws；每次 /ls stat 开销 ≤100 次）
+   - 新助手（导出供测试）：`formatSize(bytes): string`（B/KB/MB/GB，1024 进制，KB 起固定一位小数）；`iconForEntry(name, dir, isSymlink): string`（§3 映射表）
+   - `formatLsText(res, arg, keyword?): string` 渲染 notice 文本（排序已在收集侧完成：目录在前 + 名称 localeCompare / 搜索按路径排序；树形连接符、图标、大小后缀、表头、空结果与截断提示）
    - `lsRejectText(reason, arg): string` 拒绝文案（never 穷尽检查）
    - 常量：`LS_MAX_ENTRIES = 100`、`LS_MAX_WALK = 10_000`（不开放 Config，YAGNI）
 3. **`directive.ts`**：`Directive` 联合加 `'ls'`，解析分支照 /doc（`t === '/ls'`、`t.startsWith('/ls ')`），函数 doc 注释同步。
-4. **`inbound.ts`**：`/doc` 分支旁加 `/ls` 分支 → 私有 `sendLs(bot, msg, arg)`：拆参 → 护栏/罗列/搜索 → notice 输出；`HELP_TEXT` 在 `/doc` 行后补 `'/ls [相对路径] [关键字] 列出项目目录内容（带关键字时递归按名称搜索）'`。
+4. **`inbound.ts`**：`/doc` 分支旁加 `/ls` 分支 → 私有 `sendLs(bot, msg, arg)`：拆参 → 护栏/罗列/搜索 → notice 输出；`HELP_TEXT` 在 `/doc` 行后补 `'/ls [相对路径] [关键字] 列出项目目录内容（图标 + 大小；带关键字时递归按名称搜索）'`。
 5. **文档**：`docs/domains/feishu.md` 指令面段补 /ls 一句；`docs/usage/feishu-bots.md` 指令表补一行（无新权限需求）。
 
 ## 6. 测试
 
-- `ls-command.test.ts`（真实临时目录，照 doc-command.test.ts 模式）：单层混合排序与 `/` 后缀；隐藏文件照列；100 条截断与 `还有 N 条` 计数；空目录提示；递归搜索大小写不敏感、子树命中、目录匹配带 `/`；符号链接不追随（带 t.skip 保护）；三类拒绝；遍历上限截断（构造超 10,000 条目的目录树代价高——改以注入式 walk 或直接信任常量逻辑，测试聚焦 100 条匹配截断）
+- `ls-command.test.ts`（真实临时目录，照 doc-command.test.ts 模式）：单层混合排序（目录在前）；隐藏文件照列；100 条截断与 `还有 N 条` 计数；空目录提示；递归搜索大小写不敏感、子树命中、目录匹配 📁；符号链接不追随（带 t.skip 保护）；三类拒绝；遍历上限截断（构造超 10,000 条目的目录树代价高——改以注入式 walk 或直接信任常量逻辑，测试聚焦 100 条匹配截断）；渲染格式（├──/└── 连接符、末条判定、图标、大小后缀、目录无后缀无大小）；`formatSize` 各档位；`iconForEntry` 映射与默认；stat 失败容错（条目照常显示无大小）；单层符号链接条目 🔗 无大小
 - `directive.test.ts`：`/ls`、`/ls docs`、`/ls Docs Report`（大小写保留）、`/lsx` 不命中
-- `inbound.test.ts`：/ls 无参列根、有参列子目录、递归搜索、越界拒绝、不存在、文件参数提示、不进 turn（followups 为 0）
+- `inbound.test.ts`：/ls 无参列根、有参列子目录、递归搜索、越界拒绝、不存在、文件参数提示、不进 turn（followups 为 0）；notice 断言同步到新渲染格式
 
 ## 7. 非目标
 
 - 不做 glob 模式、不按内容搜索、不做多级排序选项
 - 条数/遍历上限不开放 Config
 - 不支持关键字含空白
+- 不做递归深度展开的树（只单层树形渲染），不做深度参数
+- 图标映射表不开放 Config（写死在代码里，YAGNI）
