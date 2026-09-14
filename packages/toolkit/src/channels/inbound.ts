@@ -8,7 +8,7 @@ import { docRejectText, readDocFile, resolveDocPath } from './doc-command.ts'
 import { formatLsText, listProjectDir, lsRejectText, searchProjectTree } from './ls-command.ts'
 import { truncateDetail } from './outbound.ts'
 import type { Router } from './router.ts'
-import type { SessionCatalogEntry, SessionCatalogPort } from './ports.ts'
+import type { SessionCatalogEntry, SessionCatalogPort, SessionRuntime } from './ports.ts'
 
 /** 图片附件库端口（宿主 ctx.attachments 的窄化；缺席时图片降级为提示）。 */
 export interface AttachmentsPort {
@@ -46,6 +46,9 @@ export class Inbound {
 
   /** 最近一次 /sessions 输出（per chat 序号缓存；进程重启即失效）。 */
   private readonly lastLists = new Map<string, readonly string[]>()
+
+  /** 排队消息（per chat；任务执行中收到的消息在此排队，turn 落定后按序排水）。 */
+  private readonly queues = new Map<string, InboundMessage[]>()
 
   onMessage(msg: InboundMessage): void {
     void this.handle(msg).catch(async (error) => {
@@ -106,11 +109,20 @@ export class Inbound {
 
     const rt = await this.deps.router.ensure(bot, msg.chatId, msg.reply, msg.userId)
     if (rt.inflight !== undefined) {
-      await msg.reply.notice('上一条还在处理中，请稍候（或发送 /stop 取消）')
+      const key = `${bot.id}:${msg.chatId}`
+      const queue = this.queues.get(key) ?? []
+      queue.push(msg)
+      this.queues.set(key, queue)
+      await msg.reply.notice(`已排队（第 ${queue.length} 位），撤回原消息可取消执行`)
       return
     }
+    await this.dispatch(rt, msg)
+  }
+
+  /** 执行一条消息：占槽 → 刷新 reply → 表情 → 图片落附件库 → followup 投递。直接执行与排水共用。 */
+  private async dispatch(rt: SessionRuntime, msg: InboundMessage): Promise<void> {
     // 准入：先占槽再异步；表情回复失败不阻塞处理。
-    // reply 句柄只在准入通过后刷新——忙时消息不抢走运行中 turn 的出站。
+    // reply 句柄只在准入通过后刷新——忙时/排队消息不抢走运行中 turn 的出站。
     rt.inflight = { ack: undefined }
     rt.reply = msg.reply
     rt.inflight.ack = (await msg.ackProcessing().catch(() => undefined)) ?? undefined
@@ -141,8 +153,31 @@ export class Inbound {
       const ack = rt.inflight.ack
       rt.inflight = undefined
       await ack?.()
+      // 占槽期间可能已有新消息入队：回滚释放后继续排水，不滞留。
+      this.drain(rt.botId, rt.chatId)
       throw error
     }
+  }
+
+  /**
+   * 幂等排水：当前绑定 rt 空闲且该 chat 队列非空时 shift 队首立即执行。
+   * 触发点：Outbound onTurnIdle（turn/end、agent/error 释放槽位）、/new、/switch、followup 回滚。
+   * 不变量：inflight 空 ⇒ 队列空——占槽转移与释放在同一同步段，无并发窗口。
+   */
+  drain(botId: string, chatId: string): void {
+    const key = `${botId}:${chatId}`
+    const queue = this.queues.get(key)
+    if (queue === undefined || queue.length === 0) return
+    const rt = this.deps.router.lookup(botId, chatId)
+    if (rt === undefined || rt.retiring || rt.inflight !== undefined) return
+    const msg = queue.shift()!
+    if (queue.length === 0) this.queues.delete(key)
+    void this.dispatch(rt, msg).catch(async (error) => {
+      // 与 onMessage 同款错误路径：摘要回传渠道 + onError（drain 是 fire-and-forget，自行兜底）。
+      const detail = truncateDetail(error instanceof Error ? error.message : String(error), this.deps.maxErrorDetailChars)
+      this.deps.onError(`[project-bot] 入站处理失败：${detail}`)
+      await msg.reply.notice(`处理失败：${detail}`).catch(() => undefined)
+    })
   }
 
   private async listSessions(bot: BotRecord, msg: InboundMessage): Promise<void> {
@@ -251,4 +286,10 @@ export class Inbound {
     }
     await msg.reply.notice(formatLsText(res, dirArg, keyword))
   }
+}
+
+/** 排队消息预览：text 前 20 字（超出 …）；纯图片显示 [图片]；文+图混排只取文字。 */
+export function queuedPreview(msg: InboundMessage): string {
+  if (msg.text.length > 0) return truncateDetail(msg.text, 20)
+  return '[图片]'
 }

@@ -118,25 +118,60 @@ test('普通消息：建会话、表情回复、followup 携带 user source（�
   expect(sessions.size).toBe(1)
 })
 
-test('in-flight 占用期间第二条消息被拒并提示', async () => {
+test('in-flight 占用期间第二条消息排队并提示队位', async () => {
   const { rec, inbound, msg } = harness()
   inbound.onMessage(msg('第一条'))
   await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
   inbound.onMessage(msg('第二条'))
-  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('上一条还在处理中'))).toBe(true) })
+  inbound.onMessage(msg('第三条'))
+  await vi.waitFor(() => { expect(rec.notices).toContain('已排队（第 2 位），撤回原消息可取消执行') })
+  expect(rec.notices).toContain('已排队（第 1 位），撤回原消息可取消执行')
   expect(rec.followups).toHaveLength(1)
 })
 
-test('处理中再发消息：rt.reply 不被替换，运行中 turn 仍在旧句柄收尾', async () => {
+test('排队中消息不替换 rt.reply，运行中 turn 仍在旧句柄收尾', async () => {
   const { rec, inbound, router, msg } = harness()
   inbound.onMessage(msg('任务一'))
   await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
   const rt = router.lookup('reviewer', 'oc_1')!
   const firstReply = rt.reply
   inbound.onMessage(msg('追问'))
-  await vi.waitFor(() => { expect(rec.notices).toContain('上一条还在处理中，请稍候（或发送 /stop 取消）') })
+  await vi.waitFor(() => { expect(rec.notices).toContain('已排队（第 1 位），撤回原消息可取消执行') })
   expect(rt.reply).toBe(firstReply)
-  expect(rec.notices).toEqual(['上一条还在处理中，请稍候（或发送 /stop 取消）'])
+})
+
+test('drain：槽位空闲且队列非空时立即执行队首（幂等）', async () => {
+  const { rec, inbound, router, msg } = harness()
+  inbound.onMessage(msg('第一条'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  inbound.onMessage(msg('第二条'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('已排队'))).toBe(true) })
+  const rt = router.lookup('reviewer', 'oc_1')!
+  rt.inflight = undefined
+  inbound.drain('reviewer', 'oc_1')
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(2) })
+  expect(rec.followups[1].text).toBe('第二条')
+  expect(rt.inflight).not.toBeUndefined()
+  // 幂等：队列空后再 drain 无事发生
+  rt.inflight = undefined
+  inbound.drain('reviewer', 'oc_1')
+  await new Promise((r) => setTimeout(r, 20))
+  expect(rec.followups).toHaveLength(2)
+})
+
+test('drain：无绑定会话或 retiring 时不排水', async () => {
+  const { rec, inbound, router, msg } = harness()
+  inbound.drain('reviewer', 'oc_never')   // 无队列无会话：静默
+  inbound.onMessage(msg('任务'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  inbound.onMessage(msg('排队'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('已排队'))).toBe(true) })
+  const rt = router.lookup('reviewer', 'oc_1')!
+  rt.retiring = true
+  rt.inflight = undefined
+  inbound.drain('reviewer', 'oc_1')
+  await new Promise((r) => setTimeout(r, 20))
+  expect(rec.followups).toHaveLength(1)
 })
 
 test('/new：重置会话并确认', async () => {
