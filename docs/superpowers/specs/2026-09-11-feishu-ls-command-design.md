@@ -29,7 +29,7 @@ bot 会话内发送 `/ls [相对路径] [关键字]`：无参罗列项目根目�
   ```
   项目根目录：
   ├── 📁 docs
-  ├── 📄 README.md  2.4 KB
+  ├── 📝 README.md  2.4 KB
   └── 🔗 linkdir
   ```
 
@@ -43,7 +43,7 @@ bot 会话内发送 `/ls [相对路径] [关键字]`：无参罗列项目根目�
 - 示例：
   ```
   「md」的匹配条目（docs）：
-  📄 docs/report.md  2.4 KB
+  📝 docs/report.md  2.4 KB
   📄 docs/sub/notes.md  318 B
   ```
 
