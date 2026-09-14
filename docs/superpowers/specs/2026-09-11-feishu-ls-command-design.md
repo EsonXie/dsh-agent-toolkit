@@ -62,7 +62,7 @@ bot 会话内发送 `/ls [相对路径] [关键字]`：无参罗列项目根目�
 2. **新增 `ls-command.ts`**（渠道无关核心）：
    - `listProjectDir(project, arg): Promise<LsListing>` — 单层罗列
    - `searchProjectTree(project, arg, keyword): Promise<LsListing>` — 递归名称过滤（关键字大小写不敏感；迭代式 DFS 显式栈防深目录爆栈）
-   - `LsEntry = { name: string; dir: boolean; size?: number }`（单层模式 name 为条目名；搜索模式为相对项目根的 posix 化路径；`size` 仅普通文件有值，目录/符号链接条目无）
+   - `LsEntry = { name: string; dir: boolean; size?: number; link?: boolean }`（单层模式 name 为条目名；搜索模式为相对项目根的 posix 化路径；`size` 仅普通文件有值，目录/符号链接条目无；`link: true` 标记符号链接条目，仅单层模式会出现——搜索模式不列出链接）
    - `LsListing = { ok: true; entries: LsEntry[]; truncated: 'cap' | 'walk' | null; remaining: number } | { ok: false; reason: LsReject }`，`LsReject = 'outside' | 'not-found' | 'not-dir'`；`truncated: 'cap'` 时 `remaining` 为未显示条数（仅单层模式填；搜索模式恒 0），`'walk'` = 触及遍历上限
    - 大小补全：两种模式都在**排序截断到 ≤100 条之后**对展示的普通文件条目逐个 `stat` 补 `size`（单条失败静默略过、照常罗列，保持 never-throws；每次 /ls stat 开销 ≤100 次）
    - 新助手（导出供测试）：`formatSize(bytes): string`（B/KB/MB/GB，1024 进制，KB 起固定一位小数）；`iconForEntry(name, dir, isSymlink): string`（§3 映射表）
@@ -75,7 +75,7 @@ bot 会话内发送 `/ls [相对路径] [关键字]`：无参罗列项目根目�
 
 ## 6. 测试
 
-- `ls-command.test.ts`（真实临时目录，照 doc-command.test.ts 模式）：单层混合排序（目录在前）；隐藏文件照列；100 条截断与 `还有 N 条` 计数；空目录提示；递归搜索大小写不敏感、子树命中、目录匹配 📁；符号链接不追随（带 t.skip 保护）；三类拒绝；遍历上限截断（构造超 10,000 条目的目录树代价高——改以注入式 walk 或直接信任常量逻辑，测试聚焦 100 条匹配截断）；渲染格式（├──/└── 连接符、末条判定、图标、大小后缀、目录无后缀无大小）；`formatSize` 各档位；`iconForEntry` 映射与默认；stat 失败容错（条目照常显示无大小）；单层符号链接条目 🔗 无大小
+- `ls-command.test.ts`（真实临时目录，照 doc-command.test.ts 模式）：单层混合排序（目录在前）；隐藏文件照列；100 条截断与 `还有 N 条` 计数；空目录提示；递归搜索大小写不敏感、子树命中、目录匹配 📁；符号链接不追随（带 t.skip 保护）；三类拒绝；遍历上限截断（构造超 10,000 条目的目录树代价高——改以注入式 walk 或直接信任常量逻辑，测试聚焦 100 条匹配截断）；渲染格式（├──/└── 连接符、末条判定、图标、大小后缀、目录无后缀无大小）；`formatSize` 各档位；`iconForEntry` 映射与默认；单层符号链接条目 🔗 无大小（stat 失败容错为防御性 try/catch，竞态删除不可确定性复现，不单独测试）
 - `directive.test.ts`：`/ls`、`/ls docs`、`/ls Docs Report`（大小写保留）、`/lsx` 不命中
 - `inbound.test.ts`：/ls 无参列根、有参列子目录、递归搜索、越界拒绝、不存在、文件参数提示、不进 turn（followups 为 0）；notice 断言同步到新渲染格式
 
