@@ -1,5 +1,5 @@
-/** /ls 指令的目录罗列与递归名称搜索：单层 ls 语义 + 关键字子树过滤（不追随符号链接）。 */
-import { readdir } from 'node:fs/promises'
+/** /ls 指令的目录罗列与递归名称搜索：单层树形渲染（连接符 + 类型图标 + 文件大小）+ 关键字子树过滤（不追随符号链接）。 */
+import { readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { resolveProjectPath } from './doc-command.ts'
 
@@ -14,6 +14,10 @@ export interface LsEntry {
   /** 单层模式为条目名；搜索模式为相对项目根的路径（posix 分隔）。 */
   name: string
   dir: boolean
+  /** 仅普通文件有值（字节）；目录与符号链接条目无。截断后对展示条目 stat 补全，单条失败静默略过。 */
+  size?: number
+  /** true = 符号链接条目（仅单层模式会列出；不追随、不显示大小）。 */
+  link?: boolean
 }
 
 export type LsListing =
@@ -31,6 +35,54 @@ function capEntries(entries: LsEntry[]): LsListing {
   return { ok: true, entries: entries.slice(0, LS_MAX_ENTRIES), truncated: 'cap', remaining: entries.length - LS_MAX_ENTRIES }
 }
 
+/** 文件扩展名 → 类型图标（不分大小写）；未命中用 📄。 */
+const ICON_BY_EXT: Record<string, string> = {
+  md: '📝', markdown: '📝', txt: '📝',
+  png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', svg: '🖼️', webp: '🖼️', ico: '🖼️', bmp: '🖼️',
+  zip: '📦', tar: '📦', gz: '📦', tgz: '📦', '7z': '📦', rar: '📦',
+  mp4: '🎬', mov: '🎬', avi: '🎬', mkv: '🎬', webm: '🎬',
+  mp3: '🎵', wav: '🎵', flac: '🎵', m4a: '🎵', ogg: '🎵',
+  csv: '📊', xlsx: '📊', xls: '📊',
+  ts: '📜', tsx: '📜', js: '📜', jsx: '📜', mjs: '📜', cjs: '📜', py: '📜', java: '📜', go: '📜', rs: '📜',
+  c: '📜', cc: '📜', cpp: '📜', h: '📜', hpp: '📜', cs: '📜', sh: '📜', ps1: '📜', bat: '📜',
+  vue: '📜', html: '📜', css: '📜', scss: '📜',
+  json: '⚙️', yaml: '⚙️', yml: '⚙️', toml: '⚙️', xml: '⚙️', ini: '⚙️', env: '⚙️',
+  pdf: '📕',
+}
+
+/** 条目 → 类型图标：符号链接 🔗、目录 📁、文件按扩展名映射、默认 📄。 */
+export function iconForEntry(name: string, dir: boolean, link: boolean): string {
+  if (link) return '🔗'
+  if (dir) return '📁'
+  return ICON_BY_EXT[path.extname(name).slice(1).toLowerCase()] ?? '📄'
+}
+
+/** 字节数 → 人类可读：1024 进制，KB 起固定一位小数。 */
+export function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unit = 'B'
+  for (const u of units) {
+    if (value < 1024) break
+    value /= 1024
+    unit = u
+  }
+  return `${value.toFixed(1)} ${unit}`
+}
+
+/** 截断后对展示的普通文件条目 stat 补 size；单条失败静默略过（保持 never-throws）。 */
+async function fillSizes(entries: LsEntry[], absOf: (e: LsEntry) => string): Promise<void> {
+  await Promise.all(entries.map(async (e) => {
+    if (e.dir || e.link) return
+    try {
+      e.size = (await stat(absOf(e))).size
+    } catch {
+      // 竞态删除/权限不足：条目照常显示，仅无大小。
+    }
+  }))
+}
+
 /** 共享护栏 + /ls 自语义：目标是文件 → not-dir；目标是符号链接 → 按越界拒绝（指向不定，err-safe）。 */
 async function resolveLsDir(project: string, arg: string): Promise<LsListing | { ok: true; abs: string }> {
   const base = await resolveProjectPath(project, arg)
@@ -45,9 +97,13 @@ export async function listProjectDir(project: string, arg: string): Promise<LsLi
   const dir = await resolveLsDir(project, arg)
   if (!('abs' in dir)) return dir
   const items = await readdir(dir.abs, { withFileTypes: true })
-  const entries = items.map((d) => ({ name: d.name, dir: d.isDirectory() }))
+  const entries: LsEntry[] = items.map((d) => (d.isSymbolicLink()
+    ? { name: d.name, dir: false, link: true }
+    : { name: d.name, dir: d.isDirectory() }))
   entries.sort(compareEntries)
-  return capEntries(entries)
+  const capped = capEntries(entries)
+  if (capped.ok) await fillSizes(capped.entries, (e) => path.join(dir.abs, e.name))
+  return capped
 }
 
 function toProjectRel(project: string, abs: string): string {
@@ -85,19 +141,28 @@ export async function searchProjectTree(project: string, arg: string, keyword: s
     }
   }
   hits.sort((a, b) => a.name.localeCompare(b.name))
-  return { ok: true, entries: hits.slice(0, LS_MAX_ENTRIES), truncated, remaining: 0 }
+  const entries = hits.slice(0, LS_MAX_ENTRIES)
+  await fillSizes(entries, (e) => path.join(project, e.name))
+  return { ok: true, entries, truncated, remaining: 0 }
+}
+
+/** 条目行：图标 + 名称 + 可选大小后缀；prefix 为树形连接符（单层模式用，搜索模式传空串）。 */
+function entryLine(e: LsEntry, prefix: string): string {
+  const base = `${prefix}${iconForEntry(e.name, e.dir, e.link === true)} ${e.name}`
+  return e.size === undefined ? base : `${base}  ${formatSize(e.size)}`
 }
 
 /** LsListing → notice 文本（arg 为 '.' 时显示「项目根」）。 */
 export function formatLsText(res: Extract<LsListing, { ok: true }>, arg: string, keyword: string | undefined): string {
   const label = arg === '.' ? '项目根' : arg
-  const lines = res.entries.map((e) => (e.dir ? `${e.name}/` : e.name))
   if (keyword !== undefined) {
+    const lines = res.entries.map((e) => entryLine(e, ''))
     if (lines.length === 0) return `无匹配条目：${keyword}（${label}）`
     const body = [`「${keyword}」的匹配条目（${label}）：`, ...lines]
     if (res.truncated !== null) body.push('…已截断，用更精确的关键字或更小的目录细化')
     return body.join('\n')
   }
+  const lines = res.entries.map((e, i) => entryLine(e, i === res.entries.length - 1 ? '└── ' : '├── '))
   if (lines.length === 0) return `（空目录：${label}）`
   const body = [`${label === '项目根' ? '项目根目录' : label}：`, ...lines]
   if (res.truncated === 'cap') body.push(`…还有 ${res.remaining} 条，用 /ls <子目录> 细化`)

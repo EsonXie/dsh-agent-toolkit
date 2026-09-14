@@ -470,8 +470,8 @@ describe('/ls 指令', () => {
     inbound.onMessage(msg('/ls'))
     await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('项目根目录'))).toBe(true) })
     const text = rec.notices.find((n) => n.includes('项目根目录'))!
-    expect(text).toContain('docs/')
-    expect(text).toContain('README.md')
+    expect(text).toContain('├── 📁 docs')
+    expect(text).toContain('└── 📝 README.md  1 B')
     expect(rec.followups).toHaveLength(0)
   })
 
@@ -479,14 +479,14 @@ describe('/ls 指令', () => {
     const { rec, inbound, msg } = harness({ project })
     inbound.onMessage(msg('/ls docs'))
     await vi.waitFor(() => {
-      expect(rec.notices.some((n) => n.includes('sub/') && n.includes('report.md'))).toBe(true)
+      expect(rec.notices.some((n) => n.includes('├── 📁 sub') && n.includes('└── 📝 report.md  9 B'))).toBe(true)
     })
   })
 
   test('/ls 带关键字递归搜索（多词关键字 join）', async () => {
     const { rec, inbound, msg } = harness({ project })
     inbound.onMessage(msg('/ls docs NOTES'))
-    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('docs/sub/notes.md'))).toBe(true) })
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('📝 docs/sub/notes.md  1 B'))).toBe(true) })
   })
 
   test('/ls 越界路径拒绝', async () => {
