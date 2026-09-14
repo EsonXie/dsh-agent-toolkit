@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { Disposer, InboundMessage, ReplyHandle } from './channel.ts'
 import { Inbound, type AttachmentsPort, type InboundDeps } from './inbound.ts'
+import { Outbound } from './outbound.ts'
 import type { AgentPort, AgentsPort, BindingStore, SessionCatalogPort, SessionRuntime } from './ports.ts'
 import { Router } from './router.ts'
 import type { AgentRegistry } from '../agents/registry.ts'
@@ -30,6 +31,7 @@ function harness(opts: {
   project?: string
   attachments?: () => AttachmentsPort | undefined
   catalog?: () => SessionCatalogPort | undefined
+  followupThrowsOn?: string
 } = {}) {
   const rec: Recorded = { notices: [], acked: 0, followups: [], cancels: 0, hookInputs: [] }
   const bot: BotRecord = { ...BOT, ...(opts.project !== undefined ? { project: opts.project } : {}) }
@@ -38,12 +40,12 @@ function harness(opts: {
     create: async (input) => {
       if (opts.createError !== undefined) throw opts.createError
       rec.hookInputs.push(input.hooks)
-      return fakeAgent(input.sessionId, rec)
+      return fakeAgent(input.sessionId, rec, opts)
     },
     resume: async (input) => {
       if (opts.resumeError !== undefined) throw opts.resumeError
       rec.hookInputs.push(input.hooks)
-      return fakeAgent(input.sessionId, rec)
+      return fakeAgent(input.sessionId, rec, opts)
     },
   }
   const map = new Map<string, string>()
@@ -86,11 +88,12 @@ function harness(opts: {
   return { rec, inbound, sessions, router, msg }
 }
 
-function fakeAgent(sessionId: string, rec: Recorded): AgentPort {
+function fakeAgent(sessionId: string, rec: Recorded, opts: { followupThrowsOn?: string }): AgentPort {
   return {
     sessionId,
     followup: (m) => {
       const message = m as { content: { type: string; text?: string }[]; source: Record<string, unknown> }
+      if (opts.followupThrowsOn !== undefined && message.content[0]?.text === opts.followupThrowsOn) throw new Error('投递失败')
       rec.followups.push({ text: message.content[0].text ?? '', source: message.source, content: message.content })
     },
     cancel: () => { rec.cancels += 1 },
@@ -540,5 +543,68 @@ describe('/ls 指令', () => {
     const { rec, inbound, msg } = harness({ project })
     inbound.onMessage(msg('/ls README.md'))
     await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('发文件请用 /doc'))).toBe(true) })
+  })
+})
+
+describe('排水接线（Outbound onTurnIdle + /new /switch 兜底）', () => {
+  test('turn/end 后自动排水：排队消息立即执行', async () => {
+    const { rec, inbound, sessions, router, msg } = harness()
+    const outbound = new Outbound(sessions, () => undefined, 500, (rt) => inbound.drain(rt.botId, rt.chatId))
+    inbound.onMessage(msg('第一条'))
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+    inbound.onMessage(msg('第二条'))
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('已排队'))).toBe(true) })
+    const sessionId = router.boundSessionId('reviewer', 'oc_1')!
+    const rt = sessions.get(sessionId)!
+    outbound.handleSessionEvent(sessionId, { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleSessionEvent(sessionId, { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(2) })
+    expect(rec.followups[1].text).toBe('第二条')
+    expect(rt.inflight).not.toBeUndefined()
+  })
+
+  test('/new 不清队列：新会话建好后排队消息继续执行', async () => {
+    const { rec, inbound, msg } = harness()
+    inbound.onMessage(msg('任务一'))
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+    inbound.onMessage(msg('任务二'))
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('已排队'))).toBe(true) })
+    inbound.onMessage(msg('/new'))
+    await vi.waitFor(() => { expect(rec.notices).toContain('已开启新会话') })
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(2) })
+    expect(rec.followups[1].text).toBe('任务二')
+  })
+
+  test('排水的 followup 抛错：释放槽位后继续排水下一条', async () => {
+    const { rec, inbound, sessions, router, msg } = harness({ followupThrowsOn: '第二条' })
+    const outbound = new Outbound(sessions, () => undefined, 500, (rt) => inbound.drain(rt.botId, rt.chatId))
+    inbound.onMessage(msg('第一条'))
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+    inbound.onMessage(msg('第二条'))
+    inbound.onMessage(msg('第三条'))
+    await vi.waitFor(() => { expect(rec.notices.filter((n) => n.includes('已排队'))).toHaveLength(2) })
+    const sessionId = router.boundSessionId('reviewer', 'oc_1')!
+    outbound.handleSessionEvent(sessionId, { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleSessionEvent(sessionId, { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
+    await vi.waitFor(() => { expect(rec.followups.some((f) => f.text === '第三条')).toBe(true) })
+    expect(rec.notices.some((n) => n.includes('处理失败') && n.includes('投递失败'))).toBe(true)
+    expect(rec.followups.map((f) => f.text)).toEqual(['第一条', '第三条'])
+  })
+
+  test('/stop 只停当前任务：队列保留，turn/end 后续上', async () => {
+    const { rec, inbound, sessions, router, msg } = harness()
+    const outbound = new Outbound(sessions, () => undefined, 500, (rt) => inbound.drain(rt.botId, rt.chatId))
+    inbound.onMessage(msg('任务一'))
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+    inbound.onMessage(msg('任务二'))
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('已排队'))).toBe(true) })
+    inbound.onMessage(msg('/stop'))
+    await vi.waitFor(() => { expect(rec.notices).toContain('已请求停止当前任务') })
+    expect(rec.cancels).toBe(1)
+    const sessionId = router.boundSessionId('reviewer', 'oc_1')!
+    outbound.handleSessionEvent(sessionId, { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleSessionEvent(sessionId, { type: 'turn/end', data: { turn: 1, reason: { kind: 'interrupted' } } })
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(2) })
+    expect(rec.followups[1].text).toBe('任务二')
   })
 })

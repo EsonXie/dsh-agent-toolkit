@@ -98,6 +98,23 @@ describe('Outbound.handleSessionEvent', () => {
     expect(rt.turn).toBeUndefined()
   })
 
+  test('turn/end 释放 inflight 后同步触发 onTurnIdle（占槽转移先于删表情）', async () => {
+    const { reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const ack = vi.fn()
+    rt.inflight = { ack }
+    // 模拟核心侧排水：回调内同步重新占槽（验证释→占同窗，finalize/ack 不覆盖新槽）。
+    const idle = vi.fn(() => { rt.inflight = { ack: undefined } })
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined, 500, idle)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleSessionEvent('s1', { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
+    await drain(rt)
+    expect(idle).toHaveBeenCalledOnce()
+    expect(idle).toHaveBeenCalledWith(rt)
+    expect(idle.mock.invocationCallOrder[0]!).toBeLessThan(ack.mock.invocationCallOrder[0]!)
+    expect(rt.inflight).toEqual({ ack: undefined })
+  })
+
   test('reasoning 与 tool_call 进过程缓冲：block-end 补段分隔后并入同一 process 段', async () => {
     const { calls, reply } = recorder()
     const rt = fakeRuntime(reply)
@@ -428,5 +445,16 @@ describe('Outbound.handleAgentError（turn 外错误）', () => {
     outbound.handleAgentError('s1', 'x'.repeat(20))
     await drain(rt)
     expect(calls).toEqual([{ op: 'notice', arg: `出错了：${'x'.repeat(5)}…` }])
+  })
+
+  test('agent/error（turn 外）释放 inflight 后同样触发 onTurnIdle', async () => {
+    const { reply } = recorder()
+    const rt = fakeRuntime(reply)
+    rt.inflight = { ack: undefined }
+    const idle = vi.fn()
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined, 500, idle)
+    outbound.handleAgentError('s1', 'boom')
+    await drain(rt)
+    expect(idle).toHaveBeenCalledOnce()
   })
 })

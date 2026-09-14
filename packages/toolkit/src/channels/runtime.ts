@@ -59,7 +59,7 @@ export class BotRuntime {
       ...(deps.catalog !== undefined ? { catalog: deps.catalog } : {}),
       onError: (m) => deps.log.warn(m),
     })
-    this.outbound = new Outbound(this.sessions, (m) => deps.log.warn(m), deps.maxErrorDetailChars)
+    this.outbound = new Outbound(this.sessions, (m) => deps.log.warn(m), deps.maxErrorDetailChars, (rt) => this.inbound.drain(rt.botId, rt.chatId))
     this.approval = new ApprovalCenter(
       this.sessions,
       (botId) => {

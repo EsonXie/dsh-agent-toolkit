@@ -67,6 +67,8 @@ export class Inbound {
     if (directive?.name === 'new') {
       await this.deps.router.reset(bot, msg.chatId, msg.reply, msg.userId)
       await msg.reply.notice('已开启新会话')
+      // 队列是 chat 级：/new 不换队列；旧 rt 无 turn/end（空闲时 /new）时由此兜底排水。
+      this.drain(bot.id, msg.chatId)
       return
     }
     if (directive?.name === 'stop') {
@@ -245,6 +247,7 @@ export class Inbound {
       throw error
     }
     await msg.reply.notice(`已切换到会话：${target.title ?? '(无标题)'}（${target.sessionId.slice(0, 8)}）`)
+    this.drain(bot.id, msg.chatId)
   }
 
   private async sendDoc(bot: BotRecord, msg: InboundMessage, arg: string | undefined): Promise<void> {

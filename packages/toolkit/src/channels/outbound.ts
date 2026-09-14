@@ -114,6 +114,8 @@ export class Outbound {
     private readonly onError: (message: string) => void,
     /** 回传渠道的错误摘要最大字符数。 */
     private readonly maxErrorDetailChars = 500,
+    /** 槽位释放后同步触发（核心侧排水排队消息）；实现须同步完成占槽转移，先于删表情返回。 */
+    private readonly onTurnIdle?: (rt: SessionRuntime) => void,
   ) {}
 
   handleSessionEvent(sessionId: string, event: SessionEventLike): void {
@@ -178,6 +180,8 @@ export class Outbound {
         if ((turn.began || detail !== undefined) && rt.reply !== undefined) await rt.reply.finalize(status, detail)
         const ack = rt.inflight?.ack
         rt.inflight = undefined
+        // 排水先于删表情：占槽转移须同步完成（inflight 空 ⇒ 队列空 不变量），否则与新到消息双发。
+        this.onTurnIdle?.(rt)
         if (ack !== undefined) await ack()
       })
       rt.turn = undefined
@@ -230,6 +234,7 @@ export class Outbound {
       if (rt.reply !== undefined) await rt.reply.notice(`出错了：${detail}`)
       const ack = rt.inflight?.ack
       rt.inflight = undefined
+      this.onTurnIdle?.(rt)
       if (ack !== undefined) await ack()
     })
   }
