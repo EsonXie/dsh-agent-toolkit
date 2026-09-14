@@ -102,6 +102,14 @@ describe('resolveProjectPath', () => {
     expect(res.st.isDirectory()).toBe(true)
   })
 
+  test('项目根自身（.）解析为根', async () => {
+    const res = await resolveProjectPath(root, '.')
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.abs).toBe(root)
+    expect(res.st.isDirectory()).toBe(true)
+  })
+
   test('拒绝越界与不存在', async () => {
     expect(await resolveProjectPath(root, '../outside.md')).toEqual({ ok: false, reason: 'outside' })
     expect(await resolveProjectPath(root, 'nope.md')).toEqual({ ok: false, reason: 'not-found' })

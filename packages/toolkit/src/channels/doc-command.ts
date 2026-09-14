@@ -17,7 +17,8 @@ export type ProjectPath =
  * lstat 失败（不存在/不可读/悬空链接）按 not-found；
  * 中间目录若是符号链接 lstat 会跟随其指向，用 realpath 把两侧归一后重判包含
  * （两侧都取真实路径，避免根路径本身带符号链接/8.3 短名时文本不一致误判）。
- * 注意：本护栏只校验到父目录；目标自身是符号链接时的处置由调用方按语义决定
+ * 注意：本护栏只校验到父目录；目标即项目根自身（arg='.'）时父目录必然在根外，
+ * 按 realpath 归一后与根核对放行。目标自身是符号链接时的处置由调用方按语义决定
  * （/doc 靠 st.isFile() 拒绝，/ls 显式按越界拒绝）。 */
 export async function resolveProjectPath(project: string, arg: string): Promise<ProjectPath> {
   if (path.isAbsolute(arg)) return { ok: false, reason: 'outside' }
@@ -33,7 +34,10 @@ export async function resolveProjectPath(project: string, arg: string): Promise<
   const realRoot = await realpath(project)
   const realParent = await realpath(path.dirname(abs))
   const realRel = path.relative(realRoot, realParent)
-  if (realRel.startsWith('..') || path.isAbsolute(realRel)) return { ok: false, reason: 'outside' }
+  if (realRel.startsWith('..') || path.isAbsolute(realRel)) {
+    const realAbs = await realpath(abs)
+    if (realAbs !== realRoot) return { ok: false, reason: 'outside' }
+  }
   return { ok: true, abs, st }
 }
 
