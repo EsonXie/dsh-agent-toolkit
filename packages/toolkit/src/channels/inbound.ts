@@ -5,6 +5,7 @@ import type { BotRecord } from '../bots/store.ts'
 import type { InboundMessage } from './channel.ts'
 import { parseDirective } from './directive.ts'
 import { docRejectText, readDocFile, resolveDocPath } from './doc-command.ts'
+import { formatLsText, listProjectDir, lsRejectText, searchProjectTree } from './ls-command.ts'
 import { truncateDetail } from './outbound.ts'
 import type { Router } from './router.ts'
 import type { SessionCatalogEntry, SessionCatalogPort } from './ports.ts'
@@ -36,6 +37,7 @@ const HELP_TEXT = [
   '/sessions 列出本项目可切换的会话',
   '/switch <序号|id前缀> 切换到指定会话',
   '/doc <相对路径> 发送项目内文件（如对话产出的 Markdown 文档）',
+  '/ls [相对路径] [关键字] 列出项目目录内容（带关键字时递归按名称搜索）',
   '/help 显示本帮助',
 ].join('\n')
 
@@ -87,6 +89,10 @@ export class Inbound {
     }
     if (directive?.name === 'doc') {
       await this.sendDoc(bot, msg, directive.arg)
+      return
+    }
+    if (directive?.name === 'ls') {
+      await this.sendLs(bot, msg, directive.arg)
       return
     }
     if (directive?.name === 'sessions') {
@@ -229,5 +235,20 @@ export class Inbound {
       const detail = truncateDetail(error instanceof Error ? error.message : String(error), this.deps.maxErrorDetailChars)
       await msg.reply.notice(`发送文件失败：${detail}`)
     }
+  }
+
+  /** /ls：arg 缺省/空 = 列项目根；单 token = 路径；其余 token join 为递归搜索关键字。 */
+  private async sendLs(bot: BotRecord, msg: InboundMessage, arg: string | undefined): Promise<void> {
+    const tokens = arg === undefined || arg.length === 0 ? [] : arg.split(/\s+/)
+    const dirArg = tokens[0] ?? '.'
+    const keyword = tokens.length > 1 ? tokens.slice(1).join(' ') : undefined
+    const res = keyword === undefined
+      ? await listProjectDir(bot.project, dirArg)
+      : await searchProjectTree(bot.project, dirArg, keyword)
+    if (!res.ok) {
+      await msg.reply.notice(lsRejectText(res.reason, dirArg))
+      return
+    }
+    await msg.reply.notice(formatLsText(res, dirArg, keyword))
   }
 }

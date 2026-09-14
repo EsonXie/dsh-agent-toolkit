@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
@@ -451,5 +451,59 @@ describe('/doc 指令', () => {
     const reply: ReplyHandle = { ...fakeReply(rec), sendFile: async () => { throw new Error('上传失败：code=230002') } }
     inbound.onMessage(msg('/doc report.md', 'oc_1', undefined, reply))
     await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('发送文件失败'))).toBe(true) })
+  })
+})
+
+describe('/ls 指令', () => {
+  let project: string
+  beforeAll(async () => {
+    project = await mkdtemp(path.join(tmpdir(), 'dsh-ls-inbound-'))
+    await mkdir(path.join(project, 'docs', 'sub'), { recursive: true })
+    await writeFile(path.join(project, 'docs', 'report.md'), '# 报告\n', 'utf8')
+    await writeFile(path.join(project, 'docs', 'sub', 'notes.md'), 'x', 'utf8')
+    await writeFile(path.join(project, 'README.md'), 'x', 'utf8')
+  })
+  afterAll(async () => { await rm(project, { recursive: true, force: true }) })
+
+  test('/ls 无参列项目根（不进会话 turn）', async () => {
+    const { rec, inbound, msg } = harness({ project })
+    inbound.onMessage(msg('/ls'))
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('项目根目录'))).toBe(true) })
+    const text = rec.notices.find((n) => n.includes('项目根目录'))!
+    expect(text).toContain('docs/')
+    expect(text).toContain('README.md')
+    expect(rec.followups).toHaveLength(0)
+  })
+
+  test('/ls 有参列子目录', async () => {
+    const { rec, inbound, msg } = harness({ project })
+    inbound.onMessage(msg('/ls docs'))
+    await vi.waitFor(() => {
+      expect(rec.notices.some((n) => n.includes('sub/') && n.includes('report.md'))).toBe(true)
+    })
+  })
+
+  test('/ls 带关键字递归搜索（多词关键字 join）', async () => {
+    const { rec, inbound, msg } = harness({ project })
+    inbound.onMessage(msg('/ls docs NOTES'))
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('docs/sub/notes.md'))).toBe(true) })
+  })
+
+  test('/ls 越界路径拒绝', async () => {
+    const { rec, inbound, msg } = harness({ project })
+    inbound.onMessage(msg('/ls ../secret'))
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('项目目录内'))).toBe(true) })
+  })
+
+  test('/ls 目录不存在', async () => {
+    const { rec, inbound, msg } = harness({ project })
+    inbound.onMessage(msg('/ls nope'))
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('目录不存在'))).toBe(true) })
+  })
+
+  test('/ls 目标是文件时提示用 /doc', async () => {
+    const { rec, inbound, msg } = harness({ project })
+    inbound.onMessage(msg('/ls README.md'))
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('发文件请用 /doc'))).toBe(true) })
   })
 })
