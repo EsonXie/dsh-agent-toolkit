@@ -32,7 +32,7 @@
 - Consumes: 现有 `ScopeJoiner`（`{ join(agentCtx): Promise<unknown> }`）、宿主 `AgentHandle`/`Agent`（`agent.session` 为 `@deepseek-ai/dsh-session` 的 `Session`）。
 - Produces: `createAgentsPort(ctx, joiner, ownedSessions?, applyPreset?: (session: Session) => void)` —— Task 3 的 bots/index.ts 以第 4 参传入应用器；schedule/index.ts 不传（行为不变）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `packages/toolkit/src/channels/agents-port.test.ts`：
 
@@ -97,12 +97,12 @@ describe('createAgentsPort applyPreset', () => {
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `pnpm --filter dsh-agent-toolkit exec vitest run src/channels/agents-port.test.ts`
 Expected: FAIL —— `createAgentsPort` 只接受 3 个参数，第 4 参类型报错/调用不生效（applyPreset 断言失败）。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `packages/toolkit/src/channels/agents-port.ts` 三处改动：
 
@@ -139,14 +139,14 @@ export function createAgentsPort(
     return {
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量回归**
+- [x] **Step 4: 跑测试确认通过 + 全量回归**
 
 Run: `pnpm --filter dsh-agent-toolkit exec vitest run src/channels/agents-port.test.ts`
 Expected: PASS（4 个测试）
 Run: `pnpm --filter dsh-agent-toolkit test`
 Expected: 全部通过（621+4）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add packages/toolkit/src/channels/agents-port.ts packages/toolkit/src/channels/agents-port.test.ts
@@ -165,7 +165,7 @@ git commit -m "feat(feishu): createAgentsPort 可选 applyPreset 参数（建账
 - Consumes: 无（独立工厂）。
 - Produces: `createPresetApplier(serviceOf: () => PermissionPresetsLike | undefined, preset: string, warn: (message: string) => void): (session: Session) => void`；`PermissionPresetsLike = { readonly names: readonly string[]; set(session: Session, name: string): void }`。Task 3 在 bots/index.ts 消费。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `packages/toolkit/src/bots/permission-preset.test.ts`：
 
@@ -209,12 +209,12 @@ describe('createPresetApplier', () => {
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `pnpm --filter dsh-agent-toolkit exec vitest run src/bots/permission-preset.test.ts`
 Expected: FAIL —— 模块不存在（无法解析 `./permission-preset.ts`）。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 新建 `packages/toolkit/src/bots/permission-preset.ts`：
 
@@ -255,12 +255,12 @@ export function createPresetApplier(
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `pnpm --filter dsh-agent-toolkit exec vitest run src/bots/permission-preset.test.ts`
 Expected: PASS（3 个测试）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add packages/toolkit/src/bots/permission-preset.ts packages/toolkit/src/bots/permission-preset.test.ts
@@ -281,7 +281,7 @@ git commit -m "feat(feishu): createPresetApplier 工厂——宿主权限预设�
 - Consumes: Task 1 的 `createAgentsPort` 第 4 参；Task 2 的 `createPresetApplier`。
 - Produces: `BotsModuleConfig.permissionPreset?: string`；Config 输出 `config.feishu.permissionPreset`（缺省 undefined）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `packages/toolkit/src/index.test.ts` 在 `feishu.approval=false` 测试后追加：
 
@@ -368,12 +368,12 @@ describe('setupBots permissionPreset 接线', () => {
 
 注意：两个 describe 块之间 mock 调用记录会累积，在文件顶部 `beforeEach(() => vi.mocked(createAgentsPort).mockClear())`（需 `import { beforeEach } from 'vitest'`）。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `pnpm --filter dsh-agent-toolkit exec vitest run src/index.test.ts src/bots/smoke.test.ts src/bots/index.test.ts`
 Expected: FAIL —— `permissionPreset` 不在 BotsModuleConfig 类型/schema 中（类型错误 + 键清单断言失败 + 接线断言失败）。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 (a) `packages/toolkit/package.json` devDependencies 追加（照 `dsh-user-approval` 的 link 先例，保持字母序位置按现有文件实际顺序插入）：
 
@@ -426,7 +426,7 @@ import { createPresetApplier } from './permission-preset.ts'
   const agentsPort = createAgentsPort(ctx, scopeJoiner, deps.ownedSessions, applyPreset)
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 类型检查 + 全量回归**
+- [x] **Step 4: 跑测试确认通过 + 类型检查 + 全量回归**
 
 Run: `pnpm --filter dsh-agent-toolkit exec vitest run src/index.test.ts src/bots/smoke.test.ts src/bots/index.test.ts`
 Expected: PASS
@@ -435,12 +435,12 @@ Expected: 无错误
 Run: `pnpm --filter dsh-agent-toolkit test`
 Expected: 全部通过
 
-- [ ] **Step 5: 构建**
+- [x] **Step 5: 构建**
 
 Run: `pnpm --filter dsh-agent-toolkit bundle`
 Expected: 成功产出 lib/index.js 与 lib/client.js
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add packages/toolkit/src/index.ts packages/toolkit/src/bots/index.ts packages/toolkit/package.json packages/toolkit/src/index.test.ts packages/toolkit/src/bots/index.test.ts packages/toolkit/src/bots/smoke.test.ts pnpm-lock.yaml
@@ -459,7 +459,7 @@ git commit -m "feat(feishu): feishu.permissionPreset 配置——bot 会话建�
 - Consumes: Task 3 完成的配置项 `feishu.permissionPreset`。
 - Produces: 域文档现行事实更新；真实回路验收结论。
 
-- [ ] **Step 1: 更新 docs/domains/feishu.md**
+- [x] **Step 1: 更新 docs/domains/feishu.md**
 
 在「审批卡片与 ask_user」一节末尾追加一段（保持该文件现行事实权威风格）：
 
@@ -484,7 +484,7 @@ bot 会话建账（create/冷 resume/web 存活接管/switch 冷接管，统一�
 5. 再发一个需要委派的任务，预期子 Agent 同样不审批直接执行（宿主委派继承）。
 6. 验证后**回退 cordis.yml 的该改动**（除非用户决定常驻）。
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```powershell
 git add docs/domains/feishu.md
