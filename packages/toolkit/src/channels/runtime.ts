@@ -2,7 +2,7 @@
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { AgentRegistry } from '../agents/registry.ts'
 import { bindingKey, type Binding, type BotRecord } from '../bots/store.ts'
-import type { BotChannel, ChannelHandle, ChannelStatus, ChannelTunables } from './channel.ts'
+import type { BotChannel, ChannelHandle, ChannelStatus, ChannelTunables, DebugSink } from './channel.ts'
 import { Inbound } from './inbound.ts'
 import { Outbound } from './outbound.ts'
 import type { AgentsPort, BindingStore, DefaultModelAccessor, SessionCatalogPort, SessionRuntime, WorkspacePort } from './ports.ts'
@@ -32,6 +32,8 @@ export interface RuntimeDeps {
   catalog?: () => SessionCatalogPort | undefined
   /** 发起人提示段开关（缺省 true；见 Config feishu.injectSender）。 */
   injectSender?: boolean
+  /** 生产调试事件 sink（outbound reconcile/frame-stats；缺省不记录）。 */
+  debugLog?: DebugSink
   resolveSecret(ref: string): Promise<string | undefined>
   validateProject(path: string): boolean
   log: { warn(message: string): void; info(message: string): void }
@@ -59,7 +61,7 @@ export class BotRuntime {
       ...(deps.catalog !== undefined ? { catalog: deps.catalog } : {}),
       onError: (m) => deps.log.warn(m),
     })
-    this.outbound = new Outbound(this.sessions, (m) => deps.log.warn(m), deps.maxErrorDetailChars, (rt) => this.inbound.drain(rt.botId, rt.chatId))
+    this.outbound = new Outbound(this.sessions, (m) => deps.log.warn(m), deps.maxErrorDetailChars, (rt) => this.inbound.drain(rt.botId, rt.chatId), deps.debugLog)
     this.approval = new ApprovalCenter(
       this.sessions,
       (botId) => {

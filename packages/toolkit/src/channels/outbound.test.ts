@@ -283,7 +283,7 @@ describe('Outbound.handleSessionEvent', () => {
     ])
   })
 
-  test('防护：step2 正文帧全部丢失时对账跳过，step1 已提交正文不被 step2 权威全文覆盖', async () => {
+  test('防护：step2 正文帧全部丢失时对账 append 补回，step1 已提交正文不被覆盖', async () => {
     const { calls, reply } = recorder()
     const rt = fakeRuntime(reply)
     const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
@@ -293,8 +293,9 @@ describe('Outbound.handleSessionEvent', () => {
     outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'A' }] } } })
     outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 2, message: { content: [{ type: 'text', text: 'B' }] } } })
     await drain(rt)
-    expect(rt.turn!.segments).toEqual([{ kind: 'text', content: 'A' }])
-    expect(calls[calls.length - 1]).toEqual({ op: 'update', arg: 'text:A' })
+    // 防护未命中 ⇒ 不替换 step1 已提交正文；帧全丢 ⇒ append 补回 step2 正文
+    expect(rt.turn!.segments).toEqual([{ kind: 'text', content: 'AB' }])
+    expect(calls[calls.length - 1]).toEqual({ op: 'update', arg: 'text:AB' })
   })
 
   test('防护反向：step2 至少应用过一帧 text-delta 时对账正常补齐', async () => {
@@ -456,5 +457,62 @@ describe('Outbound.handleAgentError（turn 外错误）', () => {
     outbound.handleAgentError('s1', 'boom')
     await drain(rt)
     expect(idle).toHaveBeenCalledOnce()
+  })
+})
+
+describe('对账 replace-or-append', () => {
+  test('本 step 一帧未到（start 帧丢）：append 新 text 段补回权威全文', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const events: { event: string; [k: string]: unknown }[] = []
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined, 500, undefined, (e) => { events.push(e) })
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    // start 帧丢失、chunk 全丢：直接来持久结算事件
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: '完整答复' }] } } })
+    await drain(rt)
+    expect(calls).toEqual([{ op: 'beginTurn' }, { op: 'update', arg: 'text:完整答复' }])
+    expect(events).toContainEqual(expect.objectContaining({ event: 'reconcile', result: 'appended', authoritativeLen: 4 }))
+  })
+
+  test('防护未命中且权威文本为空：跳过（skipped-empty），不产生 update', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'tool_call', id: 'c', name: 'n' }] } } })
+    await drain(rt)
+    expect(calls).toEqual([])
+  })
+
+  test('多 text 块消息：权威文本为全部 text 块拼接（textOf），不丢前块', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 0, text: 'A' }))   // B 的帧丢了
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'A' }, { type: 'tool_call', id: 'c', name: 'n' }, { type: 'text', text: 'B' }] } } })
+    await drain(rt)
+    // 对账把尾 text 段从 'A' 替换为拼接全文 'AB'
+    expect(calls[calls.length - 1]).toEqual({ op: 'update', arg: 'text:AB' })
+  })
+
+  test('frame-stats：turn/end 输出帧统计（含基线缺失丢弃计数）', async () => {
+    const { reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const events: { event: string; [k: string]: unknown }[] = []
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined, 500, undefined, (e) => { events.push(e) })
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 0, text: '你好' }))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'reasoning-delta', index: 1, text: '想' }))
+    // 无基线丢弃：把 attemptStep 清掉模拟 start 帧丢失后的 chunk（直接改 turn 状态模拟第二步丢 start）
+    rt.turn!.attemptStep = undefined
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 0, text: '丢' }))
+    outbound.handleSessionEvent('s1', { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
+    await drain(rt)
+    expect(events).toContainEqual(expect.objectContaining({
+      event: 'frame-stats', turn: 1, starts: 1, textDeltas: 1, reasoningDeltas: 1, droppedNoBaseline: 1, lastTextStep: 1,
+    }))
   })
 })
