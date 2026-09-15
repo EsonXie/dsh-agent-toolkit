@@ -63,6 +63,9 @@
 | `feishu.errorDetailMaxChars` | number | `500` | 回传飞书的错误摘要最大字符数 |
 | `feishu.injectSender` | boolean | `true` | 会话创建时注入「渠道 + 发起人 open_id」提示段（`dsh-agent-toolkit:channel:sender`），供 Agent 写多维表格人员字段等场景使用 |
 | `feishu.approval` | boolean | `true` | bot 会话工具提权申请改由飞书审批卡片处理（仅会话发起人可点）。注意：存量飞书应用需在开发者后台补开「卡片回传」(card.action.trigger) 订阅，否则卡片按钮无响应、审批会一直挂起；如无法开启可将该项设为 `false` 回退 web 审批弹窗 |
+| `feishu.debugLog` | boolean | `true` | 生产调试日志总开关：出站卡片 op/close/replace/abandon 与流对账 reconcile/frame-stats 事件写 JSONL 文件（内容只记长度+首尾 20 字，不落全文） |
+| `feishu.debugLogDir` | string | `''` | 调试日志目录（留空 = `~/.dsh/logs/feishu-debug/`；JSONL 按日滚动 `feishu-YYYY-MM-DD.jsonl`） |
+| `feishu.debugLogRetentionDays` | number | `7` | 调试日志按文件日期保留天数，超出删除最旧 |
 
 ## `agentTeamPreset.*` 字段
 
