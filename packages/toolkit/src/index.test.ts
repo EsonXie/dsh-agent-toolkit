@@ -174,9 +174,12 @@ describe('Config 默认值', () => {
 })
 
 describe('apply 模块接线与开关', () => {
+  // 本 describe 走 setupBots 的测试显式 feishu.debugLog: false：debugLog 默认开启会经
+  // DEFAULT_DEBUG_LOG_DIR()（os.homedir()，不感知 DSH_HOME）在真实 ~/.dsh/logs 下 mkdir，
+  // 破坏测试 hermeticity。默认值本身由上方「Config 默认值」describe 断言，不受影响。
   test('默认配置：注册 /token-usage 命令、五个存储域、委派工具挂载路径', async () => {
     const h = makeCtx()
-    await apply(h.ctx, Config({}))
+    await apply(h.ctx, Config({ feishu: { debugLog: false } }))
     await flush()
     expect(h.commands).toContain('token-usage')
     expect(h.commands).toContain('create-agent')
@@ -187,7 +190,7 @@ describe('apply 模块接线与开关', () => {
 
   test('modules.usage=false：不注册 /token-usage 命令，也不打开 token_usage 域', async () => {
     const h = makeCtx()
-    await apply(h.ctx, Config({ modules: { usage: false } }))
+    await apply(h.ctx, Config({ modules: { usage: false }, feishu: { debugLog: false } }))
     expect(h.commands).not.toContain('token-usage')
     expect(h.openedDomains).not.toContain('token_usage')
   })
@@ -220,7 +223,7 @@ describe('apply 模块接线与开关', () => {
 
   test('默认配置：agents RPC 与 bots 路由均注册（同一 /dsh-agent-toolkit/api 前缀，路径互不重叠）', async () => {
     const h = makeCtx()
-    await apply(h.ctx, Config({}))
+    await apply(h.ctx, Config({ feishu: { debugLog: false } }))
     const paths = h.registered.map((r) => r.path)
     expect(paths).toContain('/dsh-agent-toolkit/api/agents')
     expect(paths).toContain('/dsh-agent-toolkit/api/providers')
