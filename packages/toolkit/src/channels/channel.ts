@@ -62,6 +62,9 @@ export interface ChannelHandle {
   approval?: ApprovalPresenter
 }
 
+/** 生产调试事件 sink（JSONL 文件日志等；undefined = 不记录）。 */
+export type DebugSink = (event: { event: string; [key: string]: unknown }) => void
+
 /** 全局可调参数（Config 快照，渠道层只读消费）。 */
 export interface ChannelTunables {
   cardUpdateThrottleMs: number
@@ -71,6 +74,8 @@ export interface ChannelTunables {
   /** 飞书流式打字机每次打印字符数。 */
   cardPrintStep: number
   processingReactionEmoji: string
+  /** 生产调试日志 sink（feishu/debug-log.ts 装配；缺省不记录）。 */
+  debugLog?: DebugSink
 }
 
 /** 密钥已现场解析的 bot 配置。 */
