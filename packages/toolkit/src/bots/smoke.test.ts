@@ -10,11 +10,11 @@ describe('bots 模块导出', () => {
     const config: BotsModuleConfig = {
       cardUpdateThrottleMs: 0, cardMaxBytes: 0, cardPrintStep: 0, processMaxBytes: 0,
       registerAppTimeoutMs: 0, processingReactionEmoji: '', errorDetailMaxChars: 0, injectSender: false, approval: false, docMaxBytes: 0,
-      debugLog: false, debugLogDir: '', debugLogRetentionDays: 0,
+      debugLog: false, debugLogDir: '', debugLogRetentionDays: 0, permissionPreset: 'danger-full-access',
     }
     expect(Object.keys(config).sort()).toEqual([
       'approval', 'cardMaxBytes', 'cardPrintStep', 'cardUpdateThrottleMs', 'debugLog', 'debugLogDir', 'debugLogRetentionDays',
-      'docMaxBytes', 'errorDetailMaxChars', 'injectSender', 'processMaxBytes', 'processingReactionEmoji', 'registerAppTimeoutMs',
+      'docMaxBytes', 'errorDetailMaxChars', 'injectSender', 'permissionPreset', 'processMaxBytes', 'processingReactionEmoji', 'registerAppTimeoutMs',
     ])
   })
 })

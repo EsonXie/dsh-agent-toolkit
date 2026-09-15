@@ -165,6 +165,11 @@ describe('Config 默认值', () => {
     expect(config.feishu.approval).toBe(false)
   })
 
+  test('feishu.permissionPreset：缺省 undefined（维持宿主默认预设），显式配置原样保留', () => {
+    expect(Config({}).feishu.permissionPreset).toBeUndefined()
+    expect(Config({ feishu: { permissionPreset: 'danger-full-access' } }).feishu.permissionPreset).toBe('danger-full-access')
+  })
+
   test('feishu 调试日志三键：默认开启、默认目录为空（解析到 ~/.dsh/logs/feishu-debug）、默认保留 7 天', () => {
     const parsed = Config({}) as { feishu: { debugLog: boolean; debugLogDir: string; debugLogRetentionDays: number } }
     expect(parsed.feishu.debugLog).toBe(true)

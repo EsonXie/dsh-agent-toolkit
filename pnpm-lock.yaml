@@ -108,6 +108,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: link:../../deepseek-harness/packages/llm/llm
         version: link:../../deepseek-harness/packages/llm/llm
+      '@deepseek-ai/dsh-permission-presets':
+        specifier: link:../../deepseek-harness/packages/interaction/permission-presets
+        version: link:../../deepseek-harness/packages/interaction/permission-presets
       '@deepseek-ai/dsh-persona':
         specifier: link:../../deepseek-harness/packages/preset/persona
         version: link:../../deepseek-harness/packages/preset/persona

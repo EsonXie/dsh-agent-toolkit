@@ -15,6 +15,8 @@ import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 // Side-effect type import: declaration-merges the `approval/request` waterfall event
 // answered below（照 host api-proxy.ts L87-90 同款；type-only，bundle 期擦除无运行时依赖）。
 import type {} from '@deepseek-ai/dsh-user-approval'
+// type-only：激活 permissionPresets 服务在 Context 上的声明合并（ctx.get 可选服务读取）。
+import type {} from '@deepseek-ai/dsh-permission-presets'
 import type { AgentRegistry } from '../agents/registry.ts'
 import { openDomainSafely } from '../shared/storage.ts'
 import { registerOptionalRoutes } from '../shared/webserver.ts'
@@ -30,6 +32,7 @@ import { BotRuntime } from '../channels/runtime.ts'
 import { createScopeJoiner, type ScopeJoiner } from '../channels/scope-joiner.ts'
 import { createToolsScope } from '../channels/tool-scope.ts'
 import { createApprovalAnswerer } from '../channels/approval/answerer.ts'
+import { createPresetApplier } from './permission-preset.ts'
 import { createApiHandler } from './api.ts'
 import { RegisterAppService } from './register-app.ts'
 import { projectBotDomain, type Binding, type BotRecord } from './store.ts'
@@ -54,6 +57,8 @@ export interface BotsModuleConfig {
   injectSender: boolean
   /** 飞书审批卡片：bot 会话的工具提权申请改由飞书卡片审批（仅会话发起人可点）。 */
   approval: boolean
+  /** bot 会话建账即应用的宿主权限预设名（缺省维持宿主默认；danger-full-access 风险见 Config 注释）。 */
+  permissionPreset?: string
   /** /doc 发送文件的大小上限（字节）。 */
   docMaxBytes: number
   /** 生产调试文件日志开关（JSONL，按日滚动）。 */
@@ -102,7 +107,12 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
     ? createScopeJoiner(ctx, deps.botPresetId, toolsScope, log.warn)
     : toolsScope
 
-  const agentsPort = createAgentsPort(ctx, scopeJoiner, deps.ownedSessions)
+  // 权限预设：配置后 create/resume/接管三路径统一应用（agents-port 内调用点）；
+  // 活跃复用与 /switch 内存复用不经过 agents.get，天然不翻转存量会话。
+  const presetName = config.permissionPreset
+  const applyPreset = presetName === undefined ? undefined
+    : createPresetApplier(() => ctx.get('permissionPresets'), presetName, log.warn)
+  const agentsPort = createAgentsPort(ctx, scopeJoiner, deps.ownedSessions, applyPreset)
 
   // workspaceRegistry 是可选服务（ctx.get 非严格模式）：缺失时 attach 抛错，
   // 由 Router 捕获降级为"未分组 + 告警"，不阻塞消息处理。

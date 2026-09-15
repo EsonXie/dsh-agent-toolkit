@@ -80,9 +80,12 @@ export const Config: z<unknown, Config> = z.object({
   timezone: z.string().default('Asia/Shanghai'),
   provider: z.string().default('spawn'),
   toolName: z.string().default('team_delegate'),
-  // feishu 13 个全局可调参数：9 个照归档 project-bot/src/index.ts:38-45 原样平移，docMaxBytes 与
-  // debugLog/debugLogDir/debugLogRetentionDays 为 Task 5 新增（非 archive 平移）。
-  feishu: z.object({
+  // feishu 14 个全局可调参数：9 个照归档 project-bot/src/index.ts:38-45 原样平移，docMaxBytes 与
+  // debugLog/debugLogDir/debugLogRetentionDays 为 Task 5 新增（非 archive 平移），permissionPreset 为
+  // 本特性新增（可选键）。cast 照 rules 的 `as z<Rule>` 先例：schemastery 的 ObjectT 要求对象级
+  // `.default({...})` 字面量含全部 dict 键，而 permissionPreset 无默认值、缺省 undefined，只能经
+  // `as z<unknown, BotsModuleConfig>`（BotsModuleConfig.permissionPreset 可选）让默认字面量不含该键。
+  feishu: (z.object({
     cardUpdateThrottleMs: z.number().default(500),
     cardMaxBytes: z.number().default(26_000),
     cardPrintStep: z.number().default(5),
@@ -92,6 +95,9 @@ export const Config: z<unknown, Config> = z.object({
     errorDetailMaxChars: z.number().default(500),
     injectSender: z.boolean().default(true),
     approval: z.boolean().default(true),
+    /** bot 会话建账即应用的宿主权限预设名（如 danger-full-access = 完全权限不审批；缺省维持宿主默认）。
+     *  警告：完全权限下任何能给 bot 发消息的人即获宿主完全文件/命令权限，建议仅私聊 bot 启用。 */
+    permissionPreset: z.string(),
     /** /doc 发送文件的大小上限（字节）。 */
     docMaxBytes: z.number().default(30 * 1024 * 1024),
     /** 生产调试文件日志开关（JSONL，按日滚动）。 */
@@ -100,7 +106,7 @@ export const Config: z<unknown, Config> = z.object({
     debugLogDir: z.string().default(''),
     /** 日志保留天数（按文件名日期清理）。 */
     debugLogRetentionDays: z.number().default(7),
-  }).default({
+  }) as z<unknown, BotsModuleConfig>).default({
     cardUpdateThrottleMs: 500,
     cardMaxBytes: 26_000,
     cardPrintStep: 5,

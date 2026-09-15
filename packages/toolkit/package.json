@@ -75,6 +75,7 @@
     "@deepseek-ai/dsh-home-paths": "link:../../deepseek-harness/packages/util/home-paths",
     "@deepseek-ai/dsh-host-webserver": "link:../../deepseek-harness/packages/host/webserver",
     "@deepseek-ai/dsh-llm": "link:../../deepseek-harness/packages/llm/llm",
+    "@deepseek-ai/dsh-permission-presets": "link:../../deepseek-harness/packages/interaction/permission-presets",
     "@deepseek-ai/dsh-persona": "link:../../deepseek-harness/packages/preset/persona",
     "@deepseek-ai/dsh-scope": "link:../../deepseek-harness/packages/core/scope",
     "@deepseek-ai/dsh-session": "link:../../deepseek-harness/packages/core/session",

@@ -1,8 +1,16 @@
-import { describe, expect, test, vi } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { setupBots, type BotsModuleConfig } from './index.ts'
 import type { AgentRegistry } from '../agents/registry.ts'
 import type { ApprovalOutcome, ApprovalRequestLike } from '../channels/approval/center.ts'
+import { createAgentsPort } from '../channels/agents-port.ts'
+
+vi.mock('../channels/agents-port.ts', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../channels/agents-port.ts')>()
+  return { ...original, createAgentsPort: vi.fn(original.createAgentsPort) }
+})
+
+beforeEach(() => vi.mocked(createAgentsPort).mockClear())
 
 function makeConfig(approval: boolean): BotsModuleConfig {
   return {
@@ -32,7 +40,7 @@ function makeRegistry(): AgentRegistry {
   }
 }
 
-function makeCtx(): { ctx: Context; on: ReturnType<typeof vi.fn> } {
+function makeCtx(permissionPresets?: unknown): { ctx: Context; on: ReturnType<typeof vi.fn> } {
   const on = vi.fn(() => () => {})
   const ctx = {
     logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
@@ -47,7 +55,7 @@ function makeCtx(): { ctx: Context; on: ReturnType<typeof vi.fn> } {
     credentials: { set: vi.fn(async () => {}), resolve: vi.fn(async () => undefined), unset: vi.fn(async () => {}) },
     agents: { create: vi.fn(), resume: vi.fn(), get: vi.fn(() => undefined) },
     agentDefaultModel: { currentSelection: () => ({ provider: 'spawn', model: 'deepseek-chat' }) },
-    get: () => undefined,
+    get: vi.fn((name: string) => (name === 'permissionPresets' ? permissionPresets : undefined)),
     inject: () => {},
   } as unknown as Context
   return { ctx, on }
@@ -86,5 +94,25 @@ describe('setupBots 审批 answerer 注册门控', () => {
     const next = vi.fn(async () => 'unavailable' as const)
     expect(await handler(req, next)).toBe('unavailable')
     expect(next).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('setupBots permissionPreset 接线', () => {
+  test('配置 permissionPreset：createAgentsPort 第 4 参为应用器，调用后落到 svc.set(session, name)', () => {
+    const set = vi.fn()
+    const svc = { names: ['workspace-write', 'danger-full-access'], set }
+    const { ctx } = makeCtx(svc)
+    setupBots(ctx, { ...makeConfig(true), permissionPreset: 'danger-full-access' }, { registry: makeRegistry() })
+    const applyPreset = vi.mocked(createAgentsPort).mock.calls[0]![3]
+    expect(typeof applyPreset).toBe('function')
+    const session = {} as Parameters<NonNullable<typeof applyPreset>>[0]
+    applyPreset!(session)
+    expect(set).toHaveBeenCalledWith(session, 'danger-full-access')
+  })
+
+  test('未配置 permissionPreset：createAgentsPort 第 4 参为 undefined', () => {
+    const { ctx } = makeCtx()
+    setupBots(ctx, makeConfig(true), { registry: makeRegistry() })
+    expect(vi.mocked(createAgentsPort).mock.calls[0]![3]).toBeUndefined()
   })
 })
