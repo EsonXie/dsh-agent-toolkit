@@ -313,8 +313,11 @@ export class FeishuReplyHandle implements ReplyHandle {
         carry: { segIndex: tail.segIndex, base },
         cardSegs: [],
       }
+      // 废弃直接关流（不经 invokeThenCommit 的 settings 分支），必须清掉 closedCardId，防旧卡残留被误解析
+      this.closedCardId = null
     } else {
       this.state = { ...this.state, cardId: null, cardSegs: [] }
+      this.closedCardId = null
     }
     this.log(`[project-bot] 卡片输出异常（${reason}），已废弃当前卡并在新卡继续`)
     this.debugLog?.({ event: 'abandon', chatId: this.chatId, cardId, reason, carrySegIndex: this.state.carry?.segIndex, carryBase: this.state.carry?.base })

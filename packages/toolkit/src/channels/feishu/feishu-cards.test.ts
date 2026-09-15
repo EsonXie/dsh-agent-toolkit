@@ -363,9 +363,9 @@ describe('关流后全量重放（replace op）', () => {
     expect(s1.cardSegs).toHaveLength(1)   // 先前快照不被后续规划污染
   })
 
-  test('buildClosedCardJson：carry 续写段按 base 切片', () => {
+  test('buildClosedCardJson：carry 续写段按 base + len 切片', () => {
     const json = buildClosedCardJson(
-      [{ segIndex: 0, elementId: 'seg_9', kind: 'text', base: 3 }],
+      [{ segIndex: 0, elementId: 'seg_9', kind: 'text', base: 3, len: 4 }],
       [{ kind: 'text', content: '---续写内容' }],
       undefined,
       '✅ 输出完成',
@@ -373,5 +373,24 @@ describe('关流后全量重放（replace op）', () => {
     )
     const card = JSON.parse(json) as { body: { elements: { content?: string }[] } }
     expect(card.body.elements[0]!.content).toBe('续写内容')
+  })
+
+  test('封闭 text 段后续增长：重建仍按已提交长度切片，不越界整段', () => {
+    // Flush A：段一 'AB' 提交后因 process 段跟随而封闭（cardSegs 钉住 len=2），段二为尾段
+    const a = planSync(initialStreamState(), [text('AB'), proc('思考')], MAX, PROC, STEP)
+    const aState = applyOps(initialStreamState(), a.ops)
+    const closed = aState.cardSegs.find((e) => e.elementId === 'seg_1')!
+    expect(closed).toMatchObject({ segIndex: 0, kind: 'text', base: 0, len: 2 })
+    // Flush B：段一内容跨 flush 增长到 'ABCDEF'，但已封闭不再重同步，cardSegs 保持 len=2
+    const grown = planSync({ ...aState, cardId: 'c1' }, [text('ABCDEF'), proc('思考')], MAX, PROC, STEP)
+    const grownState = applyOps({ ...aState, cardId: 'c1' }, grown.ops)
+    expect(grownState.cardSegs.find((e) => e.elementId === 'seg_1')!.len).toBe(2)
+    // 定格重建：seg_1 只取已提交窗口 'AB'，不得切片整段 'ABCDEF'
+    const fin = planFinalize(grownState, 'done', [text('ABCDEF'), proc('思考')], PROC)
+    const replace = fin.ops.find((o) => o.type === 'replace')!
+    if (replace.type !== 'replace') throw new Error('unreachable')
+    const card = JSON.parse(replace.cardJson) as { body: { elements: { content?: string; element_id?: string }[] } }
+    const seg1 = card.body.elements.find((e) => e.element_id === 'seg_1')!
+    expect(seg1.content).toBe('AB')
   })
 })

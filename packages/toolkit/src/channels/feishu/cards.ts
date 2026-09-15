@@ -135,7 +135,7 @@ export function buildClosedCardJson(
       ? sliceTailByBytes(seg.content, processMaxBytes)
       : tail !== undefined && tail.segIndex === entry.segIndex
         ? tail.shownText
-        : seg.content.slice(entry.base)
+        : seg.content.slice(entry.base, entry.base + entry.len)
     elements.push(JSON.parse(buildSegmentJson(entry.kind, entry.elementId, content)) as unknown)
   }
   elements.push({ tag: 'markdown', content: statusLine, element_id: STATUS_ELEMENT_ID })
@@ -146,8 +146,11 @@ export function buildClosedCardJson(
   })
 }
 
-/** 当前卡上一个段元素的登记项（重建整卡用；base = 元素内容在该段 content 中的 char 起始偏移）。 */
-export interface CardSeg { segIndex: number; elementId: string; kind: 'text' | 'process'; base: number }
+/** 当前卡上一个段元素的登记项（重建整卡用；base = 元素内容在该段 content 中的 char 起始偏移）。
+ *  len = 本卡已提交的该段字符数：text 用 content.slice(base, base+len) 复现已提交内容——段封闭后
+ *  segments[i].content 仍可能增长（reconcileTrailingText 等），必须钉住已提交长度而非整段；
+ *  process 为提交窗口长度（重建走截尾重放，不依赖 len）。 */
+export interface CardSeg { segIndex: number; elementId: string; kind: 'text' | 'process'; base: number; len: number }
 
 export interface StreamState {
   /** 当前卡片 id（PENDING_CARD_ID = 创建中）；null = 下一张卡待创建。 */
@@ -277,6 +280,13 @@ export function planSync(
       }
       // 已完整同步：是最新段则保活收尾；有更新段则封闭前段
       if (i === segments.length - 1) break
+      // 封闭前把尾段已提交长度钉进 cardSegs：此后 segments[i].content 可能继续增长，重建须按已提交窗口切片
+      if (cardSegs.length > 0) {
+        const last = cardSegs[cardSegs.length - 1]!
+        cardSegs = last.elementId === tail.elementId
+          ? [...cardSegs.slice(0, -1), { ...last, len: tail.shownText.length }]
+          : cardSegs
+      }
       tail = undefined
       closedSegCount = i + 1
       carry = undefined
@@ -300,7 +310,7 @@ export function planSync(
       cardBytes += elBytes
       cardElements += 2
       tail = { segIndex: i, elementId, base: 0, shownText: elementContent }
-      cardSegs = [...cardSegs, { segIndex: i, elementId, kind: 'process', base: 0 }]
+      cardSegs = [...cardSegs, { segIndex: i, elementId, kind: 'process', base: 0, len: elementContent.length }]
       push({ type: 'insert', elementJson, sequence: seq })
     } else {
       if (elementContent.length === 0) {   // 空 text 段不占卡
@@ -326,7 +336,7 @@ export function planSync(
       cardBytes += Buffer.byteLength(elementJson, 'utf8')
       cardElements += 1
       tail = { segIndex: i, elementId, base, shownText: piece }
-      cardSegs = [...cardSegs, { segIndex: i, elementId, kind: 'text', base }]
+      cardSegs = [...cardSegs, { segIndex: i, elementId, kind: 'text', base, len: piece.length }]
       push({ type: 'insert', elementJson, sequence: seq })
       if (piece.length < elementContent.length) {
         carry = { segIndex: i, base: base + piece.length }

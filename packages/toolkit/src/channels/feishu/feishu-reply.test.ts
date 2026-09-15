@@ -415,6 +415,36 @@ describe('确认式出站与失败治理', () => {
     expect(inserts[inserts.length - 1].args[0]).toBe('card_2')
     expect(JSON.parse(String(inserts[inserts.length - 1].args[1])).content).toBe('xxx')
   })
+
+  test('abandon 重置 closedCardId：废弃后重规划 replace 命中新批次关流卡，绝不落入废弃前旧卡', async () => {
+    const { api, calls } = fakeApi()
+    let failGrowth = false
+    api.updateCardElement = async (...args) => {
+      calls.push({ op: 'updateCardElement', args })
+      // 只让尾段内容增长更新（非 status）失败：状态行定格/重规划批次的 status 更新须放行
+      if (failGrowth && args[1] !== 'status') throw bizError(200860)
+    }
+    const { reply } = make(api, overflowBatchTunables())
+    // Flush 1：建卡即拆卡 → card_1 经 settings 关流（closedCardId = card_1），card_2 承接 'xxx'
+    await reply.update([{ kind: 'text', content: 'x'.repeat(7) }])
+    await vi.advanceTimersByTimeAsync(500)
+    expect(calls.filter((c) => c.op === 'replaceCard').at(-1)!.args[0]).toBe('card_1')
+    // Flush 2：card_2 尾段增长 → update 200860 → 废弃 card_2（直接关流，不经 settings 捕获）→ 自动重规划拆卡
+    failGrowth = true
+    await reply.update([{ kind: 'text', content: 'x'.repeat(20) }])
+    await vi.advanceTimersByTimeAsync(500)
+    await vi.advanceTimersByTimeAsync(5000)
+    // 废弃确实发生（notice 已发）
+    expect(calls.some((c) => c.op === 'sendText' && String(c.args[1]).includes('卡片输出异常'))).toBe(true)
+    // 废弃后重规划批次的 replace 必须命中新批次建卡的关流卡，绝不落入废弃前 card_1（或废弃卡 card_2）
+    const replaces = calls.filter((c) => c.op === 'replaceCard')
+    expect(replaces.length).toBeGreaterThan(1)
+    for (const c of replaces.slice(1)) {
+      expect(c.args[0]).not.toBe('card_1')
+      expect(c.args[0]).not.toBe('card_2')
+      expect(c.args[0]).toMatch(/^card_[3-9]\d*$/)
+    }
+  })
 })
 
 test('sendFile：上传后经 chatId 发文件消息，不走卡片串行链', async () => {
