@@ -435,3 +435,42 @@ test('sendFile：上传失败向调用方传播（重试耗尽后抛最后一次
   await vi.advanceTimersByTimeAsync(3000)
   await assertion
 })
+
+test('debug 事件：op/close/replace 落 sink；replace 失败非致命且有事件', async () => {
+  const { api, calls } = fakeApi()
+  const events: { event: string; [k: string]: unknown }[] = []
+  const reply = new FeishuReplyHandle(api, 'oc_1', TUNABLES, () => undefined, (e) => { events.push(e) })
+  await reply.update([{ kind: 'text', content: '你好' }])
+  await vi.advanceTimersByTimeAsync(500)
+  await reply.finalize('done')
+  const kinds = events.map((e) => e.event)
+  expect(kinds).toContain('op')
+  expect(kinds).toContain('close')
+  expect(kinds).toContain('replace')
+  const close = events.find((e) => e.event === 'close')!
+  expect(close.chatId).toBe('oc_1')
+  expect(close.tailShownLen).toBe(2)
+  expect(close.tailSegLen).toBe(2)
+  const replace = events.find((e) => e.event === 'replace')!
+  expect(replace.ok).toBe(true)
+  expect(replace.elements).toBe(2)   // 1 段 + 状态行
+  // 状态行 update op 事件带内容摘要而非全文（finalize 批的 update 是状态行定格）
+  const statusOp = events.find((e) => e.event === 'op' && e.op === 'update' && e.elementId === 'status')!
+  expect(statusOp.content).toEqual({ len: 6, head: '✅ 输出完成', tail: '' })
+  void calls
+})
+
+test('debug 事件：replaceCard 失败记 replace failed + 日志，不触发废弃通知', async () => {
+  const { api, calls } = fakeApi()
+  const failing = { ...api, replaceCard: async () => { throw bizError(999999) } }
+  const events: { event: string; [k: string]: unknown }[] = []
+  const logs: string[] = []
+  const reply = new FeishuReplyHandle(failing, 'oc_1', TUNABLES, (m) => { logs.push(m) }, (e) => { events.push(e) })
+  await reply.update([{ kind: 'text', content: '结论' }])
+  const fin = reply.finalize('done')
+  await vi.advanceTimersByTimeAsync(1000)   // withRetry 的 300ms 退避
+  await fin
+  expect(events).toContainEqual(expect.objectContaining({ event: 'replace', ok: false, code: 999999 }))
+  expect(logs.some((m) => m.includes('全量重放失败'))).toBe(true)
+  expect(calls.map((c) => c.op)).not.toContain('sendText')   // 无 ABANDON_NOTICE
+})

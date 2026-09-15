@@ -1,6 +1,7 @@
 /** 出站句柄：turn 级流式卡片（确认式状态机 + 失败分类治理 + 拆卡定格）。 */
-import type { ChannelTunables, Disposer, ReplyHandle, TurnSegment, TurnStatus } from '../channel.ts'
+import type { ChannelTunables, DebugSink, Disposer, ReplyHandle, TurnSegment, TurnStatus } from '../channel.ts'
 import { feishuErrorCode, type FeishuApi } from './api.ts'
+import { preview } from './debug-log.ts'
 import {
   initialStreamState, PENDING_CARD_ID, STATUS_ELEMENT_ID,
   planFinalize, planSync, type CardOp, type PlannedOp, type StreamState,
@@ -41,6 +42,7 @@ export class FeishuReplyHandle implements ReplyHandle {
     private readonly chatId: string,
     private readonly tunables: ChannelTunables,
     private readonly log: (message: string) => void,
+    private readonly debugLog?: DebugSink,
   ) {}
 
   beginTurn(): Promise<void> {
@@ -145,14 +147,18 @@ export class FeishuReplyHandle implements ReplyHandle {
       // 纯显示修复：失败不进失败分类治理（内容早已正确在卡），重试一次后记日志、照常 commit。
       // cardId 为 PENDING 占位时（同一次 planSync 内建卡即拆卡）解析为紧邻前一个关流 settings 的真实 id。
       const cardId = op.cardId === PENDING_CARD_ID ? this.closedCardId : op.cardId
+      const started = Date.now()
       if (cardId === null || cardId === PENDING_CARD_ID) {
+        this.debugLog?.({ event: 'replace', chatId: this.chatId, ok: false, reason: 'no-card-id' })
         this.log('[project-bot] 关流后全量重放跳过：取不到真实 cardId')
         this.commit(planned)
         return 'ok'
       }
       try {
         await withRetry(() => this.api.replaceCard(cardId, op.cardJson, op.sequence), 2)
+        this.debugLog?.({ event: 'replace', chatId: this.chatId, cardId, ok: true, elements: op.elements, dslBytes: Buffer.byteLength(op.cardJson, 'utf8'), durationMs: Date.now() - started })
       } catch (error) {
+        this.debugLog?.({ event: 'replace', chatId: this.chatId, cardId, ok: false, code: feishuErrorCode(error), durationMs: Date.now() - started })
         this.log(`[project-bot] 关流后全量重放失败（不影响内容）：${error instanceof Error ? error.message : String(error)}`)
       }
       this.commit(planned)
@@ -174,8 +180,10 @@ export class FeishuReplyHandle implements ReplyHandle {
       if (code === 200850 || code === 200510) {
         // 流式被平台超时自动关闭：重激活（占一个 sequence）后以新 sequence 重放一次。
         if (await this.reactivate()) {
+          const started = Date.now()
           try {
             await this.invokeThenCommit(planned, this.state.seq + 1)
+            this.emitOp(op, 'reactivated', started)
             return 'ok'
           } catch {
             return this.abandon('流式超时重激活后重放失败', true)
@@ -192,7 +200,9 @@ export class FeishuReplyHandle implements ReplyHandle {
       // 计（state.seq 是最后已确认序号，未包含本次尝试，用它 +2 会差一）。
       try {
         const retrySeq = (op.type === 'insert' || op.type === 'update' || op.type === 'settings' ? op.sequence : this.state.seq) + 2
+        const started = Date.now()
         await this.invokeThenCommit(planned, retrySeq)
+        this.emitOp(op, 'replayed', started)
         return 'ok'
       } catch (retryError) {
         if (op.type === 'insert' && feishuErrorCode(retryError) === 300301) {
@@ -204,6 +214,19 @@ export class FeishuReplyHandle implements ReplyHandle {
     }
   }
 
+  /** op 执行结果事件（insert/update 带内容摘要；settings 带 streaming 标记）。 */
+  private emitOp(op: CardOp, outcome: string, started: number, code?: number): void {
+    if (this.debugLog === undefined) return
+    const base = {
+      event: 'op' as const, chatId: this.chatId, op: op.type, cardId: this.state.cardId,
+      outcome, durationMs: Date.now() - started, ...(code !== undefined ? { code } : {}),
+    }
+    if (op.type === 'update') this.debugLog({ ...base, elementId: op.elementId, seq: op.sequence, content: preview(op.content) })
+    else if (op.type === 'insert') this.debugLog({ ...base, seq: op.sequence, content: preview(op.elementJson) })
+    else if (op.type === 'settings') this.debugLog({ ...base, seq: op.sequence, streaming: op.streaming })
+    else this.debugLog(base)
+  }
+
   /**
    * 执行 API 并在成功后 commit；seqOverride 用于重放（create 的真实 cardId 在此覆盖进状态）。
    * 带序号 op 的发送/提交序号一律取 max(本次序号, 已确认 seq+1)：重放/重激活会推高已确认 seq，
@@ -213,6 +236,7 @@ export class FeishuReplyHandle implements ReplyHandle {
   private async invokeThenCommit(planned: PlannedOp, seqOverride?: number): Promise<void> {
     const effectiveSeq = effectiveSeqOf(planned.op, seqOverride, this.state.seq)
     const op = withSeq(planned.op, effectiveSeq)
+    const started = Date.now()
     if (op.type === 'create') {
       const id = await withRetry(() => this.api.createCard(op.cardJson))
       this.state = { ...planned.commit(this.state), cardId: id }
@@ -226,8 +250,18 @@ export class FeishuReplyHandle implements ReplyHandle {
       await this.api.updateCardElement(this.state.cardId!, op.elementId, op.content, op.sequence)
     } else if (op.type === 'settings') {
       await this.api.setCardStreaming(this.state.cardId!, op.streaming, op.sequence, op.summary)
-      if (!op.streaming) this.closedCardId = this.state.cardId
+      if (!op.streaming) {
+        this.closedCardId = this.state.cardId   // replace op 的 PENDING 解析来源（commit 后 state.cardId 即 null）
+        const t = this.state.tail
+        this.debugLog?.({
+          event: 'close', chatId: this.chatId, cardId: this.state.cardId, seq: op.sequence, summary: op.summary,
+          tailShownLen: t?.shownText.length,
+          tailSegLen: t !== undefined ? this.segments[t.segIndex]?.content.length : undefined,
+          cardBytes: this.state.cardBytes,
+        })
+      }
     }
+    this.emitOp(op, 'ok', started)
     this.commit(planned, effectiveSeq)
   }
 
@@ -283,6 +317,7 @@ export class FeishuReplyHandle implements ReplyHandle {
       this.state = { ...this.state, cardId: null, cardSegs: [] }
     }
     this.log(`[project-bot] 卡片输出异常（${reason}），已废弃当前卡并在新卡继续`)
+    this.debugLog?.({ event: 'abandon', chatId: this.chatId, cardId, reason, carrySegIndex: this.state.carry?.segIndex, carryBase: this.state.carry?.base })
     if (hadRealCard) {
       await withRetry(() => this.api.sendText(this.chatId, ABANDON_NOTICE)).catch(() => undefined)
     }

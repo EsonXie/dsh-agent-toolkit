@@ -26,7 +26,7 @@ export const feishuChannel: BotChannel = {
       'im.message.receive_v1': async (data: unknown) => {
         const parsed = parseMessageEvent(data, botOpenId)
         if (parsed === null || !dedup.check(parsed.messageId)) return
-        const reply = new FeishuReplyHandle(api, parsed.chatId, tunables, log)
+        const reply = new FeishuReplyHandle(api, parsed.chatId, tunables, log, tunables.debugLog)
         const loadImages = parsed.imageKeys.length > 0
           ? async () => Promise.all(parsed.imageKeys.map(async (key) => api.downloadImage(parsed.messageId, key)))
           : undefined
