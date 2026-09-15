@@ -37,7 +37,7 @@ import { createApiHandler } from './api.ts'
 import { RegisterAppService } from './register-app.ts'
 import { projectBotDomain, type Binding, type BotRecord } from './store.ts'
 
-/** project-bot Config 的 13 个全局可调参数：9 个字段名不变（schemastery 定义与默认值源：archive/2026-08-26-merged-plugins/project-bot/src/index.ts:38-45，由 Task 15 平移进 suite Config）；docMaxBytes 与 debugLog/debugLogDir/debugLogRetentionDays 为 Task 5 新增（非 archive 平移）。 */
+/** project-bot Config 的 14 个全局可调参数：9 个字段名不变（schemastery 定义与默认值源：archive/2026-08-26-merged-plugins/project-bot/src/index.ts:38-45，由 Task 15 平移进 suite Config）；docMaxBytes 与 debugLog/debugLogDir/debugLogRetentionDays 为 Task 5 新增（非 archive 平移）。 */
 export interface BotsModuleConfig {
   /** 卡片流式更新节流间隔（毫秒）。 */
   cardUpdateThrottleMs: number

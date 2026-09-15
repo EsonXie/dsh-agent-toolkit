@@ -34,4 +34,18 @@ describe('createPresetApplier', () => {
     expect(set).toHaveBeenCalledWith(session, 'danger-full-access')
     expect(warn).not.toHaveBeenCalled()
   })
+
+  test('svc.set 抛错：warn 一次且异常不传播', () => {
+    const set = vi.fn(() => {
+      throw new Error('projection unavailable')
+    })
+    const svc: PermissionPresetsLike = { names: ['workspace-write', 'danger-full-access'], set }
+    const warn = vi.fn()
+    const apply = createPresetApplier(() => svc, 'danger-full-access', warn)
+    expect(() => apply(session)).not.toThrow()
+    expect(set).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0]![0]).toContain('danger-full-access')
+    expect(warn.mock.calls[0]![0]).toContain('projection unavailable')
+  })
 })

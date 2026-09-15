@@ -38,6 +38,7 @@ describe('createAgentsPort applyPreset', () => {
     const applyPreset = vi.fn()
     const port = createAgentsPort(fakeCtx(fakeAgent('s2', session)), joiner, undefined, applyPreset)
     await port.resume({ sessionId: 's2', hooks })
+    expect(applyPreset).toHaveBeenCalledTimes(1)
     expect(applyPreset).toHaveBeenCalledWith(session)
   })
 
@@ -46,6 +47,7 @@ describe('createAgentsPort applyPreset', () => {
     const applyPreset = vi.fn()
     const port = createAgentsPort(fakeCtx(fakeAgent('s3', session)), joiner, undefined, applyPreset)
     expect(port.get('s3')).toBeDefined()
+    expect(applyPreset).toHaveBeenCalledTimes(1)
     expect(applyPreset).toHaveBeenCalledWith(session)
   })
 

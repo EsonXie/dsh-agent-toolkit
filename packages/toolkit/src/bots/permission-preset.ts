@@ -29,6 +29,10 @@ export function createPresetApplier(
       return
     }
     // 宿主 set() 幂等：knob 值未变不追加会话事件，resume/接管重复应用无副作用。
-    svc.set(session, preset)
+    try {
+      svc.set(session, preset)
+    } catch (error) {
+      warn(`[project-bot] feishu.permissionPreset "${preset}" 应用失败：${error instanceof Error ? error.message : String(error)}，跳过应用`)
+    }
   }
 }
