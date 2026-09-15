@@ -140,6 +140,9 @@ describe('Config 默认值', () => {
       injectSender: true,
       approval: true,
       docMaxBytes: 31_457_280,
+      debugLog: true,
+      debugLogDir: '',
+      debugLogRetentionDays: 7,
     })
     expect(config.agentTeamPreset).toEqual({
       enabled: true,
@@ -160,6 +163,13 @@ describe('Config 默认值', () => {
   test('feishu.approval=false 原样保留（关闭飞书审批卡片，回到 web api-proxy 弹窗）', () => {
     const config = Config({ feishu: { approval: false } })
     expect(config.feishu.approval).toBe(false)
+  })
+
+  test('feishu 调试日志三键：默认开启、默认目录为空（解析到 ~/.dsh/logs/feishu-debug）、默认保留 7 天', () => {
+    const parsed = Config({}) as { feishu: { debugLog: boolean; debugLogDir: string; debugLogRetentionDays: number } }
+    expect(parsed.feishu.debugLog).toBe(true)
+    expect(parsed.feishu.debugLogDir).toBe('')
+    expect(parsed.feishu.debugLogRetentionDays).toBe(7)
   })
 })
 

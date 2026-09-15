@@ -16,6 +16,9 @@ function makeConfig(approval: boolean): BotsModuleConfig {
     injectSender: true,
     approval,
     docMaxBytes: 0,
+    debugLog: false,
+    debugLogDir: '',
+    debugLogRetentionDays: 7,
   }
 }
 

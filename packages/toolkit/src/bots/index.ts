@@ -20,6 +20,7 @@ import { openDomainSafely } from '../shared/storage.ts'
 import { registerOptionalRoutes } from '../shared/webserver.ts'
 import { createAgentsPort } from '../channels/agents-port.ts'
 import type { BotChannel, ChannelTunables } from '../channels/channel.ts'
+import { createFeishuDebugLogger, DEFAULT_DEBUG_LOG_DIR } from '../channels/feishu/debug-log.ts'
 import { feishuChannel } from '../channels/feishu/index.ts'
 import type { AttachmentsPort } from '../channels/inbound.ts'
 import type { SessionCatalogPort } from '../channels/ports.ts'
@@ -33,7 +34,7 @@ import { createApiHandler } from './api.ts'
 import { RegisterAppService } from './register-app.ts'
 import { projectBotDomain, type Binding, type BotRecord } from './store.ts'
 
-/** project-bot Config 的 10 个全局可调参数：9 个字段名不变（schemastery 定义与默认值源：archive/2026-08-26-merged-plugins/project-bot/src/index.ts:38-45，由 Task 15 平移进 suite Config）；docMaxBytes 为 Task 5 新增第 10 项（/doc 发送文件上限，非 archive 平移）。 */
+/** project-bot Config 的 13 个全局可调参数：9 个字段名不变（schemastery 定义与默认值源：archive/2026-08-26-merged-plugins/project-bot/src/index.ts:38-45，由 Task 15 平移进 suite Config）；docMaxBytes 与 debugLog/debugLogDir/debugLogRetentionDays 为 Task 5 新增（非 archive 平移）。 */
 export interface BotsModuleConfig {
   /** 卡片流式更新节流间隔（毫秒）。 */
   cardUpdateThrottleMs: number
@@ -55,6 +56,12 @@ export interface BotsModuleConfig {
   approval: boolean
   /** /doc 发送文件的大小上限（字节）。 */
   docMaxBytes: number
+  /** 生产调试文件日志开关（JSONL，按日滚动）。 */
+  debugLog: boolean
+  /** 日志目录（空 = <os.homedir()>/.dsh/logs/feishu-debug/）。 */
+  debugLogDir: string
+  /** 日志保留天数（按文件名日期清理）。 */
+  debugLogRetentionDays: number
 }
 
 /** setupBots 的宿主接线依赖（registry 供运行时委派/API 消费；prompt 无消费方，Task 13 定案不装配 persona）。 */
@@ -69,12 +76,16 @@ export interface BotsDeps {
 export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps): void {
   const log = { warn: (m: string) => ctx.logger.warn(m), info: (m: string) => ctx.logger.info(m) }
   const channels: ReadonlyMap<string, BotChannel> = new Map([['feishu', feishuChannel]])
+  const debugLog = config.debugLog
+    ? createFeishuDebugLogger(config.debugLogDir === '' ? DEFAULT_DEBUG_LOG_DIR() : config.debugLogDir, config.debugLogRetentionDays)
+    : undefined
   const tunables: ChannelTunables = {
     cardUpdateThrottleMs: config.cardUpdateThrottleMs,
     cardMaxBytes: config.cardMaxBytes,
     processMaxBytes: config.processMaxBytes,
     cardPrintStep: config.cardPrintStep,
     processingReactionEmoji: config.processingReactionEmoji,
+    ...(debugLog !== undefined ? { debugLog } : {}),
   }
 
   const storeSecret = async (key: string, secret: string): Promise<string> => {
@@ -181,6 +192,7 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
       tunables,
       maxErrorDetailChars: config.errorDetailMaxChars,
       docMaxBytes: config.docMaxBytes,
+      ...(debugLog !== undefined ? { debugLog } : {}),
       attachments: attachmentsOf,
       catalog: catalogOf,
       injectSender: config.injectSender,

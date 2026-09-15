@@ -80,7 +80,8 @@ export const Config: z<unknown, Config> = z.object({
   timezone: z.string().default('Asia/Shanghai'),
   provider: z.string().default('spawn'),
   toolName: z.string().default('team_delegate'),
-  // feishu 10 个全局可调参数：9 个照归档 project-bot/src/index.ts:38-45 原样平移，docMaxBytes 为 Task 5 新增第 10 项（非 archive 平移）。
+  // feishu 13 个全局可调参数：9 个照归档 project-bot/src/index.ts:38-45 原样平移，docMaxBytes 与
+  // debugLog/debugLogDir/debugLogRetentionDays 为 Task 5 新增（非 archive 平移）。
   feishu: z.object({
     cardUpdateThrottleMs: z.number().default(500),
     cardMaxBytes: z.number().default(26_000),
@@ -93,6 +94,12 @@ export const Config: z<unknown, Config> = z.object({
     approval: z.boolean().default(true),
     /** /doc 发送文件的大小上限（字节）。 */
     docMaxBytes: z.number().default(30 * 1024 * 1024),
+    /** 生产调试文件日志开关（JSONL，按日滚动）。 */
+    debugLog: z.boolean().default(true),
+    /** 日志目录（空 = <os.homedir()>/.dsh/logs/feishu-debug/）。 */
+    debugLogDir: z.string().default(''),
+    /** 日志保留天数（按文件名日期清理）。 */
+    debugLogRetentionDays: z.number().default(7),
   }).default({
     cardUpdateThrottleMs: 500,
     cardMaxBytes: 26_000,
@@ -104,6 +111,9 @@ export const Config: z<unknown, Config> = z.object({
     injectSender: true,
     approval: true,
     docMaxBytes: 30 * 1024 * 1024,
+    debugLog: true,
+    debugLogDir: '',
+    debugLogRetentionDays: 7,
   }),
   // agent-team preset 自动生成：派生 shipped standard、禁用 subagent 工具族 4 行，
   // 写入首个 trust=user root；另生成 bot 会话最小 preset（botsId，委派子会话 composeFrom 认父的前提）
