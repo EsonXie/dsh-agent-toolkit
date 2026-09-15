@@ -33,6 +33,8 @@ export class FeishuReplyHandle implements ReplyHandle {
   private timer: ReturnType<typeof setTimeout> | undefined
   private planQueued = false
   private finalized = false
+  /** settings 关流时捕获的真实 cardId（replace op 为 PENDING 占位时的解析锚点）。 */
+  private closedCardId: string | null = null
 
   constructor(
     private readonly api: FeishuApi,
@@ -71,7 +73,7 @@ export class FeishuReplyHandle implements ReplyHandle {
     // 等 flush 定局（含失败恢复）后再规划定格：状态此刻是已确认态。
     await this.tail
     const hadCard = this.state.cardId !== null
-    const { ops } = planFinalize(this.state, status)
+    const { ops } = planFinalize(this.state, status, this.segments, this.tunables.processMaxBytes)
     // 定格批不触发废弃重规划（卡已在收尾）：遇 abandon 直接止步。
     this.enqueue(async () => {
       for (const op of ops) {
@@ -136,6 +138,23 @@ export class FeishuReplyHandle implements ReplyHandle {
   private async execOne(planned: PlannedOp): Promise<'ok' | 'abandoned'> {
     const { op } = planned
     if (op.type === 'noop') {
+      this.commit(planned)
+      return 'ok'
+    }
+    if (op.type === 'replace') {
+      // 纯显示修复：失败不进失败分类治理（内容早已正确在卡），重试一次后记日志、照常 commit。
+      // cardId 为 PENDING 占位时（同一次 planSync 内建卡即拆卡）解析为紧邻前一个关流 settings 的真实 id。
+      const cardId = op.cardId === PENDING_CARD_ID ? this.closedCardId : op.cardId
+      if (cardId === null || cardId === PENDING_CARD_ID) {
+        this.log('[project-bot] 关流后全量重放跳过：取不到真实 cardId')
+        this.commit(planned)
+        return 'ok'
+      }
+      try {
+        await withRetry(() => this.api.replaceCard(cardId, op.cardJson, op.sequence), 2)
+      } catch (error) {
+        this.log(`[project-bot] 关流后全量重放失败（不影响内容）：${error instanceof Error ? error.message : String(error)}`)
+      }
       this.commit(planned)
       return 'ok'
     }
@@ -207,6 +226,7 @@ export class FeishuReplyHandle implements ReplyHandle {
       await this.api.updateCardElement(this.state.cardId!, op.elementId, op.content, op.sequence)
     } else if (op.type === 'settings') {
       await this.api.setCardStreaming(this.state.cardId!, op.streaming, op.sequence, op.summary)
+      if (!op.streaming) this.closedCardId = this.state.cardId
     }
     this.commit(planned, effectiveSeq)
   }
@@ -257,9 +277,10 @@ export class FeishuReplyHandle implements ReplyHandle {
         tail: undefined,
         closedSegCount: tail.segIndex,
         carry: { segIndex: tail.segIndex, base },
+        cardSegs: [],
       }
     } else {
-      this.state = { ...this.state, cardId: null }
+      this.state = { ...this.state, cardId: null, cardSegs: [] }
     }
     this.log(`[project-bot] 卡片输出异常（${reason}），已废弃当前卡并在新卡继续`)
     if (hadRealCard) {

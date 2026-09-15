@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
-  buildCardJson, buildSegmentJson, escapedLen, initialStreamState, PENDING_CARD_ID,
+  buildCardJson, buildClosedCardJson, buildSegmentJson, escapedLen, initialStreamState, PENDING_CARD_ID,
   planFinalize, planSync, PROCESS_OMITTED, STATUS_CONTINUED, STATUS_ELEMENT_ID,
   sliceByBytes, sliceByEscapedBytes, sliceTailByBytes, type PlannedOp, type StreamState, type TurnSegment,
 } from './cards.ts'
@@ -140,11 +140,13 @@ describe('planSync', () => {
       { type: 'insert', elementJson: buildSegmentJson('text', 'seg_1', '一二'), sequence: 1 },
       { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: 2 },
       { type: 'settings', streaming: false, sequence: 3, summary: STATUS_CONTINUED },
+      { type: 'replace', cardId: PENDING_CARD_ID, cardJson: expect.any(String), sequence: 4, elements: 2 },
       { type: 'create', cardJson: buildCardJson(5) },
       { type: 'send' },
       { type: 'insert', elementJson: buildSegmentJson('text', 'seg_2', '三四'), sequence: 1 },
       { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: 2 },
       { type: 'settings', streaming: false, sequence: 3, summary: STATUS_CONTINUED },
+      { type: 'replace', cardId: PENDING_CARD_ID, cardJson: expect.any(String), sequence: 4, elements: 2 },
       { type: 'create', cardJson: buildCardJson(5) },
       { type: 'send' },
       { type: 'insert', elementJson: buildSegmentJson('text', 'seg_3', '五'), sequence: 1 },
@@ -165,6 +167,7 @@ describe('planSync', () => {
       { type: 'update', elementId: 'seg_2', content: '三四', sequence: 2 },
       { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: 3 },
       { type: 'settings', streaming: false, sequence: 4, summary: STATUS_CONTINUED },
+      { type: 'replace', cardId: 'c2', cardJson: expect.any(String), sequence: 5, elements: 2 },
       { type: 'create', cardJson: buildCardJson(5) },
       { type: 'send' },
       { type: 'insert', elementJson: buildSegmentJson('text', 'seg_3', '五'), sequence: 1 },
@@ -182,6 +185,7 @@ describe('planSync', () => {
     expect(ops.map((p) => p.op).filter((op) => op.type !== 'noop')).toEqual([
       { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: 2 },
       { type: 'settings', streaming: false, sequence: 3, summary: STATUS_CONTINUED },
+      { type: 'replace', cardId: 'c1', cardJson: expect.any(String), sequence: 4, elements: 2 },
       { type: 'create', cardJson: buildCardJson(5) },
       { type: 'send' },
       { type: 'insert', elementJson: buildSegmentJson('process', 'seg_2', '思考内容'), sequence: 1 },
@@ -224,17 +228,19 @@ describe('planSync', () => {
 })
 
 describe('planFinalize', () => {
-  test('先 update 状态行再关闭 + summary（sequence 接续）；未建卡空 ops', () => {
+  test('先 update 状态行再关闭 + summary，再全量重放（sequence 接续）；未建卡空 ops', () => {
     const base = applyOps(initialStreamState(), planSync(initialStreamState(), [text('你好')], 28_000, 8_000, 5).ops)
     const state: StreamState = { ...base, cardId: 'c1' }
-    const { ops } = planFinalize(state, 'done')
-    expect(ops).toEqual([
+    const segments = [text('你好')]
+    const { ops } = planFinalize(state, 'done', segments, 8_000)
+    expect(ops.slice(0, 2)).toEqual([
       { type: 'update', elementId: STATUS_ELEMENT_ID, content: '✅ 输出完成', sequence: 2 },
       { type: 'settings', streaming: false, sequence: 3, summary: '✅ 输出完成' },
     ])
-    expect(planFinalize(initialStreamState(), 'done').ops).toEqual([])
-    expect(planFinalize(state, 'error').ops[0]).toMatchObject({ content: '❌ 输出出错' })
-    expect(planFinalize(state, 'cancelled').ops[0]).toMatchObject({ content: '⏹ 已取消' })
+    expect(ops[2]).toMatchObject({ type: 'replace', cardId: 'c1', sequence: 4, elements: 2 })
+    expect(planFinalize(initialStreamState(), 'done', [], 8_000).ops).toEqual([])
+    expect(planFinalize(state, 'error', segments, 8_000).ops[0]).toMatchObject({ content: '❌ 输出出错' })
+    expect(planFinalize(state, 'cancelled', segments, 8_000).ops[0]).toMatchObject({ content: '⏹ 已取消' })
   })
 })
 
@@ -280,5 +286,92 @@ describe('planSync DSL 记账', () => {
     const grownState = applyOps({ ...firstState, cardId: 'c1' }, grown.ops)
     const over = planSync({ ...grownState }, [text('a\nb\nc\nd\ne\nf')], maxBytes, 8_000, 5)
     expect(over.ops.map((p) => p.op).some((op) => op.type === 'settings')).toBe(true)
+  })
+})
+
+const MAX = 26_000
+const PROC = 8000
+const STEP = 5
+
+/** 纯函数侧模拟确认式执行：依次应用 commit；create 的真实 cardId 手动叠入。 */
+function execAll(ops: readonly { commit: (s: StreamState) => StreamState }[], cardId = 'card_1'): StreamState {
+  let state = initialStreamState()
+  for (const p of ops) state = p.commit(state)
+  return state.cardId === PENDING_CARD_ID ? { ...state, cardId } : state
+}
+
+describe('关流后全量重放（replace op）', () => {
+  test('定格：planFinalize 在 update/settings 后追加 replace，重建内容与本卡已提交内容一致', () => {
+    const segments = [
+      { kind: 'text' as const, content: '正文一' },
+      { kind: 'process' as const, content: '想一想' },
+      { kind: 'text' as const, content: '最终答案' },
+    ]
+    const state = execAll(planSync(initialStreamState(), segments, MAX, PROC, STEP).ops)
+    const fin = planFinalize(state, 'done', segments, PROC)
+    expect(fin.ops.map((o) => o.type)).toEqual(['update', 'settings', 'replace'])
+    const replace = fin.ops[2]!
+    if (replace.type !== 'replace') throw new Error('unreachable')
+    expect(replace.cardId).toBe('card_1')
+    expect(replace.sequence).toBe(state.seq + 3)
+    expect(replace.elements).toBe(4)   // 3 段 + 状态行
+    const card = JSON.parse(replace.cardJson) as {
+      config: { streaming_mode: boolean; summary: { content: string } }
+      body: { elements: { tag: string; content?: string; element_id?: string; elements?: { content: string }[] }[] }
+    }
+    expect(card.config.streaming_mode).toBe(false)
+    expect(card.config.summary.content).toBe('✅ 输出完成')
+    expect(card.body.elements).toHaveLength(4)
+    expect(card.body.elements[0]).toMatchObject({ tag: 'markdown', content: '正文一' })
+    expect(card.body.elements[1]!.tag).toBe('collapsible_panel')
+    expect(card.body.elements[1]!.elements![0]!.content).toBe('想一想')
+    expect(card.body.elements[2]).toMatchObject({ tag: 'markdown', content: '最终答案' })
+    expect(card.body.elements[3]).toMatchObject({ tag: 'markdown', content: '✅ 输出完成', element_id: 'status' })
+  })
+
+  test('无卡（cardId null）仍返回空 ops', () => {
+    expect(planFinalize(initialStreamState(), 'done', [], PROC).ops).toEqual([])
+  })
+
+  test('拆卡：closeCard 追加 replace；旧卡重建精确对齐已提交的部分 piece', () => {
+    // 极小 maxBytes（400）逼出拆卡：单卡内容预算 ≈ 400 - 基础卡(≈286B) - 元素开销(≈52B) ≈ 62 转义字节，
+    // 100 字符 → 首卡 62 + 续卡 38，恰好 2 卡 1 次拆（若预算微变导致 3 卡，按实际 inserts/replaces 计数适配断言）。
+    const segments = [{ kind: 'text' as const, content: 'A'.repeat(100) }]
+    const { ops } = planSync(initialStreamState(), segments, 400, PROC, STEP)
+    const inserts = ops.filter((o) => o.op.type === 'insert')
+    const replaces = ops.filter((o) => o.op.type === 'replace')
+    expect(inserts.length).toBe(2)          // 首卡部分 piece + 续卡剩余
+    expect(replaces.length).toBe(1)         // 只有首卡关流重放（续卡在 planSync 内不关流）
+    expect((replaces[0]!.op as { cardId: string }).cardId).toBe(PENDING_CARD_ID)   // 同次规划内建卡即拆卡 → 占位，执行侧解析
+    const firstInsert = JSON.parse((inserts[0]!.op as { elementJson: string }).elementJson) as { content: string }
+    const replace = replaces[0]!.op as { cardJson: string }
+    const card = JSON.parse(replace.cardJson) as { body: { elements: { content?: string; element_id?: string }[] } }
+    const textEl = card.body.elements.find((e) => e.element_id === 'seg_1')!
+    expect(textEl.content).toBe(firstInsert.content)                 // 逐字节等于已提交 piece
+    expect(textEl.content!.length).toBeLessThan(100)
+    expect(card.body.elements.at(-1)!.content).toBe(STATUS_CONTINUED)
+  })
+
+  test('cardSegs 快照不可变：规划推进不污染先前 commit', () => {
+    const segments = [{ kind: 'text' as const, content: '一' }, { kind: 'text' as const, content: '二' }]
+    const { ops } = planSync(initialStreamState(), segments, MAX, PROC, STEP)
+    const insert1 = ops.find((o) => o.op.type === 'insert')!
+    const s1 = insert1.commit(initialStreamState())
+    expect(s1.cardSegs).toHaveLength(1)
+    const sN = ops[ops.length - 1]!.commit(initialStreamState())
+    expect(sN.cardSegs).toHaveLength(2)
+    expect(s1.cardSegs).toHaveLength(1)   // 先前快照不被后续规划污染
+  })
+
+  test('buildClosedCardJson：carry 续写段按 base 切片', () => {
+    const json = buildClosedCardJson(
+      [{ segIndex: 0, elementId: 'seg_9', kind: 'text', base: 3 }],
+      [{ kind: 'text', content: '---续写内容' }],
+      undefined,
+      '✅ 输出完成',
+      PROC,
+    )
+    const card = JSON.parse(json) as { body: { elements: { content?: string }[] } }
+    expect(card.body.elements[0]!.content).toBe('续写内容')
   })
 })

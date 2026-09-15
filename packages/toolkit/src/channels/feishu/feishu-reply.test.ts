@@ -87,7 +87,7 @@ describe('FeishuReplyHandle', () => {
     expect(panel.elements[0].content).toBe('想一想')
   })
 
-  test('finalize：冲刷尾部 → 关流式 → 状态行定格', async () => {
+  test('finalize：冲刷尾部 → 关流式 → 状态行定格 → 全量重放', async () => {
     const { api, calls } = fakeApi()
     const { reply } = make(api)
     await reply.update([{ kind: 'text', content: '结论' }])
@@ -95,15 +95,19 @@ describe('FeishuReplyHandle', () => {
     const ops = calls.map((c) => c.op)
     expect(ops.slice(0, 2)).toEqual(['createCard', 'sendCardMessage'])
     expect(ops).toContain('setCardStreaming')
-    expect(ops).not.toContain('replaceCard')
-    // 正确顺序：状态行定格更新在前（流式还开着），关流式 + summary 定格在后
-    const tail2 = calls.slice(-2)
-    expect(tail2[0].op).toBe('updateCardElement')
-    expect(tail2[0].args[1]).toBe('status')
-    expect(tail2[0].args[2]).toBe('✅ 输出完成')
-    expect(tail2[1].op).toBe('setCardStreaming')
-    expect(tail2[1].args[1]).toBe(false)
-    expect(tail2[1].args[3]).toBe('✅ 输出完成')   // summary 透传
+    expect(ops[ops.length - 1]).toBe('replaceCard')
+    // 正确顺序：状态行定格更新在前（流式还开着），关流式 + summary 定格在后，最后全量重放
+    const statusUpdate = calls.find((c) => c.op === 'updateCardElement' && c.args[1] === 'status')
+    expect(statusUpdate).toBeDefined()
+    expect(statusUpdate!.args[2]).toBe('✅ 输出完成')
+    const close = calls.find((c) => c.op === 'setCardStreaming' && c.args[1] === false)
+    expect(close).toBeDefined()
+    expect(close!.args[3]).toBe('✅ 输出完成')   // summary 透传
+    const replace = calls[calls.length - 1]!
+    const card = JSON.parse(String(replace.args[1])) as { config: { streaming_mode: boolean }; body: { elements: { content?: string }[] } }
+    expect(card.config.streaming_mode).toBe(false)
+    expect(card.body.elements[0]!.content).toBe('结论')
+    expect(card.body.elements.at(-1)!.content).toBe('✅ 输出完成')
   })
 
   test('建卡失败：重试耗尽只记日志不抛出，finalize 补建仍失败则降级文本', async () => {

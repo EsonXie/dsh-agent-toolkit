@@ -114,6 +114,41 @@ export function buildSegmentJson(kind: 'text' | 'process', elementId: string, co
   return JSON.stringify({ tag: 'markdown', content, element_id: elementId })
 }
 
+/**
+ * 关流后全量重放：用已提交内容重建整卡 JSON（非流式 update 直显，无打字机——根治关流时
+ * 平台打字机存量未渲染完的情形一）。内容口径与本卡已提交内容逐字节一致：
+ * process 段走截尾窗口；text 封闭段按 base 切片；当前尾段用 tail.shownText（拆卡时尾段
+ * 只提交了部分 piece，不得用全文）。
+ */
+export function buildClosedCardJson(
+  cardSegs: readonly CardSeg[],
+  segments: readonly TurnSegment[],
+  tail: StreamState['tail'],
+  statusLine: string,
+  processMaxBytes: number,
+): string {
+  const elements: unknown[] = []
+  for (const entry of cardSegs) {
+    const seg = segments[entry.segIndex]
+    if (seg === undefined) continue
+    const content = entry.kind === 'process'
+      ? sliceTailByBytes(seg.content, processMaxBytes)
+      : tail !== undefined && tail.segIndex === entry.segIndex
+        ? tail.shownText
+        : seg.content.slice(entry.base)
+    elements.push(JSON.parse(buildSegmentJson(entry.kind, entry.elementId, content)) as unknown)
+  }
+  elements.push({ tag: 'markdown', content: statusLine, element_id: STATUS_ELEMENT_ID })
+  return JSON.stringify({
+    schema: '2.0',
+    config: { streaming_mode: false, summary: { content: statusLine } },
+    body: { elements },
+  })
+}
+
+/** 当前卡上一个段元素的登记项（重建整卡用；base = 元素内容在该段 content 中的 char 起始偏移）。 */
+export interface CardSeg { segIndex: number; elementId: string; kind: 'text' | 'process'; base: number }
+
 export interface StreamState {
   /** 当前卡片 id（PENDING_CARD_ID = 创建中）；null = 下一张卡待创建。 */
   cardId: string | null
@@ -131,11 +166,13 @@ export interface StreamState {
   tail: { segIndex: number; elementId: string; base: number; shownText: string } | undefined
   /** text 段跨卡续写基准（char offset into 该段 content）。 */
   carry: { segIndex: number; base: number } | undefined
+  /** 当前卡上的段元素清单（insert 追加、closeCard 清空；不可变更新保 commit 快照语义）。 */
+  cardSegs: readonly CardSeg[]
 }
 
 export const initialStreamState = (): StreamState => ({
   cardId: null, seq: 0, cardBytes: 0, cardElements: 0, segCounter: 0,
-  closedSegCount: 0, tail: undefined, carry: undefined,
+  closedSegCount: 0, tail: undefined, carry: undefined, cardSegs: [],
 })
 
 export type CardOp =
@@ -144,6 +181,7 @@ export type CardOp =
   | { type: 'insert'; elementJson: string; sequence: number }
   | { type: 'update'; elementId: string; content: string; sequence: number }
   | { type: 'settings'; streaming: boolean; sequence: number; summary?: string }
+  | { type: 'replace'; cardId: string; cardJson: string; sequence: number; elements: number }
   | { type: 'noop' }
 
 export interface PlannedOp {
@@ -161,11 +199,11 @@ export function planSync(
   printStep: number,
 ): { ops: PlannedOp[] } {
   const ops: PlannedOp[] = []
-  let { cardId, seq, cardBytes, cardElements, segCounter, closedSegCount, tail, carry } = state
+  let { cardId, seq, cardBytes, cardElements, segCounter, closedSegCount, tail, carry, cardSegs } = state
 
   /** 约定：先改规划局部变量再 push——commit 捕获该 op 完成后的状态快照。 */
   const push = (op: CardOp): void => {
-    const snap = { cardId, seq, cardBytes, cardElements, segCounter, closedSegCount, tail, carry }
+    const snap = { cardId, seq, cardBytes, cardElements, segCounter, closedSegCount, tail, carry, cardSegs }
     ops.push({ op, commit: () => ({ ...snap }) })
   }
 
@@ -181,13 +219,24 @@ export function planSync(
   }
 
   const closeCard = (): void => {
+    // cardId 可能是 PENDING 占位（同一次 planSync 内建卡即拆卡）：replace op 照带，
+    // 执行侧 resolve 为 settings 关流时的真实 cardId（见 reply.ts execOne 的 replace 分支）。
+    const closingCardId = cardId
+    // replace 负载须取清空前的已提交内容（tail.shownText / cardSegs）
+    const replaceJson = closingCardId !== null && cardSegs.length > 0
+      ? buildClosedCardJson(cardSegs, segments, tail, STATUS_CONTINUED, processMaxBytes)
+      : undefined
+    const replaceElements = cardSegs.length + 1
     // 先定格状态行（流式还开着，组件 content API 需要流式模式），再关流 + summary。
     seq += 1
     push({ type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_CONTINUED, sequence: seq })
     seq += 1
     cardId = null
     tail = undefined
+    cardSegs = []
     push({ type: 'settings', streaming: false, sequence: seq, summary: STATUS_CONTINUED })
+    // replaceJson 非 undefined 时 closingCardId 必非 null（上面三元已判）；显式并查让 TS 窄化 cardId。
+    if (replaceJson !== undefined && closingCardId !== null) push({ type: 'replace', cardId: closingCardId, cardJson: replaceJson, sequence: seq + 1, elements: replaceElements })
   }
 
   let i = tail?.segIndex ?? closedSegCount
@@ -251,6 +300,7 @@ export function planSync(
       cardBytes += elBytes
       cardElements += 2
       tail = { segIndex: i, elementId, base: 0, shownText: elementContent }
+      cardSegs = [...cardSegs, { segIndex: i, elementId, kind: 'process', base: 0 }]
       push({ type: 'insert', elementJson, sequence: seq })
     } else {
       if (elementContent.length === 0) {   // 空 text 段不占卡
@@ -276,6 +326,7 @@ export function planSync(
       cardBytes += Buffer.byteLength(elementJson, 'utf8')
       cardElements += 1
       tail = { segIndex: i, elementId, base, shownText: piece }
+      cardSegs = [...cardSegs, { segIndex: i, elementId, kind: 'text', base }]
       push({ type: 'insert', elementJson, sequence: seq })
       if (piece.length < elementContent.length) {
         carry = { segIndex: i, base: base + piece.length }
@@ -291,18 +342,29 @@ export function planSync(
   }
   // 段封闭/进位等纯状态推进也要交还执行侧：无 op 或末 op 之后状态仍有差异时补一个空操作 commit。
   // 简单起见：恒追加一个 no-op 规划项携带末态（执行侧对 type:'noop' 直接 commit，不调 API）。
-  const snap = { cardId, seq, cardBytes, cardElements, segCounter, closedSegCount, tail, carry }
+  const snap = { cardId, seq, cardBytes, cardElements, segCounter, closedSegCount, tail, carry, cardSegs }
   ops.push({ op: { type: 'noop' }, commit: () => ({ ...snap }) })
   return { ops }
 }
 
-/** 定格：先 update 状态行（流式还开着），再关闭 + summary。 */
-export function planFinalize(state: StreamState, status: TurnStatus): { ops: CardOp[] } {
+/** 定格：先 update 状态行（流式还开着），再关闭 + summary，最后全量重放整卡（直显无打字机）。 */
+export function planFinalize(
+  state: StreamState,
+  status: TurnStatus,
+  segments: readonly TurnSegment[],
+  processMaxBytes: number,
+): { ops: CardOp[] } {
   if (state.cardId === null) return { ops: [] }
-  return {
-    ops: [
-      { type: 'update', elementId: STATUS_ELEMENT_ID, content: STATUS_FINAL[status], sequence: state.seq + 1 },
-      { type: 'settings', streaming: false, sequence: state.seq + 2, summary: STATUS_FINAL[status] },
-    ],
+  const statusLine = STATUS_FINAL[status]
+  const ops: CardOp[] = [
+    { type: 'update', elementId: STATUS_ELEMENT_ID, content: statusLine, sequence: state.seq + 1 },
+    { type: 'settings', streaming: false, sequence: state.seq + 2, summary: statusLine },
+  ]
+  if (state.cardSegs.length > 0) {
+    ops.push({
+      type: 'replace', cardId: state.cardId, sequence: state.seq + 3, elements: state.cardSegs.length + 1,
+      cardJson: buildClosedCardJson(state.cardSegs, segments, state.tail, statusLine, processMaxBytes),
+    })
   }
+  return { ops }
 }
