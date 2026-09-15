@@ -377,6 +377,44 @@ describe('确认式出站与失败治理', () => {
     expect(closes[0].args[2]).toBeGreaterThan(updates[0].args[3] as number)
     expect(inserts[2].args[3]).toBe(1)
   })
+
+  test('同次规划内建卡即拆卡：replace 占位解析为关流 settings 捕获的真实 cardId', async () => {
+    const { api, calls } = fakeApi()
+    const { reply } = make(api, overflowBatchTunables())
+    await reply.update([{ kind: 'text', content: 'x'.repeat(7) }])
+    await vi.advanceTimersByTimeAsync(500)
+    const replaces = calls.filter((c) => c.op === 'replaceCard')
+    expect(replaces).toHaveLength(1)
+    expect(replaces[0].args[0]).toBe('card_1')   // 折叠后的真实 id，非 PENDING 占位
+    const card = JSON.parse(String(replaces[0].args[1])) as { body: { elements: { content?: string; element_id?: string }[] } }
+    expect(card.body.elements[0]!.content).toBe('xxxx')   // 本卡已提交 piece 全量重放
+    expect(card.body.elements.at(-1)!.content).toBe('📦 内容较长，已接续到下一张卡片')
+    expect(replaces[0].args[2]).toBe(4)   // 关流 settings 后一位的 sequence
+    // 拆卡批内后续 op 照常执行：续卡建卡并承接剩余
+    const inserts = calls.filter((c) => c.op === 'insertElement')
+    expect(inserts).toHaveLength(2)
+    expect(inserts[1].args[0]).toBe('card_2')
+    expect(JSON.parse(String(inserts[1].args[1])).content).toBe('xxx')
+  })
+
+  test('replace 失败非致命：记日志、照常 commit、批内后续 op 继续，不触发废弃', async () => {
+    const { api, calls } = fakeApi()
+    api.replaceCard = async (...args) => { calls.push({ op: 'replaceCard', args }); throw new Error('network down') }
+    const { reply, logs } = make(api, overflowBatchTunables())
+    await reply.update([{ kind: 'text', content: 'x'.repeat(7) }])
+    await vi.advanceTimersByTimeAsync(500)    // flush：replace 首试失败，排 300ms 重试
+    await vi.advanceTimersByTimeAsync(1000)   // 重试再败 → 记日志 + commit + 批内续卡继续
+    expect(logs.some((m) => m.includes('全量重放失败'))).toBe(true)
+    const replaces = calls.filter((c) => c.op === 'replaceCard')
+    expect(replaces.length).toBeGreaterThan(0)
+    expect(replaces[0].args[0]).toBe('card_1')   // 重放仍解析到真实卡号
+    // 非致命：未触发废弃 notice，批内后续 op 照常 commit（续卡建卡并承接剩余）
+    expect(calls.some((c) => c.op === 'sendText' && String(c.args[1]).includes('卡片输出异常'))).toBe(false)
+    expect(calls.filter((c) => c.op === 'createCard').length).toBe(2)
+    const inserts = calls.filter((c) => c.op === 'insertElement')
+    expect(inserts[inserts.length - 1].args[0]).toBe('card_2')
+    expect(JSON.parse(String(inserts[inserts.length - 1].args[1])).content).toBe('xxx')
+  })
 })
 
 test('sendFile：上传后经 chatId 发文件消息，不走卡片串行链', async () => {
