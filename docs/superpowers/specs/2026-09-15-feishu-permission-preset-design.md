@@ -39,17 +39,22 @@
 
 ### 应用点
 
-`Router.adopt()`（`channels/router.ts`）内、`sessions.set` 之前调
-`deps.applyPreset?.(agent.session)`。adopt 是四条建账路径的统一漏斗，全部覆盖：
+`createAgentsPort`（`channels/agents-port.ts`）加第 4 个可选参数 `applyPreset?: (session: Session) => void`，
+在 `adaptAgent`（create/resume 返回的 AgentHandle）与 `adaptLive`（agents.get 接管）里、拿到
+`agent` 后调用。agents-port 的三个方法恰好一一对应四条建账路径（渠道层只有它能拿到
+`agent.session`——`AgentPort` 结构化端口不暴露 session）：
 
-- 新会话 create：宿主 `session/created` 先 pin 默认预设，我们随后覆盖（last-event-wins，
-  时序天然正确）；
-- 冷会话 resume（含重启恢复、`/new` 重建）；
-- web 存活会话被接管（归飞书管，权限跟随，符合配置意图）；
-- `/switch` 冷接管。
+- `create()`：新会话。宿主 `session/created` 先 pin 默认预设，create resolve 后我们覆盖
+  （last-event-wins，时序天然正确）；
+- `resume()`：冷会话恢复（含重启恢复、`/new` 重建、`/switch` 冷接管）；
+- `get()`：web 存活会话被接管（ensure/switch 的 `agents.get` 命中路径；归飞书管，权限跟随，
+  符合配置意图）。
 
-**不应用**的两条：活跃会话复用（ensure 提前返回）与 `/switch` 命中内存会话——保持会话当前
-权限状态，不把 web 正在使用的会话静默翻转。
+**不应用**的两条天然被排除：活跃会话复用（ensure 查插件自有 `sessions` map 提前返回）与
+`/switch` 命中插件内存会话——两条路径都不经过 `agents.get`，保持会话当前权限状态，不把 web
+正在使用的会话静默翻转。
+
+schedule 执行器共用 `createAgentsPort` 但不传 `applyPreset`，cron 会话不受影响。
 
 ### 服务获取
 
@@ -59,9 +64,10 @@
 ### 实现触点
 
 1. `src/index.ts`：Config schema `feishu` 加 `permissionPreset`。
-2. `src/bots/index.ts`：`BotsModuleConfig` 加字段；装配 deps 闭包（服务缺席/非法名 warn）。
-3. `src/channels/ports.ts`：`RuntimeDeps` 加 `applyPreset?: (session: Session) => void`。
-4. `src/channels/router.ts`：adopt 调用。
+2. `src/bots/index.ts`：`BotsModuleConfig` 加字段；装配 `applyPreset` 闭包（服务缺席/非法名
+   warn）；`import type {} from '@deepseek-ai/dsh-permission-presets'` 激活 `ctx.get` 类型
+   （package.json devDependencies 加 link，照 `dsh-user-approval` 先例）。
+3. `src/channels/agents-port.ts`：`createAgentsPort` 加可选参数并在 adaptAgent/adaptLive 调用。
 
 ### 安全警示（写进文档与配置注释）
 
@@ -75,8 +81,8 @@
 
 ## 测试
 
-- `router.test.ts`：adopt 四路径调用 applyPreset 且参数为 agent.session；deps 缺席不调用；
-  活跃复用与 switch 内存复用不调用。
+- `channels/agents-port.test.ts`（新建）：create/resume/get 三方法均调用 applyPreset 且参数为
+  agent.session；未传该参数不调用（schedule 路径形态）。
 - `bots/index.test.ts`：服务缺席 → warn 不抛；非法名 → warn 不调 set；合法 → 调
   `svc.set(session, name)`。
 - `bots/smoke.test.ts`：feishu config 键清单钉住测试补 `permissionPreset`。
