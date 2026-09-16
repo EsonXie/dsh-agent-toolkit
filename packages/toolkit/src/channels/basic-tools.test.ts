@@ -54,10 +54,13 @@ describe('BASIC_TOOLS 包解析契约', () => {
 })
 
 describe('bot 会话工具面（BASIC_TOOLS）守护', () => {
-  test('bot 会话 persona 含"直接提问"引导（bot 工具面无 ask_user，IM 场景普通消息往返即提问）', () => {
-    // 0.1.5-rc.1 起 dsh-persona Config 由 { text } 改为 { prefix, suffix? }，引导语在 prefix。
+  test('bot 会话 persona 与 standard preset 同源：不再内联"直接提问"引导', () => {
+    // 0.1.5-rc.1 起 dsh-persona Config 由 { text } 改为 { prefix, suffix? }。
+    // IM 引导（ask_user_question / 直接提问）已挪入渠道段（router.ts 的 guidance），
+    // 使角色白名单收窄掉 ask_user_question 后引导仍成立。
     const persona = BASIC_TOOLS.find((t) => t.id === '@deepseek-ai/dsh-persona')
-    expect(persona?.config?.prefix).toContain('ask directly in your reply')
+    expect(persona?.config?.prefix).toBe('You are a coding agent powered by the {{model}} model.')
+    expect(persona?.config?.prefix).not.toContain('ask directly in your reply')
   })
 
   test('BASIC_TOOLS 不含 ask_user（守护：防未来无意引入 web 独占的提问通道）', () => {

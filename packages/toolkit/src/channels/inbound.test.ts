@@ -401,12 +401,15 @@ test('懒下载失败：走失败路径并回复错误摘要', async () => {
   expect(rec.followups).toHaveLength(0)
 })
 
-test('入站消息把 userId 透传：会话 hooks 含 sender 段（ou_u1）', async () => {
+test('入站消息：会话 hooks 含 guidance 段与 sender 段（userId 透传 ou_u1）', async () => {
   const { inbound, msg, rec } = harness()
   inbound.onMessage(msg('你好'))
   await vi.waitFor(() => { expect(rec.hookInputs).toHaveLength(1) })
   expect(rec.hookInputs[0]).toMatchObject({
-    sections: [{ name: 'dsh-agent-toolkit:channel:sender', order: 20, text: '本会话由 feishu 渠道的单聊会话发起。发起人 ID（feishu open_id）：`ou_u1`。' }],
+    sections: [
+      { name: 'dsh-agent-toolkit:channel:guidance', order: 15, text: '本会话经 feishu 渠道进行。如需用户补充信息或做出决策，优先使用 ask_user_question 工具；该工具不可用时，直接在回复中提问并等待用户下一条消息。' },
+      { name: 'dsh-agent-toolkit:channel:sender', order: 20, text: '本会话由 feishu 渠道的单聊会话发起。发起人 ID（feishu open_id）：`ou_u1`。' },
+    ],
   })
 })
 
@@ -414,7 +417,12 @@ test('/new 指令：reset 路径同样携带 userId', async () => {
   const { inbound, msg, rec } = harness()
   inbound.onMessage(msg('/new'))
   await vi.waitFor(() => { expect(rec.hookInputs).toHaveLength(1) })
-  expect(rec.hookInputs[0]).toMatchObject({ sections: [{ name: 'dsh-agent-toolkit:channel:sender' }] })
+  expect(rec.hookInputs[0]).toMatchObject({
+    sections: [
+      { name: 'dsh-agent-toolkit:channel:guidance' },
+      { name: 'dsh-agent-toolkit:channel:sender' },
+    ],
+  })
 })
 
 const CATALOG_ENTRIES = [

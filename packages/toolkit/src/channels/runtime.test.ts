@@ -142,7 +142,7 @@ test('未绑定 bot：reconcile 不启动渠道、不告警，statusOf 返回 un
   expect(runtime.statusOf('loose')).toBe('unbound')
 })
 
-test('injectSender: false：入站建会话 hooks 不含 sender 段', async () => {
+test('injectSender: false：入站建会话 hooks 只含 guidance 段、不含 sender 段', async () => {
   const hookInputs: { hooks: unknown }[] = []
   const agents = {
     get: () => undefined,
@@ -159,7 +159,11 @@ test('injectSender: false：入站建会话 hooks 不含 sender 段', async () =
     ackProcessing: async () => () => undefined,
   })
   await vi.waitFor(() => { expect(hookInputs).toHaveLength(1) })
-  expect(hookInputs[0].hooks).not.toHaveProperty('sections')
+  expect(hookInputs[0].hooks).toMatchObject({
+    sections: [
+      { name: 'dsh-agent-toolkit:channel:guidance', order: 15, text: '本会话经 feishu 渠道进行。如需用户补充信息或做出决策，优先使用 ask_user_question 工具；该工具不可用时，直接在回复中提问并等待用户下一条消息。' },
+    ],
+  })
 })
 
 test('unbindBot 停渠道并取消在飞会话，但保留绑定表', async () => {

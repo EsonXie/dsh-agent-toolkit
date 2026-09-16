@@ -14,6 +14,14 @@ export function senderSectionText(channel: string, userId: string): string {
   return `本会话由 ${channel} 渠道的单聊会话发起。发起人 ID（${channel} open_id）：\`${userId}\`。`
 }
 
+/** IM 引导段名：bot 会话恒注入（原 BASIC_TOOLS persona prefix 句，2026-09-16 挪入渠道段）。 */
+export const GUIDANCE_SECTION_NAME = 'dsh-agent-toolkit:channel:guidance'
+
+/** guidance 段文本：与 injectSender 无关，恒注入；角色白名单收窄掉 ask_user_question 后仍有兜底提问指引。 */
+export function guidanceSectionText(channel: string): string {
+  return `本会话经 ${channel} 渠道进行。如需用户补充信息或做出决策，优先使用 ask_user_question 工具；该工具不可用时，直接在回复中提问并等待用户下一条消息。`
+}
+
 export class Router {
   constructor(
     private readonly agents: AgentsPort,
@@ -27,7 +35,7 @@ export class Router {
     private readonly onWarn: (message: string) => void,
     /** Agent 注册表（agentRef → main/角色），会话创建时决定 persona/工具/模型装配。 */
     private readonly registry: AgentRegistry,
-    /** 开启时向 hooks.sections 末尾追加渠道发起人提示段。 */
+    /** 开启时在 guidance 段之后再追加渠道发起人提示段（guidance 与它语义不同，恒注入）。 */
     private readonly injectSender = true,
   ) {}
 
@@ -64,11 +72,12 @@ export class Router {
     }
   }
 
-  /** injectSender 开启时向 hooks.sections 末尾追加 sender 段（主/角色形态通用）。 */
-  private withSenderSection(hooks: AgentHooks, bot: BotRecord, userId: string): AgentHooks {
-    if (!this.injectSender) return hooks
-    const section: AgentSection = { name: SENDER_SECTION_NAME, order: 20, text: senderSectionText(bot.channel ?? 'unknown', userId) }
-    return { ...hooks, sections: [...(hooks.sections ?? []), section] }
+  /** 向 hooks.sections 追加渠道段：guidance（order 15）恒注入；injectSender 开启时再追加 sender（order 20）。 */
+  private withChannelSections(hooks: AgentHooks, bot: BotRecord, userId: string): AgentHooks {
+    const guidance: AgentSection = { name: GUIDANCE_SECTION_NAME, order: 15, text: guidanceSectionText(bot.channel ?? 'unknown') }
+    if (!this.injectSender) return { ...hooks, sections: [...(hooks.sections ?? []), guidance] }
+    const sender: AgentSection = { name: SENDER_SECTION_NAME, order: 20, text: senderSectionText(bot.channel ?? 'unknown', userId) }
+    return { ...hooks, sections: [...(hooks.sections ?? []), guidance, sender] }
   }
 
   /**
@@ -84,11 +93,11 @@ export class Router {
       if (role === undefined && ref !== 'main') {
         this.onWarn(`[project-bot] bot "${bot.id}" 的 agentRef "${ref}" 不存在，降级绑定主 Agent`)
       }
-      return { agentOptions: bot.agentOptions ?? this.defaultModel(), hooks: this.withSenderSection(hooksOf(bot), bot, userId) }
+      return { agentOptions: bot.agentOptions ?? this.defaultModel(), hooks: this.withChannelSections(hooksOf(bot), bot, userId) }
     }
     return {
       agentOptions: roleAgentOptions(role, this.defaultModel),
-      hooks: this.withSenderSection(roleHooks(role), bot, userId),
+      hooks: this.withChannelSections(roleHooks(role), bot, userId),
     }
   }
 

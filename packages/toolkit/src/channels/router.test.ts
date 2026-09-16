@@ -6,6 +6,7 @@ import type { BotRecord } from '../bots/store.ts'
 import type { AgentRegistry } from '../agents/registry.ts'
 import type { AgentRecord } from '../agents/store.ts'
 
+const GUIDANCE = { name: 'dsh-agent-toolkit:channel:guidance', order: 15, text: '本会话经 feishu 渠道进行。如需用户补充信息或做出决策，优先使用 ask_user_question 工具；该工具不可用时，直接在回复中提问并等待用户下一条消息。' }
 const SENDER = { name: 'dsh-agent-toolkit:channel:sender', order: 20, text: '本会话由 feishu 渠道的单聊会话发起。发起人 ID（feishu open_id）：`ou_u1`。' }
 
 function fakeRegistry(records: AgentRecord[] = []): { registry: AgentRegistry; get: ReturnType<typeof vi.fn> } {
@@ -82,7 +83,7 @@ describe('Router.ensure', () => {
     const rt = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
     expect(created).toHaveLength(1)
     expect(created[0].input.cwd).toBe('D:\\work\\demo')
-    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'], sections: [SENDER] })
+    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'], sections: [GUIDANCE, SENDER] })
     expect(bindings.get('reviewer', 'oc_1')).toBe(rt.sessionId)
     expect(rt.reply).toBe(reply)
   })
@@ -233,7 +234,7 @@ describe('Router.ensure agentRef 绑定', () => {
     await router.ensure(fakeBot({ agentRef: 'main' }), 'oc_1', reply, 'ou_u1')
     expect(defaultModel).toHaveBeenCalledOnce()
     expect(created[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-v4' })
-    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'], sections: [SENDER] })
+    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'], sections: [GUIDANCE, SENDER] })
   })
 
   test('agentRef 指向角色：注册单 persona section + tools.restrict({ allow }) + agentOptions=role.model', async () => {
@@ -244,6 +245,7 @@ describe('Router.ensure agentRef 绑定', () => {
     expect(created[0].input.hooks).toEqual({
       sections: [
         { name: 'dsh-agent-toolkit:agent:persona', order: 0, text: '你是团队的评审成员。\n只审查 diff，不修改代码。' },
+        GUIDANCE,
         SENDER,
       ],
       tools: ['bash', 'fs_read'],
@@ -266,6 +268,7 @@ describe('Router.ensure agentRef 绑定', () => {
     expect(created[0].input.hooks).toEqual({
       sections: [
         { name: 'dsh-agent-toolkit:agent:persona', order: 0, text: '负责侦察。' },
+        GUIDANCE,
         SENDER,
       ],
     })
@@ -281,6 +284,7 @@ describe('Router.ensure agentRef 绑定', () => {
     expect(resumed[0].input.hooks).toEqual({
       sections: [
         { name: 'dsh-agent-toolkit:agent:persona', order: 0, text: '你是团队的评审成员。\n只审查 diff，不修改代码。' },
+        GUIDANCE,
         SENDER,
       ],
       tools: ['bash', 'fs_read'],
@@ -296,6 +300,7 @@ describe('Router.ensure agentRef 绑定', () => {
     expect(created[0].input.hooks).toEqual({
       sections: [
         { name: 'dsh-agent-toolkit:agent:persona', order: 0, text: '你是团队的评审成员。\n只审查 diff，不修改代码。' },
+        GUIDANCE,
         SENDER,
       ],
       tools: ['bash', 'fs_read'],
@@ -308,7 +313,7 @@ describe('Router.ensure agentRef 绑定', () => {
     expect(onWarn).toHaveBeenCalledOnce()
     expect(onWarn.mock.calls[0][0]).toContain('ghost')
     expect(created[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-v4' })
-    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'], sections: [SENDER] })
+    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'], sections: [GUIDANCE, SENDER] })
   })
 })
 
@@ -316,14 +321,14 @@ describe('Router 发起人提示段', () => {
   test('create（主 Agent 形态）：hooks.sections 末尾追加 sender 段', async () => {
     const { router, created } = setup()
     await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
-    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'], sections: [SENDER] })
+    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'], sections: [GUIDANCE, SENDER] })
   })
 
   test('resume 路径同样注入', async () => {
     const { router, bindings, resumed } = setup()
     await bindings.set('reviewer', 'oc_1', 'sess-old')
     await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
-    expect(resumed[0].input.hooks).toMatchObject({ sections: [SENDER] })
+    expect(resumed[0].input.hooks).toMatchObject({ sections: [GUIDANCE, SENDER] })
   })
 
   test('角色形态：sender 段追加在角色 persona 段之后', async () => {
@@ -332,18 +337,18 @@ describe('Router 发起人提示段', () => {
     expect(created[0].input.hooks).toEqual({
       sections: [
         { name: 'dsh-agent-toolkit:agent:persona', order: 0, text: '你是团队的评审成员。\n只审查 diff，不修改代码。' },
+        GUIDANCE,
         SENDER,
       ],
       tools: ['bash', 'fs_read'],
     })
   })
 
-  test('injectSender=false：不追加 sender 段', async () => {
+  test('injectSender=false：不追加 sender 段，但 guidance 段仍注入', async () => {
     const { agents, bindings, sessions, workspace, onWarn, defaultModel, created } = setup()
     const router = new Router(agents, bindings, sessions, defaultModel, workspace, onWarn, fakeRegistry().registry, false)
     await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
-    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'] })
-    expect(created[0].input.hooks).not.toHaveProperty('sections')
+    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'], sections: [GUIDANCE] })
   })
 
   test('/new 重置后新会话仍注入（发起人取当前消息发送人）', async () => {
@@ -351,8 +356,23 @@ describe('Router 发起人提示段', () => {
     await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
     await router.reset(fakeBot(), 'oc_1', reply, 'ou_u2')
     expect(created[1].input.hooks).toMatchObject({
-      sections: [{ name: SENDER.name, order: 20, text: '本会话由 feishu 渠道的单聊会话发起。发起人 ID（feishu open_id）：`ou_u2`。' }],
+      sections: [
+        GUIDANCE,
+        { name: SENDER.name, order: 20, text: '本会话由 feishu 渠道的单聊会话发起。发起人 ID（feishu open_id）：`ou_u2`。' },
+      ],
     })
+  })
+})
+
+describe('Router 渠道段（guidance + sender）', () => {
+  test('bot 会话 hooks.sections 含 IM 引导段（order 15）与 sender 段（order 20）', async () => {
+    const { router, created } = setup()
+    await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    const sections = (created[0].input.hooks as { sections: { name: string; order: number; text: string }[] }).sections
+    const guidance = sections.find((s) => s.name === 'dsh-agent-toolkit:channel:guidance')
+    expect(guidance).toMatchObject({ order: 15 })
+    expect(guidance?.text).toContain('ask_user_question')
+    expect(sections).toContainEqual(SENDER)
   })
 })
 

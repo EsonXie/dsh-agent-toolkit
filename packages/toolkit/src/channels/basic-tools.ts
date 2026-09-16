@@ -17,9 +17,11 @@ export const BASIC_TOOLS: BasicTool[] = [
   {
     // 0.1.5-rc.1 起 dsh-persona Config 由 { text } 改为 { prefix, suffix? }（prefix 必填，
     // suffix 渲染在 first-party 指导之后）；拆分方式对齐 standard preset 的 persona 行。
+    // 文本与 standard preset 同源：IM 引导（ask_user_question / 直接提问）已挪入渠道段
+    // （router.ts 的 guidance，order 15），角色白名单收窄掉 ask_user_question 后仍成立。
     id: '@deepseek-ai/dsh-persona',
     config: {
-      prefix: 'You are a coding agent powered by the {{model}} model. If you need information or a decision from the user, ask directly in your reply and wait for their next message.',
+      prefix: 'You are a coding agent powered by the {{model}} model.',
       suffix: 'Your working directory is {{cwd}}.',
     },
   },
