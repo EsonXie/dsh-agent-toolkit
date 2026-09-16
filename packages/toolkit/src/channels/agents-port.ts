@@ -1,5 +1,5 @@
 /** AgentsPort 真实适配器工厂（bots Router 与 schedule 执行器共用）：create/resume 经 setupAgentScope 装配，
- *  sessionId 记入 ownedSessions（插件自有会话集合，cron_* 工具注册门控据此排除 bot/schedule 会话）。 */
+ *  sessionId 记入 cronExcludedSessions（cron_* 工具注册门控排除集，仅 schedule 执行会话登记）。 */
 import type { Context } from '@deepseek-ai/cordis'
 import { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
@@ -10,7 +10,8 @@ import type { ScopeJoiner } from './scope-joiner.ts'
 export function createAgentsPort(
   ctx: Context,
   joiner: ScopeJoiner,
-  ownedSessions?: Set<string>,
+  /** cron_* 工具注册门控排除集（仅 schedule 执行会话登记；bot 聊天会话自 2026-09-16 起与 web 主会话对齐，可建定时任务）。 */
+  cronExcludedSessions?: Set<string>,
   /** 可选：会话建账（create/resume/接管）后应用宿主权限预设（bots 的 feishu.permissionPreset；schedule 不传）。 */
   applyPreset?: (session: Session) => void,
 ): AgentsPort {
@@ -38,7 +39,7 @@ export function createAgentsPort(
   }
   return {
     async create(input) {
-      ownedSessions?.add(input.sessionId)
+      cronExcludedSessions?.add(input.sessionId)
       const handle: AgentHandle = await ctx.agents.create({
         sessionId: SessionId(input.sessionId),
         meta: { cwd: input.cwd },
@@ -48,7 +49,7 @@ export function createAgentsPort(
       return adaptAgent(handle)
     },
     async resume(input) {
-      ownedSessions?.add(input.sessionId)
+      cronExcludedSessions?.add(input.sessionId)
       const handle: AgentHandle = await ctx.agents.resume({
         resumeSessionId: SessionId(input.sessionId),
         ...(input.agentOptions !== undefined ? { agentOptions: input.agentOptions } : {}),

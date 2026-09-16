@@ -74,8 +74,6 @@ export interface BotsDeps {
   registry: AgentRegistry
   /** bot 会话挂载的 preset id（agent-team；agentTeamPreset 开启时下达；undefined = 直接 toolsScope）。 */
   presetId?: string
-  /** 插件自有会话 id 集（cron_* 工具门控排除用；缺省不记录）。 */
-  ownedSessions?: Set<string>
 }
 
 export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps): void {
@@ -112,7 +110,9 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
   const presetName = config.permissionPreset
   const applyPreset = presetName === undefined ? undefined
     : createPresetApplier(() => ctx.get('permissionPresets'), presetName, log.warn)
-  const agentsPort = createAgentsPort(ctx, scopeJoiner, deps.ownedSessions, applyPreset)
+  // 第三参（cronExcludedSessions）仅 schedule 使用：bot 聊天会话不登记排除集，
+  // 与 web 主会话同档，可建定时任务（2026-09-16 门控收窄）。
+  const agentsPort = createAgentsPort(ctx, scopeJoiner, undefined, applyPreset)
 
   // workspaceRegistry 是可选服务（ctx.get 非严格模式）：缺失时 attach 抛错，
   // 由 Router 捕获降级为"未分组 + 告警"，不阻塞消息处理。

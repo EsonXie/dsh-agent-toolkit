@@ -174,14 +174,14 @@ export function createCronTools(service: CronService): ToolDefinition[] {
 
 /**
  * 注册 cron_* 工具到主 Agent scope 并探测宿主 schedule 互斥（spec §1/§5）。
- * 门控：跳过 subagent（session.header.origin === 'subagent'）与插件自有会话（ownedSessions：
- * bot/schedule 会话）——dsh-schedule src/index.ts:45-49 同款 agent/created 模式，
+ * 门控：跳过 subagent（session.header.origin === 'subagent'）与 cron 执行会话（cronExcludedSessions）——
+ * dsh-schedule src/index.ts:45-49 同款 agent/created 模式，
  * 外加存量 roots 立即注册（HMR 重挂后当前主会话不丢工具）。
  * HMR 安全：镜像 dsh-schedule src/index.ts:44-76——attached 身份表防同一 agent 二次挂载，
  * toolkit 级 ctx.effect 卸载时 Promise.allSettled 摘下所有 agent 上挂的工具
  * （agent.ctx 属宿主、长于 toolkit fiber，仅靠 agent.ctx.effect 会在重挂时残留）。
  */
-export function setupCronTools(ctx: Context, tools: ToolDefinition[], ownedSessions: ReadonlySet<string>): void {
+export function setupCronTools(ctx: Context, tools: ToolDefinition[], cronExcludedSessions: ReadonlySet<string>): void {
   const attached = new Map<Agent, () => void>()
   let stopping = false
 
@@ -204,7 +204,7 @@ export function setupCronTools(ctx: Context, tools: ToolDefinition[], ownedSessi
   function attach(agent: Agent): void {
     if (attached.has(agent)) return
     if (agent.session.header.origin === 'subagent') return
-    if (ownedSessions.has(String(agent.session.id))) return
+    if (cronExcludedSessions.has(String(agent.session.id))) return
     const cleanup = agent.ctx.effect(() => {
       const scope = scopeOf(agent.ctx)
       const hostPresent = scope !== undefined

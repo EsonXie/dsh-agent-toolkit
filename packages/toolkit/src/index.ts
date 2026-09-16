@@ -204,13 +204,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       }
     },
   })
-  const ownedSessions = new Set<string>()
-  if (config.modules.feishu) setupBots(ctx, config.feishu, { registry, presetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.id : undefined, ownedSessions })
+  // cron_* 工具注册门控排除集：仅 schedule 执行会话登记（bot 聊天会话与 web 主会话对齐，可建定时任务）。
+  const cronExcludedSessions = new Set<string>()
+  if (config.modules.feishu) setupBots(ctx, config.feishu, { registry, presetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.id : undefined })
   if (config.modules.usage) setupUsage(ctx, { timezone: config.timezone }, name)
   // schedule 恒启用，不随 modules 门控（任务可独立于飞书/用量使用）。
   setupSchedule(ctx, config.schedule, {
     registry,
     presetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.id : undefined,
-    ownedSessions,
+    cronExcludedSessions,
   })
 }

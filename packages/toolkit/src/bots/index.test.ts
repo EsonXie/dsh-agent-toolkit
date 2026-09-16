@@ -116,3 +116,11 @@ describe('setupBots permissionPreset 接线', () => {
     expect(vi.mocked(createAgentsPort).mock.calls[0]![3]).toBeUndefined()
   })
 })
+
+describe('setupBots cron 排除集接线', () => {
+  test('bot 聊天会话不登记排除集：createAgentsPort 第 3 参恒为 undefined', () => {
+    const { ctx } = makeCtx()
+    setupBots(ctx, makeConfig(true), { registry: makeRegistry() })
+    expect(vi.mocked(createAgentsPort).mock.calls[0]![2]).toBeUndefined()
+  })
+})

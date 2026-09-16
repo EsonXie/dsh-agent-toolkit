@@ -36,8 +36,8 @@ export interface ScheduleDeps {
   registry: AgentRegistry
   /** 任务会话挂载的 preset id（agent-team；agentTeamPreset 开启时下达；undefined = 直接 toolsScope）。 */
   presetId?: string
-  /** 插件自有会话 id 集（与 bots 共享；cron_* 工具注册门控排除用）。 */
-  ownedSessions: Set<string>
+  /** cron_* 工具注册门控排除集（仅本模块执行会话登记；bot 聊天会话不登记）。 */
+  cronExcludedSessions: Set<string>
 }
 
 /** tick 间隔固定 30s（spec §8：不进 Config——YAGNI）。 */
@@ -54,7 +54,7 @@ export function setupSchedule(ctx: Context, config: ScheduleModuleConfig, deps: 
   const presetName = config.permissionPreset
   const applyPreset = presetName === undefined ? undefined
     : createPresetApplier(() => ctx.get('permissionPresets'), presetName, warn)
-  const agentsPort = createAgentsPort(ctx, joiner, deps.ownedSessions, applyPreset)
+  const agentsPort = createAgentsPort(ctx, joiner, deps.cronExcludedSessions, applyPreset)
 
   // workspaceRegistry 可选服务，惰性解析（attachments 教训：apply 期一次性捕获会吃到未注册的 undefined）。
   interface WorkspaceRegistryLike {
@@ -109,7 +109,7 @@ export function setupSchedule(ctx: Context, config: ScheduleModuleConfig, deps: 
       now: () => Date.now(),
       newTaskId: () => randomUUID(),
     })
-    setupCronTools(ctx, createCronTools(service), deps.ownedSessions)
+    setupCronTools(ctx, createCronTools(service), deps.cronExcludedSessions)
     // webServer 可选（headless 惰性不抛错）；handler 请求时才构造（启动链落定前不捕获 service）。
     registerOptionalRoutes(ctx, (webCtx) => {
       const dispose = webCtx.webServer.register({

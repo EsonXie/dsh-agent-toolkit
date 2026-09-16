@@ -1,4 +1,4 @@
-/** createAgentsPort applyPreset：create/resume/get 三路径均以 agent.session 调用；未传不调用。 */
+/** createAgentsPort：applyPreset 三路径调用语义 + cronExcludedSessions 登记语义。 */
 import { describe, expect, test, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -56,5 +56,19 @@ describe('createAgentsPort applyPreset', () => {
     await expect(port.create({ sessionId: 's4', cwd: 'D:\\p', hooks })).resolves.toBeDefined()
     await expect(port.resume({ sessionId: 's4', hooks })).resolves.toBeDefined()
     expect(port.get('s4')).toBeDefined()
+  })
+
+  test('未传 cronExcludedSessions 时 create/resume 不登记任何排除集', async () => {
+    const excluded = new Set<string>()
+    // schedule 路径：传排除集 → create/resume 均登记（cron_* 门控据此排除执行会话）。
+    const schedulePort = createAgentsPort(fakeCtx(fakeAgent('sess-exec', {} as Session)), joiner, excluded)
+    await schedulePort.create({ sessionId: 'sess-exec', cwd: 'D:\\p', hooks })
+    await schedulePort.resume({ sessionId: 'sess-resume', hooks })
+    expect([...excluded].sort()).toEqual(['sess-exec', 'sess-resume'])
+    // bots 路径：不传排除集 → 不向任何集合登记（bot 聊天会话与 web 主会话对齐，可建定时任务）。
+    const botsPort = createAgentsPort(fakeCtx(fakeAgent('sess-chat', {} as Session)), joiner)
+    await botsPort.create({ sessionId: 'sess-chat', cwd: 'D:\\p', hooks })
+    await botsPort.resume({ sessionId: 'sess-chat', hooks })
+    expect([...excluded].sort()).toEqual(['sess-exec', 'sess-resume'])
   })
 })

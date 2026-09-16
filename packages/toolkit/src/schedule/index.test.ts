@@ -49,7 +49,7 @@ describe('setupSchedule permissionPreset 接线', () => {
     const set = vi.fn()
     const svc = { names: ['workspace-write', 'danger-full-access'], set }
     const ctx = makeCtx(svc)
-    setupSchedule(ctx, { ...makeConfig(), permissionPreset: 'danger-full-access' }, { registry: makeRegistry(), ownedSessions: new Set() })
+    setupSchedule(ctx, { ...makeConfig(), permissionPreset: 'danger-full-access' }, { registry: makeRegistry(), cronExcludedSessions: new Set() })
     const applyPreset = vi.mocked(createAgentsPort).mock.calls[0]![3]
     expect(typeof applyPreset).toBe('function')
     const session = {} as Parameters<NonNullable<typeof applyPreset>>[0]
@@ -59,7 +59,7 @@ describe('setupSchedule permissionPreset 接线', () => {
 
   test('未配置 permissionPreset：createAgentsPort 第 4 参为 undefined', () => {
     const ctx = makeCtx()
-    setupSchedule(ctx, makeConfig(), { registry: makeRegistry(), ownedSessions: new Set() })
+    setupSchedule(ctx, makeConfig(), { registry: makeRegistry(), cronExcludedSessions: new Set() })
     expect(vi.mocked(createAgentsPort).mock.calls[0]![3]).toBeUndefined()
   })
 })
