@@ -21,6 +21,8 @@ export interface ReplyHandle {
   notice(text: string): Promise<void>
   /** 发送文件消息（可选能力；渠道不支持时缺省，由核心降级提示）。错误向调用方传播。 */
   sendFile?(name: string, data: Uint8Array): Promise<void>
+  /** 定格当前流式卡（纯关流，不追加状态行），后续 update 开新卡续写；无卡/已 finalize 时空操作。问答卡 settle 后调用。 */
+  breakCard?(): Promise<void>
 }
 
 /** 渠道图片下载产物（媒体类型为渠道侧判定的 MIME 子集；核心侧不感知宿主类型）。 */
