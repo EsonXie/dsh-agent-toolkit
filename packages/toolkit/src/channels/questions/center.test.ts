@@ -31,7 +31,7 @@ function snapshot(view: QuestionView): ViewSnapshot {
   return { answers: new Map(view.answers), toggled: new Map(view.toggled) }
 }
 
-function harness(opts: { presentError?: Error } = {}) {
+function harness(opts: { presentError?: Error; abortDuringPresent?: AbortController } = {}) {
   const sessions = new Map<string, SessionRuntime>()
   const warns: string[] = []
   const presented: { prompt: QuestionPrompt; view: ViewSnapshot }[] = []
@@ -57,6 +57,7 @@ function harness(opts: { presentError?: Error } = {}) {
           presenter: {
             present: async (prompt, view) => {
               if (opts.presentError !== undefined) throw opts.presentError
+              opts.abortDuringPresent?.abort()
               presented.push({ prompt, view: snapshot(view) })
               return presentation
             },
@@ -109,6 +110,27 @@ test('signal 已 aborted → 抛 UserQuestionError ASK_ABORTED，不发卡', asy
   await expect(center.handleRequest(ask('s1', [item('q1')], controller.signal)))
     .rejects.toMatchObject({ name: 'UserQuestionError', code: 'ASK_ABORTED' })
   expect(presented).toHaveLength(0)
+})
+
+test('发卡期间 abort → reject UserQuestionError ASK_ABORTED、定格 cancelled、不留 pending', async () => {
+  const controller = new AbortController()
+  const { sessions, presented, finalized, center, reply } = harness({ abortDuringPresent: controller })
+  sessions.set('s1', fakeRt('s1', reply))
+  await expect(center.handleRequest(ask('s1', [item('q1')], controller.signal)))
+    .rejects.toMatchObject({ name: 'UserQuestionError', code: 'ASK_ABORTED' })
+  // 卡片已发出（present 成功返回），随后按取消定格
+  expect(presented).toHaveLength(1)
+  await vi.waitFor(() => { expect(finalized.map((f) => f.status)).toEqual(['cancelled']) })
+  // pending 已摘除：迟到的开放题答案不再被消费
+  expect(center.tryConsumeText('reviewer', CHAT, INITIATOR, '迟到答案')).toBe(false)
+})
+
+test('发卡失败 → undefined + warn（调用方回退其他应答通道）', async () => {
+  const { sessions, warns, presented, center, reply } = harness({ presentError: new Error('cardkit boom') })
+  sessions.set('s1', fakeRt('s1', reply))
+  expect(await center.handleRequest(ask('s1', [item('q1', { options: [{ label: '红' }] })]))).toBeUndefined()
+  expect(presented).toHaveLength(0)
+  expect(warns.some((m) => m.includes('cardkit boom'))).toBe(true)
 })
 
 test('单选题点击 → resolve 已选答案、定格 answered、breakCard 续接', async () => {
@@ -205,6 +227,26 @@ test('pending 中 signal abort → reject ASK_ABORTED 且定格 cancelled', asyn
   controller.abort()
   await expect(pending).rejects.toMatchObject({ name: 'UserQuestionError', code: 'ASK_ABORTED' })
   await vi.waitFor(() => { expect(finalized.map((f) => f.status)).toEqual(['cancelled']) })
+})
+
+test('作答 settle 后 signal 再 abort → 不重复 finalize/breakCard，promise 保持已答', async () => {
+  const { sessions, presented, finalized, breakCard, center, reply } = harness()
+  sessions.set('s1', fakeRt('s1', reply))
+  const controller = new AbortController()
+  const pending = center.handleRequest(ask('s1', [item('q1', { options: [{ label: '红' }] })], controller.signal))
+  const tracker = track(pending)
+  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  expect(center.handleCardAction({
+    chatId: CHAT, operatorOpenId: INITIATOR, value: { kind: 'question', key: presented[0]!.prompt.key, qid: 'q1', select: '红' },
+  })).toEqual({ toast: '已提交作答' })
+  await expect(pending).resolves.toEqual({ answers: [{ id: 'q1', selected: ['红'] }] })
+  await vi.waitFor(() => { expect(finalized.map((f) => f.status)).toEqual(['answered']) })
+  // 迟到 abort：abort 监听已注销，不得把已答卡片重绘为 cancelled，也不得二次 breakCard
+  controller.abort()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(finalized.map((f) => f.status)).toEqual(['answered'])
+  expect(breakCard).toHaveBeenCalledTimes(1)
+  expect(tracker.error).toBeUndefined()
 })
 
 test('非发起人点击 → toast 越权，pending 不动', async () => {

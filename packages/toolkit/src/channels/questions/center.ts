@@ -69,6 +69,7 @@ interface PendingSet {
   presentation: QuestionPresentation
   answers: Map<string, { selected: string[]; custom?: string }>
   toggled: Map<string, string[]>
+  signal: AbortSignal | undefined
   resolve(answer: QuestionAnswerLike): void
   reject(error: unknown): void
   onAbort: () => void
@@ -94,9 +95,10 @@ export class QuestionCenter {
     return entry.prompt.questions.every((q) => entry.answers.has(q.id))
   }
 
-  /** settle 公共尾：摘 pending → 定格卡片（fire-and-forget，失败由 presenter 自告警）→ breakCard 续接输出。 */
+  /** settle 公共尾：摘 pending → 注销 abort 监听 → 定格卡片（fire-and-forget，失败由 presenter 自告警）→ breakCard 续接输出。 */
   private settle(key: string, entry: PendingSet, status: 'answered' | 'cancelled'): void {
     this.pending.delete(key)
+    entry.signal?.removeEventListener('abort', entry.onAbort)
     void entry.presentation.finalize(entry.prompt, this.viewOf(entry), status).catch(() => undefined)
     const reply = this.sessions.get(entry.sessionId)?.reply
     void reply?.breakCard?.()?.catch?.(() => undefined)
@@ -144,10 +146,16 @@ export class QuestionCenter {
     }
     return new Promise<QuestionAnswerLike>((resolve, reject) => {
       const entry: PendingSet = {
-        sessionId, prompt, presentation, answers, toggled, resolve, reject,
+        sessionId, prompt, presentation, answers, toggled, signal: req.signal, resolve, reject,
         onAbort: () => this.settleCancelled(key, entry, 'ASK_ABORTED', 'ask_user_question was aborted before the user answered'),
       }
       this.pending.set(key, entry)
+      // 发卡期间 abort 的竞态兜底：已 aborted 的 signal 不会触发后注册的监听，
+      // 若不再查一次，ask 将永不 settle（spec §3.2：abort → ASK_ABORTED reject + 卡片定格取消）。
+      if (req.signal?.aborted === true) {
+        this.settleCancelled(key, entry, 'ASK_ABORTED', 'ask_user_question was aborted before the user answered')
+        return
+      }
       req.signal?.addEventListener('abort', entry.onAbort, { once: true })
     })
   }
