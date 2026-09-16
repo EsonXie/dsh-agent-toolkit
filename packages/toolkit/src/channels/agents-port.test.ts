@@ -58,17 +58,14 @@ describe('createAgentsPort applyPreset', () => {
     expect(port.get('s4')).toBeDefined()
   })
 
-  test('未传 cronExcludedSessions 时 create/resume 不登记任何排除集', async () => {
+  test('传入 cronExcludedSessions 时 create/resume 均登记（schedule 执行会话排除）', async () => {
     const excluded = new Set<string>()
-    // schedule 路径：传排除集 → create/resume 均登记（cron_* 门控据此排除执行会话）。
-    const schedulePort = createAgentsPort(fakeCtx(fakeAgent('sess-exec', {} as Session)), joiner, excluded)
-    await schedulePort.create({ sessionId: 'sess-exec', cwd: 'D:\\p', hooks })
-    await schedulePort.resume({ sessionId: 'sess-resume', hooks })
+    const port = createAgentsPort(fakeCtx(fakeAgent('sess-exec', {} as Session)), joiner, excluded)
+    await port.create({ sessionId: 'sess-exec', cwd: 'D:\\p', hooks })
+    await port.resume({ sessionId: 'sess-resume', hooks })
     expect([...excluded].sort()).toEqual(['sess-exec', 'sess-resume'])
-    // bots 路径：不传排除集 → 不向任何集合登记（bot 聊天会话与 web 主会话对齐，可建定时任务）。
-    const botsPort = createAgentsPort(fakeCtx(fakeAgent('sess-chat', {} as Session)), joiner)
-    await botsPort.create({ sessionId: 'sess-chat', cwd: 'D:\\p', hooks })
-    await botsPort.resume({ sessionId: 'sess-chat', hooks })
-    expect([...excluded].sort()).toEqual(['sess-exec', 'sess-resume'])
+    // 「缺省第三参不登记任何排除集」（bots 路径）在本层无法判别：不传集合时不存在可被污染的
+    // 外部引用，旧实现同样不登记。该语义由 index.test.ts 的接线断言守护（setupBots deps 无
+    // 会话排除字段 + setupSchedule deps 携带 Set）。
   })
 })

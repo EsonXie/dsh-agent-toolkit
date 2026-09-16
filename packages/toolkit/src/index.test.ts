@@ -6,6 +6,19 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { DomainSpec, KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { DEFAULT_LAYERS, DEFAULT_RULES } from './prompt/defaults.ts'
 import { Config, apply } from './index.ts'
+import { setupBots } from './bots/index.ts'
+import { setupSchedule } from './schedule/index.ts'
+
+// 部分 mock（保留原实现随 apply 真实接线，仅暴露调用参数供接线断言）——照 bots/index.test.ts
+// 对 createAgentsPort 的同款 vi.fn(original) 先例。
+vi.mock('./bots/index.ts', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./bots/index.ts')>()
+  return { ...original, setupBots: vi.fn(original.setupBots) }
+})
+vi.mock('./schedule/index.ts', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./schedule/index.ts')>()
+  return { ...original, setupSchedule: vi.fn(original.setupSchedule) }
+})
 
 class FakeTable<V> implements KvTable<string, V> {
   private readonly records = new Map<string, V>()
@@ -111,6 +124,8 @@ let tempHome: string
 beforeEach(async () => {
   tempHome = await mkdtemp(join(tmpdir(), 'dsh-toolkit-index-'))
   vi.stubEnv('DSH_HOME', tempHome)
+  vi.mocked(setupBots).mockClear()
+  vi.mocked(setupSchedule).mockClear()
 })
 afterEach(async () => {
   vi.unstubAllEnvs()
@@ -228,6 +243,18 @@ describe('apply 模块接线与开关', () => {
     await apply(h.ctx, Config({ modules: { feishu: false } }))
     await flush()
     expect(h.registered.map((r) => r.path)).toContain('/dsh-agent-toolkit/api/cron')
+  })
+
+  test('cron_* 门控接线：setupBots deps 无会话排除字段，setupSchedule deps 携带 cronExcludedSessions Set', async () => {
+    const h = makeCtx()
+    await apply(h.ctx, Config({ feishu: { debugLog: false } }))
+    const botsDeps = vi.mocked(setupBots).mock.calls[0]![2] as unknown as Record<string, unknown>
+    // bot 聊天会话不登记排除集：deps 键面收窄为 registry/presetId；回退重新加回任何会话排除
+    // 字段（如 ownedSessions）并传入都会在此失败。
+    expect(Object.keys(botsDeps).sort()).toEqual(['presetId', 'registry'])
+    // schedule 执行会话仍登记：门控排除集以 Set 形式下达。
+    const scheduleDeps = vi.mocked(setupSchedule).mock.calls[0]![2]
+    expect(scheduleDeps.cronExcludedSessions).toBeInstanceOf(Set)
   })
 
   test('默认配置：agents RPC 与 bots 路由均注册（同一 /dsh-agent-toolkit/api 前缀，路径互不重叠）', async () => {

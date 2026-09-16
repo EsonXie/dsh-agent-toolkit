@@ -170,7 +170,7 @@ describe('setupCronTools 门控与互斥探测', () => {
     expect(world.warns.some((m) => m.includes('schedule_create'))).toBe(true)
   })
 
-  test('subagent 与插件自有会话不注册', () => {
+  test('subagent 与 cron 执行会话不注册', () => {
     const world = fakeWorld()
     world.setRoots([world.makeAgent('subagent', 'sess-sub'), world.makeAgent(undefined, 'sess-owned')])
     setupCronTools(world.ctx, createCronTools(fakeService()), new Set(['sess-owned']))
