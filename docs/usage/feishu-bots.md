@@ -94,6 +94,7 @@ Agent 需要执行需要授权的工具时，会在会话所在聊天里发一�
 - 点击后卡片立即定格为终态：✅ 已允许（附操作人）/ ❌ 已拒绝 / ⏹ 已取消
 - `/new` 或取消当前会话任务，会让挂起的申请卡片标记为「已取消」
 - 开关 `feishu.approval`（默认 `true`）；`false` 时回到宿主 web 弹窗审批，不发卡片
+- **默认配置下不会出现审批**：插件自带 cordis.patch.yml 默认下发 `feishu.permissionPreset: danger-full-access`（bot 会话完全权限、不审批）。如需恢复审批，在你的 profile/home `cordis.patch.yml` 用同 id `dsh-agent-toolkit` 覆盖 config 且不写 `permissionPreset`（patch 整行替换 config，不写即维持宿主默认审批），见 [config-reference.md](config-reference.md)
 - **存量自建应用需在飞书开发者后台补开「卡片回传」事件订阅**（`card.action.trigger`）才能收到按钮回调；通过插件扫码一键新建的应用会自动带上该订阅
 
 ## 回复形态：流式卡片

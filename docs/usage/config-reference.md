@@ -63,6 +63,7 @@
 | `feishu.errorDetailMaxChars` | number | `500` | 回传飞书的错误摘要最大字符数 |
 | `feishu.injectSender` | boolean | `true` | 会话创建时注入「渠道 + 发起人 open_id」提示段（`dsh-agent-toolkit:channel:sender`），供 Agent 写多维表格人员字段等场景使用 |
 | `feishu.approval` | boolean | `true` | bot 会话工具提权申请改由飞书审批卡片处理（仅会话发起人可点）。注意：存量飞书应用需在开发者后台补开「卡片回传」(card.action.trigger) 订阅，否则卡片按钮无响应、审批会一直挂起；如无法开启可将该项设为 `false` 回退 web 审批弹窗 |
+| `feishu.permissionPreset` | string | `danger-full-access`（插件自带 cordis.patch.yml 默认） | bot 会话建账（create/冷 resume/web 存活接管）即应用的宿主权限预设名；`danger-full-access` = 完全权限、不再发起任何审批（审批卡路径不触发）。**安全警示**：任何能给 bot 发消息的人（含群聊 @ 它的成员）即获宿主完全文件/命令权限，建议仅私聊 bot 启用。回落宿主默认审批：在你的 profile/home `cordis.patch.yml` 用同 id 覆盖 config 且不写此键（patch 整行替换 config，不写即 `undefined` = 维持宿主默认审核） |
 | `feishu.debugLog` | boolean | `true` | 生产调试日志总开关：出站卡片 op/close/replace/abandon 与流对账 reconcile/frame-stats 事件写 JSONL 文件（内容只记长度+首尾 20 字，不落全文） |
 | `feishu.debugLogDir` | string | `''` | 调试日志目录（留空 = `~/.dsh/logs/feishu-debug/`；JSONL 按日滚动 `feishu-YYYY-MM-DD.jsonl`） |
 | `feishu.debugLogRetentionDays` | number | `7` | 调试日志按文件日期保留天数，超出删除最旧 |
@@ -88,6 +89,7 @@ Agent 团队 preset 自动生成（见 [agent-team-preset.md](agent-team-preset.
 |---|---|---|---|
 | `schedule.runTimeoutMinutes` | number | `60` | 单次运行超时（分钟）：任务触发到 `whenIdle` 超过该时长未空闲即取消并记为失败（防失控任务永占重叠锁） |
 | `schedule.runHistoryLimit` | number | `20` | 每任务运行历史环形保留条数，超出删最旧 |
+| `schedule.permissionPreset` | string | `danger-full-access`（插件自带 cordis.patch.yml 默认） | 任务会话建账即应用的宿主权限预设名，语义与回落方式同 `feishu.permissionPreset`。**安全警示**：完全权限下任务文本（cron 表达式触发的提示词）即直接驱动宿主完全文件/命令操作，无任何审批拦截 |
 
 ## 注意事项
 

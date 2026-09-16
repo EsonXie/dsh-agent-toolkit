@@ -475,7 +475,7 @@ bot 会话建账（create/冷 resume/web 存活接管/switch 冷接管，统一�
 
 （版本号以实际发布为准，若下一个版本不是 0.4.2 则写实际版本。）
 
-- [ ] **Step 2: 真实回路验收（需要用户配合真实飞书操作）**
+- [x] **Step 2: 真实回路验收（需要用户配合真实飞书操作）**
 
 1. 开发 `cordis.yml` 的 feishu 配置块追加 `permissionPreset: danger-full-access`（该文件在本地修改中，验收后由用户决定是否保留）。
 2. `pnpm --filter dsh-agent-toolkit bundle` 后启动开发回路（`cd deepseek-harness && pnpm dsh web --patch ..\cordis.yml`）。
