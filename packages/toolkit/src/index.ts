@@ -141,10 +141,14 @@ export const Config: z<unknown, Config> = z.object({
   }),
   // 定时任务（cron）：单次运行超时（分钟）与每任务运行历史环形上限（spec: docs/superpowers/specs/archive/2026-09-07-cron-schedule-design.md §8）。
   // natural() = 非负整数（schemastery 无 .int()，语义等价且校验更强）。
-  schedule: z.object({
+  // permissionPreset 为可选键（缺省 undefined = 维持宿主默认预设），cast 照上方 feishu 同款先例。
+  schedule: (z.object({
     runTimeoutMinutes: z.number().min(1).default(60),
     runHistoryLimit: z.natural().min(1).default(20),
-  }).default({ runTimeoutMinutes: 60, runHistoryLimit: 20 }),
+    /** 任务会话建账即应用的宿主权限预设名（如 danger-full-access = 完全权限不审批；缺省维持宿主默认）。
+     *  警告：完全权限下定时任务触发即获宿主完全文件/命令权限，任务文本即可驱动任意操作。 */
+    permissionPreset: z.string(),
+  }) as z<unknown, ScheduleModuleConfig>).default({ runTimeoutMinutes: 60, runHistoryLimit: 20 }),
 }) as z<unknown, Config>
 
 export async function apply(ctx: Context, config: Config): Promise<void> {

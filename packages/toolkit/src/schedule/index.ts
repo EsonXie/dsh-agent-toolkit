@@ -6,8 +6,11 @@ import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
+// type-only：激活 permissionPresets 服务在 Context 上的声明合并（ctx.get 可选服务读取）。
+import type {} from '@deepseek-ai/dsh-permission-presets'
 import type { AgentRegistry } from '../agents/registry.ts'
 import { createAgentsPort } from '../channels/agents-port.ts'
+import { createPresetApplier } from '../bots/permission-preset.ts'
 import type { WorkspacePort } from '../channels/ports.ts'
 import { createScopeJoiner, type ScopeJoiner } from '../channels/scope-joiner.ts'
 import { createToolsScope } from '../channels/tool-scope.ts'
@@ -25,6 +28,8 @@ export interface ScheduleModuleConfig {
   runTimeoutMinutes: number
   /** 每任务环形保留的最近运行数。 */
   runHistoryLimit: number
+  /** 任务会话建账即应用的宿主权限预设名（缺省维持宿主默认；danger-full-access 风险见 Config 注释）。 */
+  permissionPreset?: string
 }
 
 export interface ScheduleDeps {
@@ -45,7 +50,11 @@ export function setupSchedule(ctx: Context, config: ScheduleModuleConfig, deps: 
   const joiner: ScopeJoiner = deps.botPresetId !== undefined
     ? createScopeJoiner(ctx, deps.botPresetId, toolsScope, warn)
     : toolsScope
-  const agentsPort = createAgentsPort(ctx, joiner, deps.ownedSessions)
+  // 权限预设：配置后任务会话建账（create/resume/接管）统一应用，与 bots 同款 agents-port 钩子。
+  const presetName = config.permissionPreset
+  const applyPreset = presetName === undefined ? undefined
+    : createPresetApplier(() => ctx.get('permissionPresets'), presetName, warn)
+  const agentsPort = createAgentsPort(ctx, joiner, deps.ownedSessions, applyPreset)
 
   // workspaceRegistry 可选服务，惰性解析（attachments 教训：apply 期一次性捕获会吃到未注册的 undefined）。
   interface WorkspaceRegistryLike {

@@ -9,6 +9,16 @@
 - id: dsh-agent-toolkit
   config:
     timezone: Asia/Shanghai
+    # 打字机步长 5→50（≈700 字/秒）：缓解 fast 策略下「最后一次 update 后尾部存量
+    # 只能按 print_step 爬完」造成的末段视觉滞后。若实测确认关流冻结存量，再评估方案 B。
+    feishu:
+      cardPrintStep: 50
+      # bot 会话建账即应用完全权限预设（不审批）。注意：--patch 语义为整行替换 config，
+      # 本 overlay 存在时插件自带 cordis.patch.yml 的默认 config 被整体覆盖，此键必须在此写全。
+      permissionPreset: danger-full-access
+    # 定时任务会话同款默认放开（bundle 默认同上，overlay 整行替换故在此重写）。
+    schedule:
+      permissionPreset: danger-full-access
 
 # 会话标题辅助请求默认 maxOutputTokens: 64 会被思考型模型（kimi k3-256k、
 # volc deepseek-v4-flash 等强制思考）整段吃光 → finish=max-tokens → 标题静默

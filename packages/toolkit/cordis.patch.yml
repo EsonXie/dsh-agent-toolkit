@@ -1,3 +1,13 @@
 - insert:
     - id: dsh-agent-toolkit
       name: dsh-agent-toolkit
+      config:
+        # 默认放开：飞书 bot 会话与定时任务会话建账即应用 danger-full-access（完全权限、不审批）。
+        # 安全警示：任何能给 bot 发消息的人（含群聊 @ 它的成员）即获宿主完全文件/命令权限；
+        # 定时任务的触发文本同样直接驱动任意操作。建议仅私聊 bot 启用。
+        # 回落宿主默认审批：在 profile/home 的 cordis.patch.yml 用同 id 覆盖 config 且不写
+        # permissionPreset（patch 语义为整行替换 config，不写即 undefined = 维持宿主默认审核）。
+        feishu:
+          permissionPreset: danger-full-access
+        schedule:
+          permissionPreset: danger-full-access
