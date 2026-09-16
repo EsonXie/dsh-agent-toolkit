@@ -65,7 +65,7 @@ afterEach(async () => {
 
 describe('schedule 任务会话组合守护', () => {
   test('setupSchedule 同款 joiner 栈：mount 路径 composeFrom 认父，子 scope 继承 preset 工具', async () => {
-    // 与 schedule/index.ts 内部构造逐行同源：createToolsScope → createScopeJoiner(botPresetId)。
+    // 与 schedule/index.ts 内部构造逐行同源：createToolsScope → createScopeJoiner(presetId)。
     const toolsScope = createToolsScope(ctx, async () => ((() => undefined) as never))
     const joiner = createScopeJoiner(ctx, 'agent-bot', toolsScope, vi.fn())
     const parentScope = createScope(ctx, { fake: 'cron-parent' })

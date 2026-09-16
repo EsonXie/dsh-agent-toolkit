@@ -34,8 +34,8 @@ export interface ScheduleModuleConfig {
 
 export interface ScheduleDeps {
   registry: AgentRegistry
-  /** 任务会话挂载的 preset id（agentTeamPreset 开启时下达；undefined = 直接 toolsScope）。 */
-  botPresetId?: string
+  /** 任务会话挂载的 preset id（agent-team；agentTeamPreset 开启时下达；undefined = 直接 toolsScope）。 */
+  presetId?: string
   /** 插件自有会话 id 集（与 bots 共享；cron_* 工具注册门控排除用）。 */
   ownedSessions: Set<string>
 }
@@ -47,8 +47,8 @@ export function setupSchedule(ctx: Context, config: ScheduleModuleConfig, deps: 
   const warn = (m: string): void => ctx.logger.warn(m)
   // 与 setupBots 同款 joiner 栈：preset 优先（委派子会话 composeFrom 认父）+ toolsScope 回退。
   const toolsScope = createToolsScope(ctx)
-  const joiner: ScopeJoiner = deps.botPresetId !== undefined
-    ? createScopeJoiner(ctx, deps.botPresetId, toolsScope, warn)
+  const joiner: ScopeJoiner = deps.presetId !== undefined
+    ? createScopeJoiner(ctx, deps.presetId, toolsScope, warn)
     : toolsScope
   // 权限预设：配置后任务会话建账（create/resume/接管）统一应用，与 bots 同款 agents-port 钩子。
   const presetName = config.permissionPreset

@@ -122,7 +122,7 @@ export const Config: z<unknown, Config> = z.object({
     debugLogRetentionDays: 7,
   }),
   // agent-team preset 自动生成：派生 shipped standard、禁用 subagent 工具族 4 行，
-  // 写入首个 trust=user root；另生成 bot 会话最小 preset（botsId，委派子会话 composeFrom 认父的前提）
+  // 写入首个 trust=user root；bot/定时任务会话统一挂同一 preset（委派子会话 composeFrom 认父的前提）
   // （spec: docs/superpowers/specs/archive/2026-09-02-agent-team-preset-design.md）。
   agentTeamPreset: z.object({
     enabled: z.boolean().default(true),
@@ -130,14 +130,12 @@ export const Config: z<unknown, Config> = z.object({
     source: z.string().default('standard'),
     name: z.string().default('Agent 团队'),
     description: z.string().default('Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色'),
-    botsId: z.string().default('agent-bot'),
   }).default({
     enabled: true,
     id: 'agent-team',
     source: 'standard',
     name: 'Agent 团队',
     description: 'Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色',
-    botsId: 'agent-bot',
   }),
   // 定时任务（cron）：单次运行超时（分钟）与每任务运行历史环形上限（spec: docs/superpowers/specs/archive/2026-09-07-cron-schedule-design.md §8）。
   // natural() = 非负整数（schemastery 无 .int()，语义等价且校验更强）。
@@ -160,7 +158,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     meta: domain.table('meta') as KvTable<string, { value: string }>,
     promptLayers: domain.table('prompt_layers') as KvTable<string, PromptLayersRow>,
   }
-  // agent-team / agent-bot preset 生成必须先于 createRegistry：preset 并入迁移要枚举
+  // agent-team preset 生成必须先于 createRegistry：preset 并入迁移要枚举
   // agent-team 面（standingKeyFor 按 composition 文件挂载，首启时尚未生成会枚举失败跳过）。
   // agentPresets 为可选服务（rc2 旧宿主缺席时内部静默跳过），不进 inject。
   await setupAgentTeamPreset(ctx, config.agentTeamPreset)
@@ -207,12 +205,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     },
   })
   const ownedSessions = new Set<string>()
-  if (config.modules.feishu) setupBots(ctx, config.feishu, { registry, botPresetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.botsId : undefined, ownedSessions })
+  if (config.modules.feishu) setupBots(ctx, config.feishu, { registry, presetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.id : undefined, ownedSessions })
   if (config.modules.usage) setupUsage(ctx, { timezone: config.timezone }, name)
   // schedule 恒启用，不随 modules 门控（任务可独立于飞书/用量使用）。
   setupSchedule(ctx, config.schedule, {
     registry,
-    botPresetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.botsId : undefined,
+    presetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.id : undefined,
     ownedSessions,
   })
 }

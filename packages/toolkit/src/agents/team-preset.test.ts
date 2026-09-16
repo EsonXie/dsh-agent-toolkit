@@ -7,7 +7,6 @@ import yaml from 'js-yaml'
 import { afterEach, beforeEach } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { setupAgentTeamPreset, type AgentTeamPresetConfig } from './team-preset.ts'
-import { BOT_PRESET_NAME, BOT_PRESET_DESCRIPTION } from './bot-preset.ts'
 
 // 镜像宿主 shipped standard 的 delegation 块（缩进 4 空格的列表行）。
 const SOURCE = [
@@ -119,7 +118,6 @@ describe('setupAgentTeamPreset', () => {
     source: 'standard',
     name: 'Agent 团队',
     description: 'Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色',
-    botsId: 'agent-bot',
   }
 
   let tempDir: string
@@ -176,7 +174,7 @@ describe('setupAgentTeamPreset', () => {
     expect(agentPresets.read).not.toHaveBeenCalled()
   })
 
-  test('read 失败（未知/损坏源 preset）：warn 降级，只跳过 agent-team（agent-bot 照写）', async () => {
+  test('read 失败（未知/损坏源 preset）：warn 降级，不写 agent-team', async () => {
     const agentPresets = makeAgentPresets({ read: () => Promise.reject(new Error('preset "standard" not found')) })
     const { ctx, warn } = makeCtx(agentPresets)
     await setupAgentTeamPreset(ctx, CONFIG)
@@ -214,41 +212,6 @@ describe('setupAgentTeamPreset', () => {
     await expect(readFile(join(targetDir(), 'agent.cordis.yml'), 'utf8')).rejects.toThrow()
   })
 
-  test('read 失败：agent-team 跳过，agent-bot 照写（bot 组合不依赖源 preset）', async () => {
-    const agentPresets = makeAgentPresets({ read: () => Promise.reject(new Error('preset "standard" not found')) })
-    const { ctx, warn } = makeCtx(agentPresets)
-    await setupAgentTeamPreset(ctx, CONFIG)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('preset "standard" not found'))
-    await expect(readFile(join(botDir(), 'agent.cordis.yml'), 'utf8')).resolves.toContain('tool-fs')
-  })
-
-  test('非法 botsId：warn 跳过 agent-bot，agent-team 照常生成', async () => {
-    const { ctx, warn } = makeCtx(makeAgentPresets())
-    await setupAgentTeamPreset(ctx, { ...CONFIG, botsId: '../evil' })
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('botsId'))
-    await expect(readFile(join(targetDir(), 'agent.cordis.yml'), 'utf8')).resolves.toContain('disabled: true')
-    await expect(readFile(join(userRoot, 'evil'), 'utf8')).rejects.toThrow()
-  })
-
-  test('botsId 与 id 相同：warn（含两个配置名）并跳过 agent-bot，agent-team composition 不被 bot 覆盖', async () => {
-    const { ctx, warn } = makeCtx(makeAgentPresets())
-    await setupAgentTeamPreset(ctx, { ...CONFIG, botsId: 'agent-team' })
-    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/agent-team.*agent-team|agent-team.*相同|相同.*agent-team/))
-    const composition = await readFile(join(targetDir(), 'agent.cordis.yml'), 'utf8')
-    expect(composition.match(/disabled: true/g)).toHaveLength(4)
-    expect(composition).not.toContain('tool-fs')
-  })
-
-  test('agent-bot 同名用户目录保护：不覆盖，agent-team 照常生成', async () => {
-    await mkdir(botDir(), { recursive: true })
-    await writeFile(join(botDir(), 'keep.txt'), 'user data', 'utf8')
-    const { ctx, warn } = makeCtx(makeAgentPresets())
-    await setupAgentTeamPreset(ctx, CONFIG)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('不覆盖'))
-    expect(await readFile(join(botDir(), 'keep.txt'), 'utf8')).toBe('user data')
-    await expect(readFile(join(targetDir(), 'agent.cordis.yml'), 'utf8')).resolves.toContain('disabled: true')
-  })
-
   test('正常路径：写入 3 个文件，composition 带头部注释 + 4 个 disabled；重复运行（带标记）重写', async () => {
     const { ctx, warn } = makeCtx(makeAgentPresets())
     await setupAgentTeamPreset(ctx, CONFIG)
@@ -259,21 +222,40 @@ describe('setupAgentTeamPreset', () => {
     const metadata = yaml.load(await readFile(join(targetDir(), 'preset.yml'), 'utf8'))
     expect(metadata).toEqual({ name: 'Agent 团队', description: CONFIG.description })
     expect((await readFile(join(targetDir(), '.generated-by'), 'utf8')).trim()).toBe('dsh-agent-toolkit')
-    // agent-bot：3 个文件；composition 头注释 + 5 行（tool-fs 在列）；metadata 用 bot-preset 常量。
-    expect((await readdir(botDir())).sort()).toEqual(['.generated-by', 'agent.cordis.yml', 'preset.yml'])
-    const botComposition = await readFile(join(botDir(), 'agent.cordis.yml'), 'utf8')
-    expect(botComposition.startsWith('# 本文件由 dsh-agent-toolkit 自动生成')).toBe(true)
-    const botRows = yaml.load(botComposition) as { id: string }[]
-    expect(botRows).toHaveLength(5)
-    expect(botRows.map((row) => row.id)).toContain('tool-fs')
-    expect(yaml.load(await readFile(join(botDir(), 'preset.yml'), 'utf8'))).toEqual({
-      name: BOT_PRESET_NAME,
-      description: BOT_PRESET_DESCRIPTION,
-    })
-    expect((await readFile(join(botDir(), '.generated-by'), 'utf8')).trim()).toBe('dsh-agent-toolkit')
     // 重复运行：目录已有标记 → 重写（name 改了要生效），不 warn。
     await setupAgentTeamPreset(ctx, { ...CONFIG, name: '团队模式' })
     expect(warn).not.toHaveBeenCalled()
     expect(yaml.load(await readFile(join(targetDir(), 'preset.yml'), 'utf8'))).toEqual({ name: '团队模式', description: CONFIG.description })
+  })
+
+  test('生成结果只有 agent-team：不再写 agent-bot composition', async () => {
+    const { ctx, warn } = makeCtx(makeAgentPresets())
+    await setupAgentTeamPreset(ctx, CONFIG)
+    expect(warn).not.toHaveBeenCalled()
+    expect((await readdir(userRoot)).sort()).toEqual(['agent-team'])
+    await expect(readdir(botDir())).rejects.toThrow()
+  })
+
+  test('启动时删除带 .generated-by 标记的存量 agent-bot 目录，无标记目录保留', async () => {
+    // 1) 含 .generated-by（内容 'dsh-agent-toolkit'）→ 整个目录被清理。
+    await mkdir(botDir(), { recursive: true })
+    await writeFile(join(botDir(), '.generated-by'), 'dsh-agent-toolkit\n', 'utf8')
+    await writeFile(join(botDir(), 'agent.cordis.yml'), 'stale bot composition', 'utf8')
+    const marked = makeCtx(makeAgentPresets())
+    await setupAgentTeamPreset(marked.ctx, CONFIG)
+    await expect(readdir(botDir())).rejects.toThrow()
+
+    // 2) 无标记 → 用户手工同名目录保留，warn 提示保留语义。
+    const otherRoot = await mkdtemp(join(tmpdir(), 'dsh-toolkit-team-preset-'))
+    try {
+      await mkdir(join(otherRoot, 'agent-bot'), { recursive: true })
+      await writeFile(join(otherRoot, 'agent-bot', 'keep.txt'), 'user data', 'utf8')
+      const unmarked = makeCtx(makeAgentPresets({ roots: [{ path: otherRoot, trust: 'user' }] }))
+      await setupAgentTeamPreset(unmarked.ctx, CONFIG)
+      expect(unmarked.warn).toHaveBeenCalledWith(expect.stringMatching(/用户手工 preset.*保留不清理/))
+      expect(await readFile(join(otherRoot, 'agent-bot', 'keep.txt'), 'utf8')).toBe('user data')
+    } finally {
+      await rm(otherRoot, { recursive: true, force: true })
+    }
   })
 })

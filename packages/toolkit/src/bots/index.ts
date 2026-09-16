@@ -72,8 +72,8 @@ export interface BotsModuleConfig {
 /** setupBots 的宿主接线依赖（registry 供运行时委派/API 消费；prompt 无消费方，Task 13 定案不装配 persona）。 */
 export interface BotsDeps {
   registry: AgentRegistry
-  /** bot 会话挂载的 preset id（agentTeamPreset 开启时下达；undefined = 直接 toolsScope）。 */
-  botPresetId?: string
+  /** bot 会话挂载的 preset id（agent-team；agentTeamPreset 开启时下达；undefined = 直接 toolsScope）。 */
+  presetId?: string
   /** 插件自有会话 id 集（cron_* 工具门控排除用；缺省不记录）。 */
   ownedSessions?: Set<string>
 }
@@ -100,11 +100,11 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
   }
 
   /** 创作期注入已迁至 agent-setup.ts + tool-scope.ts（基础工具行 standing scope 挂载 + persona/tools）。
-   *  preset 优先 joiner（agent-bot 组合）：mount 成功后委派子会话 composeFrom 认父（spec: docs/superpowers/specs/archive/2026-09-07-bot-delegation-preset-mount-design.md）。 */
+   *  preset 优先 joiner（agent-team 组合）：mount 成功后委派子会话 composeFrom 认父（spec: docs/superpowers/specs/archive/2026-09-07-bot-delegation-preset-mount-design.md）。 */
   const toolsScope = createToolsScope(ctx)
   // preset 优先：mount 成功后委派子会话 composeFrom 认父；未下达 id 时维持 toolsScope 直挂。
-  const scopeJoiner: ScopeJoiner = deps.botPresetId !== undefined
-    ? createScopeJoiner(ctx, deps.botPresetId, toolsScope, log.warn)
+  const scopeJoiner: ScopeJoiner = deps.presetId !== undefined
+    ? createScopeJoiner(ctx, deps.presetId, toolsScope, log.warn)
     : toolsScope
 
   // 权限预设：配置后 create/resume/接管三路径统一应用（agents-port 内调用点）；

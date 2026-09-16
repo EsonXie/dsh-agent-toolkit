@@ -3,12 +3,11 @@
  * 文本级禁用 subagent 工具族 4 个行，写入首个 trust=user 的 preset root。
  * 设计：docs/superpowers/specs/archive/2026-09-02-agent-team-preset-design.md
  */
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import yaml from 'js-yaml'
 import type { Context } from '@deepseek-ai/cordis'
 import { expandHomePath } from '@deepseek-ai/dsh-home-paths'
-import { botPresetComposition, BOT_PRESET_NAME, BOT_PRESET_DESCRIPTION } from './bot-preset.ts'
 
 /** 本功能的可调配置（Config schema 在 ../index.ts）。 */
 export interface AgentTeamPresetConfig {
@@ -22,8 +21,6 @@ export interface AgentTeamPresetConfig {
   name: string
   /** preset.yml 的描述。 */
   description: string
-  /** bot 会话挂载的最小 preset id（内容 = BASIC_TOOLS 5 行）。 */
-  botsId: string
 }
 
 /** 禁用目标行：覆盖与 team_delegate 竞争/配套的 5 个模型可见工具所属的 4 个行。 */
@@ -80,6 +77,8 @@ const METADATA_FILE = 'preset.yml'
  */
 const MARKER_FILE = '.generated-by'
 const MARKER_CONTENT = 'dsh-agent-toolkit'
+/** 2026-09-16 前本插件生成的 bot 最小 preset id（现已废弃，bot 会话统一挂 agent-team）：存量标记目录启动时清理。 */
+export const LEGACY_BOT_PRESET_ID = 'agent-bot'
 /** 镜像宿主 PRESET_ID：preset id 即目录名，正则白名单是路径逃逸的 containment 边界。 */
 const PRESET_ID = /^[a-z0-9][a-z0-9-]*$/
 
@@ -132,10 +131,10 @@ async function writeGeneratedPreset(
 }
 
 /**
- * 启动时生成/刷新 agent-team 与 agent-bot 两个 preset。所有失败路径 warn 降级，不影响插件其余功能。
- * 不设为默认 preset、卸载不删目录（可能有会话在用；composition 不引用 toolkit 行，残留 preset 自身
- * 仍可用）。每次启动重写：standing mount 按文件代际，重写只影响新会话。agent-bot 内容来自 BASIC_TOOLS，
- * 不依赖源 preset 读取（read 失败只跳过 agent-team）；两块独立 try/catch、独立 marker 保护。
+ * 启动时生成/刷新 agent-team preset，并清理存量废弃的 agent-bot 标记目录。所有失败路径 warn 降级，
+ * 不影响插件其余功能。不设为默认 preset、卸载不删目录（可能有会话在用；composition 不引用 toolkit 行，
+ * 残留 preset 自身仍可用）。每次启动重写：standing mount 按文件代际，重写只影响新会话。
+ * read 失败只跳过生成、清理块照常跑；两块独立 try/catch、独立 marker 保护。
  */
 export async function setupAgentTeamPreset(ctx: Context, config: AgentTeamPresetConfig): Promise<void> {
   if (!config.enabled) return
@@ -143,10 +142,10 @@ export async function setupAgentTeamPreset(ctx: Context, config: AgentTeamPreset
   // rc2 等无 presets 的旧宿主：静默跳过（旧宿主无 subagent/team_delegate 工具竞争问题）。
   const agentPresets = ctx.get('agentPresets', false) as AgentPresetsLike | undefined
   if (agentPresets === undefined) return
-  // 提前解析 trust=user root 供两块共用；缺席时两者都跳过。
+  // 提前解析 trust=user root 供生成与清理共用；缺席时两者都跳过。
   const root = agentPresets.roots.find((r) => r.trust === 'user')
   if (root === undefined) {
-    warn('dsh-agent-toolkit: preset roots 中无 trust=user 的目录，跳过 agent-team / agent-bot 生成')
+    warn('dsh-agent-toolkit: preset roots 中无 trust=user 的目录，跳过 agent-team 生成与存量清理')
     return
   }
   const presetDir = (id: string): string => join(resolve(expandHomePath(root.path)), id)
@@ -176,24 +175,23 @@ export async function setupAgentTeamPreset(ctx: Context, config: AgentTeamPreset
     }
   }
 
-  // botsId 与 id 相同：agent-bot 块会覆盖 agent-team 的 composition + preset.yml，直接跳过（agent-team 照常生成）。
-  if (config.id === config.botsId) {
-    warn(`dsh-agent-toolkit: agentTeamPreset.id 与 agentTeamPreset.botsId 相同（均为 "${config.id}"），跳过 agent-bot 生成`)
-  } else {
-    // agent-bot：bot 会话挂载的最小组合，内容来自 BASIC_TOOLS，不依赖源 preset 读取。
-    if (!PRESET_ID.test(config.botsId)) {
-      warn(`dsh-agent-toolkit: agentTeamPreset.botsId "${config.botsId}" 不是合法 preset id，跳过 agent-bot 生成`)
-    } else {
-      try {
-        await writeGeneratedPreset(
-          presetDir(config.botsId),
-          GENERATED_HEADER + botPresetComposition(),
-          { name: BOT_PRESET_NAME, description: BOT_PRESET_DESCRIPTION },
-          warn,
-        )
-      } catch (error) {
-        warn(`dsh-agent-toolkit: 写入 agent-bot preset 失败：${error instanceof Error ? error.message : String(error)}`)
-      }
+  // 存量清理：LEGACY_BOT_PRESET_ID 目录已不再生成（bot 会话改挂 agent-team）；带生成标记的直接删，
+  // 无标记的同名用户手工目录保留并告警。与生成块相互独立，任何失败都静默降级。
+  try {
+    const legacyDir = presetDir(LEGACY_BOT_PRESET_ID)
+    let marked = false
+    try {
+      marked = (await readFile(join(legacyDir, MARKER_FILE), 'utf8')).trim() === MARKER_CONTENT
+    } catch {
+      // 无标记文件 = 用户手工同名 preset（或目录不存在）。
     }
+    if (marked) {
+      await rm(legacyDir, { recursive: true, force: true })
+    } else {
+      await access(legacyDir)
+      warn(`dsh-agent-toolkit: ${legacyDir} 为用户手工 preset（无生成标记），保留不清理`)
+    }
+  } catch {
+    // 目录不存在或清理失败：无需清理。
   }
 }
