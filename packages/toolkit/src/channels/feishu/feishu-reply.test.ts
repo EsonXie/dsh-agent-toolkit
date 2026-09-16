@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import type { ChannelTunables } from '../channel.ts'
+import type { ChannelTunables, TurnSegment } from '../channel.ts'
 import type { FeishuApi } from './api.ts'
-import { buildCardJson, buildSegmentJson } from './cards.ts'
+import { buildCardJson, buildSegmentJson, initialStreamState, type StreamState } from './cards.ts'
 import { FeishuReplyHandle, makeAck, withRetry } from './reply.ts'
 
 const TUNABLES = { cardUpdateThrottleMs: 500, cardMaxBytes: 26_000, processMaxBytes: 8000, cardPrintStep: 5, processingReactionEmoji: 'OneSecond' }
@@ -503,4 +503,121 @@ test('debug 事件：replaceCard 失败记 replace failed + 日志，不触发�
   expect(events).toContainEqual(expect.objectContaining({ event: 'replace', ok: false, code: 999999 }))
   expect(logs.some((m) => m.includes('全量重放失败'))).toBe(true)
   expect(calls.map((c) => c.op)).not.toContain('sendText')   // 无 ABANDON_NOTICE
+})
+
+describe('ReplyHandle.breakCard', () => {
+  /** 装填内部流式状态：planSync 每次落定都把尾段提交到段内容末尾（含拆卡续写）且成功后 commit，
+   *  「尾段只显示了一部分」态只在 flush 在飞（未 commit）或失败窗口存在——只能直接构造以覆盖 carry 回卷分支。 */
+  function seedPartialTail(reply: FeishuReplyHandle, segments: readonly TurnSegment[], state: StreamState): void {
+    const inner = reply as unknown as { segments: readonly TurnSegment[]; state: StreamState }
+    inner.segments = segments
+    inner.state = state
+  }
+
+  test('有活卡：纯关流定格（无状态行追加），后续输出建新卡只含 break 之后的段', async () => {
+    const { api, calls } = fakeApi()
+    const { reply } = make(api)
+    await reply.update([{ kind: 'text', content: '结论' }])
+    await vi.advanceTimersByTimeAsync(500)
+    await reply.breakCard()
+    // 旧卡定格：只关流（settings streaming:false），不追加状态行 update
+    expect(calls.map((c) => c.op)).toEqual(['createCard', 'sendCardMessage', 'insertElement', 'setCardStreaming'])
+    expect(calls[3].args).toEqual(['card_1', false, 2])   // insert 占 seq 1 → 关流 seq+1
+    // 后续输出：新卡只含 break 之后的增量，不重播旧段
+    await reply.update([{ kind: 'text', content: '结论后续' }])
+    await vi.advanceTimersByTimeAsync(500)
+    const inserts = calls.filter((c) => c.op === 'insertElement')
+    expect(inserts).toHaveLength(2)
+    expect(inserts[1].args[0]).toBe('card_2')
+    expect(JSON.parse(String(inserts[1].args[1])).content).toBe('后续')
+    expect(calls.filter((c) => c.op === 'updateCardElement')).toEqual([])   // 全程无状态行/尾段 update
+  })
+
+  test('breakCard 后无新增量：update 不建空卡、不重播旧段', async () => {
+    const { api, calls } = fakeApi()
+    const { reply } = make(api)
+    await reply.update([{ kind: 'text', content: '结论' }])
+    await vi.advanceTimersByTimeAsync(500)
+    await reply.breakCard()
+    const settled = calls.map((c) => c.op)
+    await reply.update([{ kind: 'text', content: '结论' }])   // 同段重发（settle 后首帧可能是原样）
+    await vi.advanceTimersByTimeAsync(500)
+    expect(calls.map((c) => c.op)).toEqual(settled)          // 零新 API 调用（不建空卡/不重播）
+  })
+
+  test('连续两次 breakCard（多个问答先后 settle）：不丢 carry，后续输出不重播已显示段', async () => {
+    const { api, calls } = fakeApi()
+    const { reply } = make(api)
+    await reply.update([{ kind: 'text', content: '结论' }])
+    await vi.advanceTimersByTimeAsync(500)
+    await reply.breakCard()
+    await reply.breakCard()   // 无活卡：空操作但须保留第一次的续写基准
+    await reply.update([{ kind: 'text', content: '结论后续' }])
+    await vi.advanceTimersByTimeAsync(500)
+    const inserts = calls.filter((c) => c.op === 'insertElement')
+    expect(inserts).toHaveLength(2)
+    expect(JSON.parse(String(inserts[1].args[1])).content).toBe('后续')
+  })
+
+  test('无卡（turn 尚无产出）：空操作（零 API 调用），后续 update 正常建首卡', async () => {
+    const { api, calls } = fakeApi()
+    const { reply } = make(api)
+    await reply.breakCard()
+    expect(calls).toEqual([])
+    await reply.update([{ kind: 'text', content: '首段' }])
+    await vi.advanceTimersByTimeAsync(500)
+    expect(calls.map((c) => c.op)).toEqual(['createCard', 'sendCardMessage', 'insertElement'])
+    expect(JSON.parse(String(calls[2].args[1])).content).toBe('首段')
+  })
+
+  test('打字机尾段未打完：旧卡关流，尾段未显示部分在新卡续打（不丢字、不重播）', async () => {
+    const { api, calls } = fakeApi()
+    const { reply } = make(api)
+    seedPartialTail(reply, [{ kind: 'text', content: '第一段第二段' }], {
+      ...initialStreamState(),
+      cardId: 'card_live', seq: 2, segCounter: 1,
+      tail: { segIndex: 0, elementId: 'seg_1', base: 0, shownText: '第一段' },
+      cardSegs: [{ segIndex: 0, elementId: 'seg_1', kind: 'text', base: 0, len: 3 }],
+    })
+    await reply.breakCard()
+    expect(calls).toEqual([{ op: 'setCardStreaming', args: ['card_live', false, 3] }])
+    await reply.update([{ kind: 'text', content: '第一段第二段第三段' }])
+    await vi.advanceTimersByTimeAsync(500)
+    const inserts = calls.filter((c) => c.op === 'insertElement')
+    expect(inserts).toHaveLength(1)
+    const shown = JSON.parse(String(inserts[0].args[1])).content as string
+    expect(shown).toBe('第二段第三段')                   // 只续打未显示部分，不重播「第一段」
+    expect('第一段' + shown).toBe('第一段第二段第三段')   // 与旧卡已显示部分合计守恒（不丢字）
+  })
+
+  test('finalize 之后 breakCard：空操作（零 API 调用）', async () => {
+    const { api, calls } = fakeApi()
+    const { reply } = make(api)
+    await reply.update([{ kind: 'text', content: '结论' }])
+    await reply.finalize('done')
+    const before = calls.length
+    await reply.breakCard()
+    expect(calls.length).toBe(before)
+  })
+
+  test('节流窗口内到达的增量：先落定在飞 flush（不丢字）再关流，后续输出开新卡', async () => {
+    const { api, calls } = fakeApi()
+    const { reply } = make(api)
+    await reply.update([{ kind: 'text', content: '前半' }])
+    await vi.advanceTimersByTimeAsync(500)
+    await reply.update([{ kind: 'text', content: '前半后半' }])   // 在飞：timer 未到期，尚未落卡
+    await reply.breakCard()
+    const growth = calls.filter((c) => c.op === 'updateCardElement')
+    expect(growth).toHaveLength(1)                              // 在飞增量先打到旧卡（不丢字）
+    expect(growth[0].args).toEqual(['card_1', 'seg_1', '前半后半', 2])
+    const close = calls.find((c) => c.op === 'setCardStreaming' && c.args[1] === false)
+    expect(close!.args[0]).toBe('card_1')
+    expect(calls.some((c) => c.op === 'updateCardElement' && c.args[1] === 'status')).toBe(false)
+    await reply.update([{ kind: 'text', content: '前半后半第三段' }])
+    await vi.advanceTimersByTimeAsync(500)
+    const inserts = calls.filter((c) => c.op === 'insertElement')
+    expect(inserts).toHaveLength(2)
+    expect(inserts[1].args[0]).toBe('card_2')
+    expect(JSON.parse(String(inserts[1].args[1])).content).toBe('第三段')
+  })
 })

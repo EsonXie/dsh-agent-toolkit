@@ -89,6 +89,38 @@ export class FeishuReplyHandle implements ReplyHandle {
     await this.tail
   }
 
+  /**
+   * 定格当前流式卡（纯关流，不追加状态行——那是超长拆卡的「已接续」语义），后续 update 开新卡续写。
+   * 问答卡 settle 后调用：旧卡留在问答卡上方，作答后的输出在下方新卡继续打字机。
+   * 无卡（turn 尚无产出）/ 已 finalize 时空操作；错误一律经 enqueue 吞掉，绝不向调用方抛。
+   */
+  async breakCard(): Promise<void> {
+    if (this.finalized) return
+    // 先落定在飞的 flush（与 finalize 同款的 timer 清理 + flush + await tail）。
+    if (this.timer !== undefined) {
+      clearTimeout(this.timer)
+      this.timer = undefined
+      this.flush()
+    }
+    await this.tail
+    const { cardId, seq, tail } = this.state
+    const live = cardId !== null && cardId !== PENDING_CARD_ID
+    if (live) {
+      this.enqueue(() => withRetry(() => this.api.setCardStreaming(cardId, false, seq + 1)).then(() => undefined))
+      await this.tail
+      this.closedCardId = cardId
+    }
+    // 状态重置：已完整展示的段计入 closedSegCount；尾段未打完部分经 carry 在新卡续打（abandon 同款回卷，reshowTail=false）。
+    // 无尾段（无卡/已拆卡）时保留既有 carry：连续 breakCard（多个问答先后 settle）不得回退续写基准，否则下次 flush 会重播已显示段。
+    this.state = {
+      ...initialStreamState(),
+      closedSegCount: tail !== undefined ? tail.segIndex : this.state.closedSegCount,
+      ...(tail !== undefined
+        ? { carry: { segIndex: tail.segIndex, base: tail.base + tail.shownText.length } }
+        : this.state.carry !== undefined ? { carry: this.state.carry } : {}),
+    }
+  }
+
   notice(text: string): Promise<void> {
     this.enqueue(() => withRetry(() => this.api.sendText(this.chatId, text)).then(() => undefined))
     return this.tail.then(() => undefined)
