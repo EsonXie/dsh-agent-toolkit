@@ -1,4 +1,4 @@
-/** 飞书问答卡片：cardkit 2.0 静态互动卡（按钮作答 + 取消），presenter 挂 ChannelHandle.questions。 */
+/** 飞书问答卡片：cardkit 2.0 单 form 容器（下拉/勾选/输入 + 统一提交 + 常驻跳过），presenter 挂 ChannelHandle.questions。 */
 import type { FeishuApi } from '../feishu/api.ts'
 import { sliceByBytes } from '../feishu/cards.ts'
 import { withRetry } from '../feishu/reply.ts'
@@ -12,9 +12,6 @@ const CUSTOM_ANSWER_MAX_CHARS = 200
 
 /** plan detail 被预算截断时的去向标注。 */
 const TRUNCATION_NOTICE = '\n\n…（完整计划见会话）'
-
-/** 开放题作答指引（inbound 文本拦截语义）。 */
-const OPEN_ANSWER_HINT = '请直接回复消息作答'
 
 /** 卡片正文预算：maxBytes 减去结构余量（与 approval/流式卡同量级，取 2000 字节结构预留）。 */
 function detailBudget(maxBytes: number): number { return Math.max(0, maxBytes - STRUCTURE_RESERVE_BYTES) }
@@ -34,76 +31,64 @@ function answerLine(answer: { selected: string[]; custom?: string }, maxBytes: n
   return `> 已选：${answer.selected.join('、')}`
 }
 
-/** 单题 markdown：已答转只读；未答渲染 detail（超预算截断并标注）与开放题作答指引。 */
-function questionMarkdown(q: QuestionItemLike, view: QuestionView, maxBytes: number): string {
+/** 单题 markdown：问题 + detail（超预算截断并标注）。form 卡无已答行/开放提示（输入框即作答入口）。 */
+function questionMarkdown(q: QuestionItemLike, maxBytes: number): string {
   const lines = [`**${q.question}**`]
-  const answer = view.answers.get(q.id)
-  if (answer !== undefined) {
-    lines.push(answerLine(answer, maxBytes))
-    return lines.join('\n')
-  }
   if (q.detail !== undefined && q.detail.length > 0) {
     const shown = sliceByBytes(q.detail, detailBudget(maxBytes))
     lines.push(shown === q.detail ? shown : `${shown}${TRUNCATION_NOTICE}`)
   }
-  if (q.options === undefined) lines.push(OPEN_ANSWER_HINT)
   return lines.join('\n')
 }
 
-/** 回调按钮：value 带 kind:'question' 供 dispatcher 路由，其余字段由 QuestionCenter.handleCardAction 消费。 */
-function questionButton(
-  prompt: QuestionPrompt,
-  q: QuestionItemLike,
-  text: string,
-  type: 'primary' | 'danger' | 'default',
-  extra: Record<string, unknown>,
-): Record<string, unknown> {
+/** 单题的表单组件：选项题 = 选择器 + 可选自定义输入；开放题 = 输入框。name 用位置序号（q.id 字符不受控）。 */
+function questionFields(q: QuestionItemLike, index: number): Record<string, unknown>[] {
+  if (q.options === undefined) {
+    return [{ tag: 'input', name: `q${index}`, placeholder: { tag: 'plain_text', content: '请输入回答' }, width: 'fill' }]
+  }
+  const options = q.options.map((o) => ({ text: { tag: 'plain_text', content: o.label }, value: o.label }))
+  const select = q.multiSelect === true
+    ? { tag: 'multi_select_static', name: `q${index}`, placeholder: { tag: 'plain_text', content: '请选择（可多选）' }, width: 'fill', options }
+    : { tag: 'select_static', name: `q${index}`, placeholder: { tag: 'plain_text', content: '请选择' }, width: 'fill', options }
+  return [select, { tag: 'input', name: `q${index}__custom`, placeholder: { tag: 'plain_text', content: '其他（可补充自定义说明）' }, width: 'fill' }]
+}
+
+/** 提交按钮：form 容器底部（form_action_type submit 触发整表回调，value 供 dispatcher 路由）。 */
+function submitButton(prompt: QuestionPrompt): Record<string, unknown> {
   return {
-    tag: 'button',
-    text: { tag: 'plain_text', content: text },
-    type,
-    behaviors: [{ type: 'callback', value: { kind: 'question', key: prompt.key, qid: q.id, ...extra } }],
+    tag: 'column_set',
+    columns: [{
+      tag: 'column', width: 'auto',
+      elements: [{
+        tag: 'button', type: 'primary', text: { tag: 'plain_text', content: '提交' },
+        form_action_type: 'submit', name: 'btn_submit',
+        behaviors: [{ type: 'callback', value: { kind: 'question', key: prompt.key, submit: true } }],
+      }],
+    }],
   }
 }
 
-/** 单题按钮（单选 select / 多选 toggle+confirm）；开放题或已答题返回空数组（不渲染按钮）。
- *  card JSON 2.0 无 action 容器（建卡报 200861），按钮作为 body 直接子元素竖排。 */
-function optionButtons(prompt: QuestionPrompt, q: QuestionItemLike, view: QuestionView): Record<string, unknown>[] {
-  if (q.options === undefined || view.answers.has(q.id)) return []
-  if (q.multiSelect === true) {
-    const toggled = view.toggled.get(q.id) ?? []
-    const buttons = q.options.map((option) => toggled.includes(option.label)
-      ? questionButton(prompt, q, `✅ ${option.label}`, 'primary', { toggle: option.label })
-      : questionButton(prompt, q, option.label, 'default', { toggle: option.label }))
-    buttons.push(questionButton(prompt, q, '确认', 'primary', { confirm: true }))
-    return buttons
-  }
-  return q.options.map((option) => questionButton(prompt, q, option.label, 'primary', { select: option.label }))
-}
-
-/** 整次提问的取消按钮（整卡重渲染不产生客户端状态）。 */
-function cancelButton(prompt: QuestionPrompt): Record<string, unknown> {
+/** 跳过按钮：form 外 body 末尾常驻（form 内按钮必须 submit/reset，无法表达取消语义）。 */
+function skipButton(prompt: QuestionPrompt): Record<string, unknown> {
   return {
-    tag: 'button',
-    text: { tag: 'plain_text', content: '取消本次提问' },
-    type: 'danger',
+    tag: 'button', type: 'danger', text: { tag: 'plain_text', content: '跳过本次提问' },
     behaviors: [{ type: 'callback', value: { kind: 'question', key: prompt.key, cancel: true } }],
   }
 }
 
-/** 进行卡：每题 markdown +（未答有 options → 按钮逐个直排）；末尾取消按钮。 */
-export function buildQuestionCardJson(prompt: QuestionPrompt, view: QuestionView, maxBytes: number): string {
-  const elements: Record<string, unknown>[] = []
-  for (const q of prompt.questions) {
-    elements.push({ tag: 'markdown', content: questionMarkdown(q, view, maxBytes) })
-    elements.push(...optionButtons(prompt, q, view))
-  }
-  elements.push(cancelButton(prompt))
+/** 进行卡：单 form 容器（每题 markdown + 表单组件）+ 底部提交；跳过常驻卡片下方。 */
+export function buildQuestionCardJson(prompt: QuestionPrompt, maxBytes: number): string {
+  const formElements: Record<string, unknown>[] = []
+  prompt.questions.forEach((q, i) => {
+    formElements.push({ tag: 'markdown', content: questionMarkdown(q, maxBytes) })
+    formElements.push(...questionFields(q, i))
+  })
+  formElements.push(submitButton(prompt))
   return JSON.stringify({
     schema: '2.0',
     config: { summary: { content: 'Bot 提问' } },
     header: { title: { tag: 'plain_text', content: '提问' }, template: 'blue' },
-    body: { elements },
+    body: { elements: [{ tag: 'form', name: 'q', elements: formElements }, skipButton(prompt)] },
   })
 }
 
@@ -129,7 +114,7 @@ export function buildQuestionFinalCardJson(
   })
 }
 
-/** 飞书问答能力：present = 建卡 + 发消息；refresh/finalize = replaceCard（sequence 从 1 起，create/send 不占）。 */
+/** 飞书问答能力：present = 建卡 + 发消息；finalize = replaceCard 定格只读（sequence 1，create/send 不占）。 */
 export class FeishuQuestionPresenter implements QuestionPresenter {
   constructor(
     private readonly api: FeishuApi,
@@ -137,27 +122,15 @@ export class FeishuQuestionPresenter implements QuestionPresenter {
     private readonly log: (message: string) => void,
   ) {}
 
-  async present(prompt: QuestionPrompt, view: QuestionView): Promise<QuestionPresentation> {
-    const cardId = await withRetry(() => this.api.createCard(buildQuestionCardJson(prompt, view, this.maxBytes)))
+  async present(prompt: QuestionPrompt): Promise<QuestionPresentation> {
+    const cardId = await withRetry(() => this.api.createCard(buildQuestionCardJson(prompt, this.maxBytes)))
     await withRetry(() => this.api.sendCardMessage(prompt.chatId, cardId))
-    let sequence = 0
-    const replace = async (json: string): Promise<void> => {
-      sequence += 1
-      await withRetry(() => this.api.replaceCard(cardId, json, sequence))
-    }
     return {
-      refresh: async (p, v) => {
-        try {
-          await replace(buildQuestionCardJson(p, v, this.maxBytes))
-        } catch (error) {
-          this.log(`[project-bot] 问答卡片更新失败（card ${cardId}）：${error instanceof Error ? error.message : String(error)}`)
-        }
-      },
       finalize: async (p, v, status) => {
         try {
-          await replace(buildQuestionFinalCardJson(p, v, status, this.maxBytes))
+          await withRetry(() => this.api.replaceCard(cardId, buildQuestionFinalCardJson(p, v, status, this.maxBytes), 1))
         } catch (error) {
-          // 定格失败不吞作答结果：卡片残留按钮但回调侧已 settle（重复点击 toast 已失效）。
+          // 定格失败不吞作答结果：卡片残留可交互但回调侧已 settle（重复提交 toast 已失效）。
           this.log(`[project-bot] 问答卡片定格失败（card ${cardId}）：${error instanceof Error ? error.message : String(error)}`)
         }
       },
