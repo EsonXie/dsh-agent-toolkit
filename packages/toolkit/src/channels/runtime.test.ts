@@ -312,7 +312,7 @@ function questionHarness() {
         questions: {
           present: async (prompt: QuestionPrompt) => {
             presented.push(prompt)
-            return { refresh: async () => undefined, finalize: async () => undefined }
+            return { finalize: async () => undefined }
           },
         },
       }
@@ -347,7 +347,7 @@ test('onCardAction 按 value.kind 路由：question → QuestionCenter，无 kin
   const questionSpy = vi.spyOn(runtime.questions, 'handleCardAction').mockReturnValue(questionAck)
   const approvalSpy = vi.spyOn(runtime.approval, 'handleCardAction').mockReturnValue(approvalAck)
   const action = (value: unknown): CardActionInput => ({ chatId: 'oc_chat1', operatorOpenId: 'ou_initiator', value })
-  expect(ioOf()!.onCardAction!(action({ kind: 'question', key: 'k', qid: 'q1' }))).toEqual(questionAck)
+  expect(ioOf()!.onCardAction!(action({ kind: 'question', key: 'k', submit: true }))).toEqual(questionAck)
   expect(questionSpy).toHaveBeenCalledTimes(1)
   expect(approvalSpy).not.toHaveBeenCalled()
   // 审批卡无 kind 字段（legacy 兼容）：落回 ApprovalCenter
@@ -367,7 +367,8 @@ test('问答集成：渠道 questions presenter 发卡，io.onCardAction(kind:qu
   await vi.waitFor(() => { expect(presented).toHaveLength(1) })
   const ack = ioOf()!.onCardAction!({
     chatId: 'oc_chat1', operatorOpenId: 'ou_initiator',
-    value: { kind: 'question', key: presented[0]!.key, qid: 'q1', select: '继续' },
+    value: { kind: 'question', key: presented[0]!.key, submit: true },
+    formValue: { q0: '继续' },
   })
   expect(ack).toEqual({ toast: '已提交作答' })
   await expect(pending).resolves.toEqual({ answers: [{ id: 'q1', selected: ['继续'] }] })
