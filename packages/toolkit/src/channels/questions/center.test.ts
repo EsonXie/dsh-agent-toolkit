@@ -34,6 +34,7 @@ function snapshot(view: QuestionView): ViewSnapshot {
 function harness(opts: { presentError?: Error; abortDuringPresent?: AbortController } = {}) {
   const sessions = new Map<string, SessionRuntime>()
   const warns: string[] = []
+  const debugEvents: Record<string, unknown>[] = []
   const presented: { prompt: QuestionPrompt; view: ViewSnapshot }[] = []
   const refreshed: { prompt: QuestionPrompt; view: ViewSnapshot }[] = []
   const finalized: { prompt: QuestionPrompt; view: ViewSnapshot; status: string }[] = []
@@ -66,8 +67,9 @@ function harness(opts: { presentError?: Error; abortDuringPresent?: AbortControl
       : undefined,
     (m) => { warns.push(m) },
     () => randomUUID(),
+    (e) => { debugEvents.push(e) },
   )
-  return { sessions, warns, presented, refreshed, finalized, breakCard, center, reply }
+  return { sessions, warns, debugEvents, presented, refreshed, finalized, breakCard, center, reply }
 }
 
 function item(id: string, extra: Partial<QuestionItemLike> = {}): QuestionItemLike {
@@ -323,4 +325,46 @@ test('dispose → 全部 pending 以 ASK_CANCELLED reject，卡片 finalize canc
   await expect(first).rejects.toMatchObject({ name: 'UserQuestionError', code: 'ASK_CANCELLED' })
   await expect(second).rejects.toMatchObject({ name: 'UserQuestionError', code: 'ASK_CANCELLED' })
   await vi.waitFor(() => { expect(finalized.map((f) => f.status)).toEqual(['cancelled', 'cancelled']) })
+})
+
+// 2026-09-17 生产排障：dsh web 不展示插件 warn（日志盲点），fall-through 分支补 debugLog 事件。
+test('debugLog：req.agent 缺席 → question-fallback reason no-agent', async () => {
+  const { debugEvents, center } = harness()
+  expect(await center.handleRequest({ questions: [item('q1')] })).toBeUndefined()
+  expect(debugEvents).toEqual([{ event: 'question-fallback', reason: 'no-agent', qCount: 1 }])
+})
+
+test('debugLog：sessions 未命中 → question-fallback reason session-not-found', async () => {
+  const { debugEvents, center } = harness()
+  expect(await center.handleRequest(ask('s_unknown', [item('q1')]))).toBeUndefined()
+  expect(debugEvents).toEqual([{ event: 'question-fallback', reason: 'session-not-found', sessionId: 's_unknown', qCount: 1 }])
+})
+
+test('debugLog：渠道无 presenter → question-fallback reason no-channel（带 botId）', async () => {
+  const { sessions, debugEvents, center, reply } = harness()
+  sessions.set('s1', fakeRt('s1', reply, 'no-presenter-bot'))
+  expect(await center.handleRequest(ask('s1', [item('q1')]))).toBeUndefined()
+  expect(debugEvents).toEqual([{ event: 'question-fallback', reason: 'no-channel', sessionId: 's1', botId: 'no-presenter-bot', qCount: 1 }])
+})
+
+test('debugLog：发卡失败 → question-fallback reason present-failed（带错误摘要）', async () => {
+  const { sessions, debugEvents, center, reply } = harness({ presentError: new Error('cardkit boom') })
+  sessions.set('s1', fakeRt('s1', reply))
+  expect(await center.handleRequest(ask('s1', [item('q1')]))).toBeUndefined()
+  expect(debugEvents).toEqual([
+    { event: 'question-fallback', reason: 'present-failed', sessionId: 's1', botId: 'reviewer', qCount: 1, error: 'cardkit boom' },
+  ])
+})
+
+test('debugLog：发卡成功 → question-presented（key/sessionId/chatId/qCount）', async () => {
+  const { sessions, presented, debugEvents, center, reply } = harness()
+  sessions.set('s1', fakeRt('s1', reply))
+  const pending = center.handleRequest(ask('s1', [item('q1', { options: [{ label: '红' }] })]))
+  track(pending)
+  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  expect(debugEvents).toEqual([
+    { event: 'question-presented', key: presented[0]!.prompt.key, sessionId: 's1', botId: 'reviewer', chatId: CHAT, qCount: 1 },
+  ])
+  center.dispose()
+  await expect(pending).rejects.toMatchObject({ code: 'ASK_CANCELLED' })
 })

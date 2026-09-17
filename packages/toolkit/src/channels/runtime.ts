@@ -1,4 +1,5 @@
 /** BotRuntime：bot 名册 → 渠道生命周期；聚合 router/inbound/outbound。 */
+import { randomUUID } from 'node:crypto'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { AgentRegistry } from '../agents/registry.ts'
 import { bindingKey, type Binding, type BotRecord } from '../bots/store.ts'
@@ -82,6 +83,8 @@ export class BotRuntime {
         return { presenter, botName: this.deps.bots.get(botId)?.name ?? botId }
       },
       (m) => deps.log.warn(m),
+      randomUUID,
+      deps.debugLog,
     )
   }
 

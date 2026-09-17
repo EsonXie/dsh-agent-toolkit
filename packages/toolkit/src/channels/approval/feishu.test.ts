@@ -11,7 +11,8 @@ test('审批卡 JSON：markdown 正文 + 允许/拒绝按钮，value 编码 key 
   expect(body).toContain('评审')
   expect(body).toContain('write')
   expect(body).toContain('需要写入文件')
-  const buttons = card.body.elements.flatMap((e: { actions?: unknown[] }) => e.actions ?? [])
+  // card JSON 2.0 无 action 容器（200861）：按钮作为 body 直接子元素。
+  const buttons = card.body.elements.filter((e: { tag: string }) => e.tag === 'button')
   expect(buttons).toHaveLength(2)
   expect(buttons[0]).toMatchObject({ tag: 'button', type: 'primary', behaviors: [{ type: 'callback', value: { key: 'k1', decision: 'allow' } }] })
   expect(buttons[1]).toMatchObject({ tag: 'button', type: 'danger', behaviors: [{ type: 'callback', value: { key: 'k1', decision: 'reject' } }] })

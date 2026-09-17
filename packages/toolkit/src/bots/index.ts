@@ -238,8 +238,9 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
   }
 
   // 问答 answerer：prepend 与审批同款；runtime 未启动/非自有会话/发卡失败时 next() 透传（web 浏览器应答）。
+  // debugLog 一并下达：fall-through 的 warn 在 dsh web 不可见，回退原因靠 debugLog 事件分辨。
   if (config.questions) {
-    ctx.on('user-questions/request', createQuestionAnswerer(() => runtime?.questions), { prepend: true })
+    ctx.on('user-questions/request', createQuestionAnswerer(() => runtime?.questions, debugLog), { prepend: true })
   }
 
   // turn 外错误（无 turn/end 兜底）：agent/error → notice 错误摘要 + 释放 inflight（outbound 内去重）。

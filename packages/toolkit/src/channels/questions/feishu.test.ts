@@ -20,7 +20,6 @@ interface ButtonLike {
 interface ElementLike {
   tag: string
   content?: string
-  actions?: ButtonLike[]
 }
 
 interface CardLike {
@@ -38,8 +37,9 @@ function markdowns(card: CardLike): string[] {
   return card.body.elements.filter((e) => e.tag === 'markdown').map((e) => e.content ?? '')
 }
 
+// card JSON 2.0 无 action 容器（200861）：按钮作为 body 直接子元素。
 function buttons(card: CardLike): ButtonLike[] {
-  return card.body.elements.flatMap((e) => e.actions ?? [])
+  return card.body.elements.filter((e): e is ElementLike & ButtonLike => e.tag === 'button')
 }
 
 function values(card: CardLike): Record<string, unknown>[] {
@@ -126,11 +126,11 @@ test('plan-review：detail 渲染进卡片；超 maxBytes 预算截断并标注�
   expect(values(cardOf(smallJson))).toContainEqual({ kind: 'question', key: 'k1', qid: 'q1', select: '批准' })
 })
 
-test('终态卡：无 action 元素；仅问题 + 答案；cancelled 题标「已取消」；header answered→green / cancelled→grey', () => {
+test('终态卡：无按钮元素；仅问题 + 答案；cancelled 题标「已取消」；header answered→green / cancelled→grey', () => {
   const answered = viewOf([['q1', { selected: ['蓝'] }], ['q2', { selected: [], custom: '就这样' }]])
   const green = cardOf(buildQuestionFinalCardJson(promptOf([CHOICE, OPEN]), answered, 'answered', 20_000))
   expect(green.header.template).toBe('green')
-  expect(green.body.elements.some((e) => e.tag === 'action')).toBe(false)
+  expect(green.body.elements.some((e) => e.tag === 'button')).toBe(false)
   expect(JSON.stringify(green)).not.toContain('"button"')
   const md = markdowns(green)
   expect(md).toHaveLength(2)
@@ -138,7 +138,7 @@ test('终态卡：无 action 元素；仅问题 + 答案；cancelled 题标「�
   expect(md[1]).toContain('已答：就这样')
   const grey = cardOf(buildQuestionFinalCardJson(promptOf([CHOICE, OPEN]), viewOf(), 'cancelled', 20_000))
   expect(grey.header.template).toBe('grey')
-  expect(grey.body.elements.some((e) => e.tag === 'action')).toBe(false)
+  expect(grey.body.elements.some((e) => e.tag === 'button')).toBe(false)
   expect(markdowns(grey)[0]).toContain('已取消')
 })
 

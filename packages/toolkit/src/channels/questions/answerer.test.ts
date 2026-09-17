@@ -41,3 +41,23 @@ test('center 抛错（abort）→ 错误上抛，不透传 next', async () => {
   await expect(answerer(REQ, next)).rejects.toMatchObject({ name: 'UserQuestionError', code: 'ASK_ABORTED' })
   expect(next).not.toHaveBeenCalled()
 })
+
+// 2026-09-17 生产排障：fall-through 的 warn 在 dsh web 不可见，补 debugLog 入口事件（answerer 层）。
+test('debug sink：入场即记 question-request（含 centerReady 与 sessionId）', async () => {
+  const events: Record<string, unknown>[] = []
+  const debug = (e: Record<string, unknown>): void => { events.push(e) }
+  const answerer = createQuestionAnswerer(() => fakeCenter(ANSWER), debug)
+  await answerer(REQ, vi.fn(async () => ANSWER))
+  expect(events).toEqual([
+    { event: 'question-request', sessionId: 's1', qCount: 1, centerReady: true },
+  ])
+})
+
+test('debug sink：center 缺席时 centerReady=false（runtime 未启动分支可分辨）', async () => {
+  const events: Record<string, unknown>[] = []
+  const answerer = createQuestionAnswerer(() => undefined, (e) => { events.push(e) })
+  await answerer(REQ, vi.fn(async () => ANSWER))
+  expect(events).toEqual([
+    { event: 'question-request', sessionId: 's1', qCount: 1, centerReady: false },
+  ])
+})

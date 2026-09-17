@@ -1,6 +1,7 @@
 /** 提问中心（渠道无关）：自有 bot 会话的 user-questions ask → 渠道问答卡挂起 → 回调/文本 resolve。
  *  spec: docs/superpowers/specs/2026-09-16-feishu-full-tool-face-design.md §3（仅发起人 / 不超时 / 收齐才 resolve）。 */
 import { randomUUID } from 'node:crypto'
+import type { DebugSink } from '../channel.ts'
 import type { SessionRuntime } from '../ports.ts'
 import type { CardActionAck, CardActionInput } from '../approval/center.ts'
 
@@ -85,6 +86,8 @@ export class QuestionCenter {
     private readonly channelFor: (botId: string) => QuestionChannel | undefined,
     private readonly warn: (message: string) => void,
     private readonly newId: () => string = randomUUID,
+    // 生产排障（2026-09-17）：fall-through 分支的 warn 在 dsh web 不可见，回退原因只能靠 debugLog 分辨。
+    private readonly debug?: DebugSink,
   ) {}
 
   private viewOf(entry: PendingSet): QuestionView {
@@ -120,16 +123,23 @@ export class QuestionCenter {
   }
 
   async handleRequest(req: QuestionRequestLike): Promise<QuestionAnswerLike | undefined> {
-    if (req.agent === undefined) return undefined
+    if (req.agent === undefined) {
+      this.debug?.({ event: 'question-fallback', reason: 'no-agent', qCount: req.questions.length })
+      return undefined
+    }
     const sessionId = String(req.agent.session.id)
     const rt = this.sessions.get(sessionId)
-    if (rt === undefined) return undefined
+    if (rt === undefined) {
+      this.debug?.({ event: 'question-fallback', reason: 'session-not-found', sessionId, qCount: req.questions.length })
+      return undefined
+    }
     // 已取消的 ask 不发卡不回退：直接抛（plan-mode 的 catch 依赖该错误类型翻译「用户取消」）。
     if (req.signal?.aborted === true) {
       throw questionError('ask_user_question was aborted before the user answered', 'ASK_ABORTED')
     }
     const channel = this.channelFor(rt.botId)
     if (channel === undefined) {
+      this.debug?.({ event: 'question-fallback', reason: 'no-channel', sessionId, botId: rt.botId, qCount: req.questions.length })
       this.warn(`[project-bot] bot "${rt.botId}" 的渠道无问答卡能力，回退其他应答通道`)
       return undefined
     }
@@ -141,9 +151,14 @@ export class QuestionCenter {
     try {
       presentation = await channel.presenter.present(prompt, { answers, toggled })
     } catch (error) {
+      this.debug?.({
+        event: 'question-fallback', reason: 'present-failed', sessionId, botId: rt.botId, qCount: req.questions.length,
+        error: error instanceof Error ? error.message : String(error),
+      })
       this.warn(`[project-bot] 问答卡片发送失败，回退其他应答通道：${error instanceof Error ? error.message : String(error)}`)
       return undefined
     }
+    this.debug?.({ event: 'question-presented', key, sessionId, botId: rt.botId, chatId: rt.chatId, qCount: req.questions.length })
     return new Promise<QuestionAnswerLike>((resolve, reject) => {
       const entry: PendingSet = {
         sessionId, prompt, presentation, answers, toggled, signal: req.signal, resolve, reject,

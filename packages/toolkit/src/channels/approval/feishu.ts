@@ -24,7 +24,8 @@ function button(text: string, type: 'primary' | 'danger', key: string, decision:
   }
 }
 
-/** 审批卡（带按钮）；summary 供会话列表/推送预览。 */
+/** 审批卡（带按钮）；summary 供会话列表/推送预览。
+ *  card JSON 2.0 无 action 容器（建卡报 200861），按钮作为 body 直接子元素竖排。 */
 export function buildApprovalCardJson(prompt: ApprovalPrompt): string {
   return JSON.stringify({
     schema: '2.0',
@@ -33,7 +34,8 @@ export function buildApprovalCardJson(prompt: ApprovalPrompt): string {
     body: {
       elements: [
         { tag: 'markdown', content: bodyMarkdown(prompt) },
-        { tag: 'action', actions: [button('允许', 'primary', prompt.key, 'allow'), button('拒绝', 'danger', prompt.key, 'reject')] },
+        button('允许', 'primary', prompt.key, 'allow'),
+        button('拒绝', 'danger', prompt.key, 'reject'),
       ],
     },
   })

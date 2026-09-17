@@ -66,18 +66,19 @@ function questionButton(
   }
 }
 
-/** 单题按钮行（单选 select / 多选 toggle+confirm）；开放题或已答题返回 undefined（不渲染按钮）。 */
-function optionButtons(prompt: QuestionPrompt, q: QuestionItemLike, view: QuestionView): Record<string, unknown> | undefined {
-  if (q.options === undefined || view.answers.has(q.id)) return undefined
+/** 单题按钮（单选 select / 多选 toggle+confirm）；开放题或已答题返回空数组（不渲染按钮）。
+ *  card JSON 2.0 无 action 容器（建卡报 200861），按钮作为 body 直接子元素竖排。 */
+function optionButtons(prompt: QuestionPrompt, q: QuestionItemLike, view: QuestionView): Record<string, unknown>[] {
+  if (q.options === undefined || view.answers.has(q.id)) return []
   if (q.multiSelect === true) {
     const toggled = view.toggled.get(q.id) ?? []
-    const actions = q.options.map((option) => toggled.includes(option.label)
+    const buttons = q.options.map((option) => toggled.includes(option.label)
       ? questionButton(prompt, q, `✅ ${option.label}`, 'primary', { toggle: option.label })
       : questionButton(prompt, q, option.label, 'default', { toggle: option.label }))
-    actions.push(questionButton(prompt, q, '确认', 'primary', { confirm: true }))
-    return { tag: 'action', actions }
+    buttons.push(questionButton(prompt, q, '确认', 'primary', { confirm: true }))
+    return buttons
   }
-  return { tag: 'action', actions: q.options.map((option) => questionButton(prompt, q, option.label, 'primary', { select: option.label })) }
+  return q.options.map((option) => questionButton(prompt, q, option.label, 'primary', { select: option.label }))
 }
 
 /** 整次提问的取消按钮（整卡重渲染不产生客户端状态）。 */
@@ -90,15 +91,14 @@ function cancelButton(prompt: QuestionPrompt): Record<string, unknown> {
   }
 }
 
-/** 进行卡：每题 markdown +（未答有 options → 按钮组）；末尾取消按钮。 */
+/** 进行卡：每题 markdown +（未答有 options → 按钮逐个直排）；末尾取消按钮。 */
 export function buildQuestionCardJson(prompt: QuestionPrompt, view: QuestionView, maxBytes: number): string {
   const elements: Record<string, unknown>[] = []
   for (const q of prompt.questions) {
     elements.push({ tag: 'markdown', content: questionMarkdown(q, view, maxBytes) })
-    const action = optionButtons(prompt, q, view)
-    if (action !== undefined) elements.push(action)
+    elements.push(...optionButtons(prompt, q, view))
   }
-  elements.push({ tag: 'action', actions: [cancelButton(prompt)] })
+  elements.push(cancelButton(prompt))
   return JSON.stringify({
     schema: '2.0',
     config: { summary: { content: 'Bot 提问' } },
