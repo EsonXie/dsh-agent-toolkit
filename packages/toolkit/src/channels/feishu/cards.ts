@@ -11,8 +11,8 @@ export const PENDING_CARD_ID = '__pending__'
 /** 过程区截尾后的头部省略标记。 */
 export const PROCESS_OMITTED = '…（已省略前文）\n'
 
-/** 输出中状态行文案。 */
-const STATUS_STREAMING = '⏳ 输出中…'
+/** 输出中状态行文案（breakCard 关流重放时沿用，保持卡片「仍在进行」语义；见 reply.ts）。 */
+export const STATUS_STREAMING = '⏳ 输出中…'
 
 /** 定格状态行文案。 */
 const STATUS_FINAL: Record<TurnStatus, string> = {

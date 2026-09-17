@@ -3,7 +3,7 @@ import type { ChannelTunables, DebugSink, Disposer, ReplyHandle, TurnSegment, Tu
 import { feishuErrorCode, type FeishuApi } from './api.ts'
 import { preview } from './debug-log.ts'
 import {
-  initialStreamState, PENDING_CARD_ID, STATUS_ELEMENT_ID,
+  buildClosedCardJson, initialStreamState, PENDING_CARD_ID, STATUS_ELEMENT_ID, STATUS_STREAMING,
   planFinalize, planSync, type CardOp, type PlannedOp, type StreamState,
 } from './cards.ts'
 
@@ -90,7 +90,10 @@ export class FeishuReplyHandle implements ReplyHandle {
   }
 
   /**
-   * 定格当前流式卡（纯关流，不追加状态行——那是超长拆卡的「已接续」语义），后续 update 开新卡续写。
+   * 定格当前流式卡并整卡重放，后续 update 开新卡续写。
+   * RULING A（2026-09-16 人工裁定）：关流后发全量重放（同拆卡/定格路径，根治关流时平台打字机存量
+   * 未渲染完），但状态行保持流式文案「⏳ 输出中…」——不追加「已接续」/终态状态行（那是超长拆卡/收尾语义）。
+   * 顺序与 closeCard()/planFinalize 一致：settings 关流 seq+1、replace 重放 seq+2。
    * 问答卡 settle 后调用：旧卡留在问答卡上方，作答后的输出在下方新卡继续打字机。
    * 无卡（turn 尚无产出）/ 已 finalize 时空操作；错误一律经 enqueue 吞掉，绝不向调用方抛。
    */
@@ -103,10 +106,14 @@ export class FeishuReplyHandle implements ReplyHandle {
       this.flush()
     }
     await this.tail
-    const { cardId, seq, tail } = this.state
+    const { cardId, seq, tail, cardSegs } = this.state
     const live = cardId !== null && cardId !== PENDING_CARD_ID
     if (live) {
       this.enqueue(() => withRetry(() => this.api.setCardStreaming(cardId, false, seq + 1)).then(() => undefined))
+      await this.tail
+      // 重放负载须取重置前的已提交内容（cardSegs/segments/tail），与卡片当前直显逐字节一致。
+      const replayJson = buildClosedCardJson(cardSegs, this.segments, tail, STATUS_STREAMING, this.tunables.processMaxBytes)
+      this.enqueue(() => withRetry(() => this.api.replaceCard(cardId, replayJson, seq + 2)).then(() => undefined))
       await this.tail
       this.closedCardId = cardId
     }
