@@ -9,6 +9,12 @@ import { trimRuns, type CronRun, type CronTask } from './store.ts'
 /** 来源段名：声明本会话由定时任务触发（order 20，与渠道 sender 段同位）。 */
 export const TASK_SECTION_NAME = 'dsh-agent-toolkit:schedule:task'
 
+/** cron 执行会话的工具拒绝名单（2026-09-16 人工裁定 B，固定内建、不设 Config 旋钮）：
+ *  执行会话不在 QuestionCenter 的 sessions map，ask_user_question 会落到宿主应答端（web UI / NO_PROVIDER）；
+ *  且问答不超时，会挂住 whenIdle 直到 schedule.runTimeoutMinutes（默认 60）超时失败——直接剔除该工具。
+ *  名字经 setupAgentScope 与真实可见面求交后 warn-drop，宿主无此工具时不会导致建会话失败。 */
+export const CRON_DENIED_TOOLS: readonly string[] = ['ask_user_question']
+
 export function taskSectionText(task: CronTask, triggeredAt: string): string {
   return `本会话由定时任务「${task.name}」（id: ${task.id}）于 ${triggeredAt} 触发。`
 }
@@ -77,11 +83,11 @@ export function createExecutor(deps: ExecutorDeps): Executor {
           deps.warn(`[schedule] 定时任务 "${task.id}" 的角色 "${roleId}" 不存在，降级主 Agent 形态`)
         }
         agentOptions = deps.defaultModel()
-        hooks = { sections: [source] }
+        hooks = { sections: [source], denyTools: CRON_DENIED_TOOLS }
       } else {
         const base = roleHooks(role)
         agentOptions = roleAgentOptions(role, deps.defaultModel)
-        hooks = { ...base, sections: [...(base.sections ?? []), source] }
+        hooks = { ...base, sections: [...(base.sections ?? []), source], denyTools: CRON_DENIED_TOOLS }
       }
 
       let agent

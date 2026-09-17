@@ -87,6 +87,7 @@ describe('executor.trigger', () => {
     expect(calls[0].agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-chat' })
     expect(calls[0].hooks).toEqual({
       sections: [{ name: TASK_SECTION_NAME, order: 20, text: taskSectionText(task({}), new Date(NOW).toISOString()) }],
+      denyTools: ['ask_user_question'],
     })
     expect(vi.mocked(agent.followup)).toHaveBeenCalledTimes(1)
     const message = vi.mocked(agent.followup).mock.calls[0][0]
@@ -113,7 +114,23 @@ describe('executor.trigger', () => {
     await createExecutor(deps).trigger(task({ target: { kind: 'role', roleId: 'explorer' } }))
     expect(calls[0].agentOptions).toEqual({ provider: 'anthropic', model: 'claude-sonnet-4' })
     expect(calls[0].hooks.tools).toEqual(['read'])
+    expect(calls[0].hooks.denyTools).toEqual(['ask_user_question'])
     expect(calls[0].hooks.sections?.map((s) => s.name)).toEqual(['dsh-agent-toolkit:agent:persona', TASK_SECTION_NAME])
+  })
+
+  test('cron 执行会话拒绝 ask_user_question（2026-09-16 裁定 B：无飞书应答端，防不超时挂起阻塞运行）', async () => {
+    const registry: AgentRegistry = {
+      ...EMPTY_REGISTRY,
+      get: (id) => id === 'explorer'
+        ? { id: 'explorer', name: 'Explorer', persona: '你是探索员。', tools: { allow: ['read'] } }
+        : undefined,
+    }
+    const main = makeDeps()
+    await createExecutor(main.deps).trigger(task({}))
+    expect(main.calls[0].hooks.denyTools).toEqual(['ask_user_question'])
+    const role = makeDeps({ registry })
+    await createExecutor(role.deps).trigger(task({ target: { kind: 'role', roleId: 'explorer' } }))
+    expect(role.calls[0].hooks.denyTools).toEqual(['ask_user_question'])
   })
 
   test('role 缺失：降级 main 形态并 warn（同 Router 语义）', async () => {

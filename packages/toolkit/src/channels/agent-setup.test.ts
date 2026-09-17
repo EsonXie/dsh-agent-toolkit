@@ -10,7 +10,10 @@ function fakeAgentCtx(visibleNames: readonly string[] = ['bash', 'read', 'write'
   const ctx = {
     systemPrompt: { section: (input: { name: string; order?: number; text?: string }) => { calls.push(`section:${input.name}:${input.order}:${input.text ?? '-'}`) } },
     tools: {
-      restrict: (input: { allow: readonly string[] }) => { calls.push(`restrict:${input.allow.join(',')}`) },
+      restrict: (input: { allow?: readonly string[]; deny?: readonly string[] }) => {
+        const deny = input.deny !== undefined ? `|deny:${input.deny.join(',')}` : ''
+        calls.push(`restrict:${(input.allow ?? []).join(',')}${deny}`)
+      },
       schemas: () => visibleNames.map((name) => ({ name, description: '', parameters: {} })),
     },
     logger: { warn: (msg: string) => { warns.push(msg) } },
@@ -94,5 +97,33 @@ describe('setupAgentScope', () => {
     await expect(setupAgentScope(ctx, { tools: ['web_search'] }, fakeToolsScope(calls)))
       .rejects.toThrow('求交后为空')
     expect(calls).toEqual(['join']) // 不 restrict
+  })
+
+  test('拒绝名单：与可见面求交后以 restrict({deny}) 生效', async () => {
+    const { ctx, calls, warns } = fakeAgentCtx(['bash', 'ask_user_question'])
+    await setupAgentScope(ctx, { denyTools: ['ask_user_question'] }, fakeToolsScope(calls))
+    expect(calls).toEqual(['join', 'restrict:|deny:ask_user_question'])
+    expect(warns).toEqual([])
+  })
+
+  test('拒绝名单含本会话不可见工具：warn-drop 后不抛错（宿主工具缺席安全）', async () => {
+    const { ctx, calls, warns } = fakeAgentCtx(['bash'])
+    await setupAgentScope(ctx, { denyTools: ['ask_user_question'] }, fakeToolsScope(calls))
+    expect(calls).toEqual(['join'])   // 求交为空 → 不 restrict，绝不向宿主 restrict 抛未知工具
+    expect(warns).toHaveLength(1)
+    expect(warns[0]).toContain('ask_user_question')
+  })
+
+  test('白名单 + 拒绝名单：单次 restrict({allow, deny})', async () => {
+    const { ctx, calls } = fakeAgentCtx(['bash', 'read', 'ask_user_question'])
+    await setupAgentScope(ctx, { tools: ['bash', 'read'], denyTools: ['ask_user_question'] }, fakeToolsScope(calls))
+    expect(calls).toEqual(['join', 'restrict:bash,read|deny:ask_user_question'])
+  })
+
+  test('拒绝名单部分不可见：可见项生效，未知名 warn-drop', async () => {
+    const { ctx, calls, warns } = fakeAgentCtx(['bash', 'ask_user_question'])
+    await setupAgentScope(ctx, { denyTools: ['ask_user_question', 'ghost_tool'] }, fakeToolsScope(calls))
+    expect(calls).toEqual(['join', 'restrict:|deny:ask_user_question'])
+    expect(warns[0]).toContain('ghost_tool')
   })
 })

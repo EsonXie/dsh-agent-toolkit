@@ -1,6 +1,7 @@
 /** agent 创建/恢复的作用域组合：加入作用域组合（preset 或基础工具 standing scope 回退）→ persona/tools 创作期注入。
- *  hooks.tools 先与该会话真实可见面求交（warn-drop 未知名）——同一白名单同时喂委派 toolFilter（父 preset 面）
- *  与 bot 会话（agent-bot 面），求交消除两条路径的有效性不对称。 */
+ *  hooks.tools / hooks.denyTools 先与该会话真实可见面求交（warn-drop 未知名）——同一白名单同时喂委派 toolFilter
+ *  （父 preset 面）与 bot 会话（agent-team 面），求交消除两条路径的有效性不对称，并保证宿主工具缺席时
+ *  restrict 不会因未知工具名抛错（cron 执行会话 deny ask_user_question 的安全前提）。 */
 import type { Context } from '@deepseek-ai/cordis'
 // type-only 激活 dsh-system-prompt / dsh-tools 对 cordis Context 的声明合并（agentCtx.systemPrompt / agentCtx.tools）。
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -34,20 +35,35 @@ export async function setupAgentScope(
       agentCtx.systemPrompt.section({ name: section.name, order: section.order, text: section.text })
     }
   }
-  if (hooks.tools !== undefined) {
+  if (hooks.tools !== undefined || hooks.denyTools !== undefined) {
     // 求交：join 后的 scoped schemas = global + 祖先层（preset standing 或 BASIC_TOOLS
     // fallback standing），正是 restrict 的合法命名空间；未知名 warn-drop 而非抛错，
-    // 使同一角色白名单在委派（父 preset 面）与 bot（agent-bot 面）两条路径都安全。
+    // 使同一角色白名单在委派（父 preset 面）与 bot（agent-team 面）两条路径都安全。
     const visible = new Set(agentCtx.tools.schemas(scopeOf(agentCtx)).map((s) => s.name)
       .filter((n) => n !== RUN_CODE_NAME))
-    const effective = hooks.tools.filter((n) => visible.has(n))
-    const dropped = hooks.tools.filter((n) => !visible.has(n))
-    if (dropped.length > 0) {
-      agentCtx.logger.warn(`dsh-agent-toolkit: 工具白名单含本会话不可见工具，已忽略：${dropped.join(', ')}`)
+    let allow: readonly string[] | undefined
+    if (hooks.tools !== undefined) {
+      allow = hooks.tools.filter((n) => visible.has(n))
+      const dropped = hooks.tools.filter((n) => !visible.has(n))
+      if (dropped.length > 0) {
+        agentCtx.logger.warn(`dsh-agent-toolkit: 工具白名单含本会话不可见工具，已忽略：${dropped.join(', ')}`)
+      }
+      if (allow.length === 0) {
+        throw new Error(`dsh-agent-toolkit: 工具白名单求交后为空（原 ${hooks.tools.length} 个均不可见）：${hooks.tools.join(', ')}`)
+      }
     }
-    if (effective.length === 0) {
-      throw new Error(`dsh-agent-toolkit: 工具白名单求交后为空（原 ${hooks.tools.length} 个均不可见）：${hooks.tools.join(', ')}`)
+    // deny 与 allow 同法求交：restrict 只认宿主已知全局名，未知直接抛；宿主工具缺席（如旧宿主无
+    // ask_user_question）时必须 warn-drop 而非炸掉会话创建（cron 执行会话 deny 的前提）。
+    const deny = hooks.denyTools?.filter((n) => visible.has(n))
+    const droppedDeny = hooks.denyTools?.filter((n) => !visible.has(n)) ?? []
+    if (droppedDeny.length > 0) {
+      agentCtx.logger.warn(`dsh-agent-toolkit: 工具拒绝名单含本会话不可见工具，已忽略：${droppedDeny.join(', ')}`)
     }
-    agentCtx.tools.restrict({ allow: effective })
+    if (allow !== undefined || (deny !== undefined && deny.length > 0)) {
+      agentCtx.tools.restrict({
+        ...(allow !== undefined ? { allow } : {}),
+        ...(deny !== undefined && deny.length > 0 ? { deny } : {}),
+      })
+    }
   }
 }

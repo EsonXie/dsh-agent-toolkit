@@ -23,6 +23,8 @@ export interface AgentSection {
 export interface AgentHooks {
   persona?: string
   tools?: readonly string[]
+  /** 工具拒绝名单（restrict deny；与 tools 白名单可并用）。只接受会话真实可见面内的名字，未知名 warn-drop。 */
+  denyTools?: readonly string[]
   /** 绑定角色时逐层注册的提示段（name = `dsh-agent-toolkit:agent:<layer>`）。 */
   sections?: readonly AgentSection[]
 }
