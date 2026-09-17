@@ -27,10 +27,9 @@ export interface QuestionAnswerLike {
   answers: { id: string; selected: string[]; custom?: string }[]
 }
 
-/** 卡片渲染视图：已答集合 + 多选待确认勾选态（按键 = 问题 id）。 */
+/** 卡片渲染视图：已答集合（按键 = 问题 id）。 */
 export interface QuestionView {
   answers: ReadonlyMap<string, { selected: string[]; custom?: string }>
-  toggled: ReadonlyMap<string, readonly string[]>
 }
 
 /** 发给渠道的问答卡内容。 */
@@ -41,15 +40,14 @@ export interface QuestionPrompt {
   questions: readonly QuestionItemLike[]
 }
 
-/** 一次已展示的问答卡：refresh 重放当前作答态（整卡重渲染）；finalize 定格为只读终态。 */
+/** 一次已展示的问答卡：finalize 定格为只读终态（form 卡无中间态，整卡重放会抹掉用户填写态，故无 refresh）。 */
 export interface QuestionPresentation {
-  refresh(prompt: QuestionPrompt, view: QuestionView): Promise<void>
   finalize(prompt: QuestionPrompt, view: QuestionView, status: 'answered' | 'cancelled'): Promise<void>
 }
 
-/** 渠道侧问答能力：发卡 → 返回渲染/定格句柄。 */
+/** 渠道侧问答能力：发卡 → 返回定格句柄。 */
 export interface QuestionPresenter {
-  present(prompt: QuestionPrompt, view: QuestionView): Promise<QuestionPresentation>
+  present(prompt: QuestionPrompt): Promise<QuestionPresentation>
 }
 
 /** channelFor 的返回：该 bot 的问答能力 + 展示名。 */
@@ -69,7 +67,6 @@ interface PendingSet {
   prompt: QuestionPrompt
   presentation: QuestionPresentation
   answers: Map<string, { selected: string[]; custom?: string }>
-  toggled: Map<string, string[]>
   signal: AbortSignal | undefined
   resolve(answer: QuestionAnswerLike): void
   reject(error: unknown): void
@@ -77,6 +74,18 @@ interface PendingSet {
 }
 
 type AnswerMap = Map<string, { selected: string[]; custom?: string }>
+
+/** 读非空字符串（trim 后为空视为缺席）。 */
+function readText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
+}
+
+/** 读选中列表：string → 单元素；string[] → 过滤非空；其余 → 空。 */
+function readSelected(value: unknown): string[] {
+  if (typeof value === 'string') return value.length > 0 ? [value] : []
+  if (Array.isArray(value)) return value.filter((v): v is string => typeof v === 'string' && v.length > 0)
+  return []
+}
 
 export class QuestionCenter {
   private readonly pending = new Map<string, PendingSet>()
@@ -91,11 +100,32 @@ export class QuestionCenter {
   ) {}
 
   private viewOf(entry: PendingSet): QuestionView {
-    return { answers: entry.answers, toggled: entry.toggled }
+    return { answers: entry.answers }
+  }
+
+  /** 题是否已答：有选中项或非空自定义文本。 */
+  private isAnswered(entry: PendingSet, qid: string): boolean {
+    const answer = entry.answers.get(qid)
+    return answer !== undefined && (answer.selected.length > 0 || (answer.custom !== undefined && answer.custom.trim().length > 0))
   }
 
   private allAnswered(entry: PendingSet): boolean {
-    return entry.prompt.questions.every((q) => entry.answers.has(q.id))
+    return entry.prompt.questions.every((q) => this.isAnswered(entry, q.id))
+  }
+
+  /** form_value 按位置序号聚合覆写 answers；某题 formValue 全空则保留既有答案（文本拦截先行作答）。 */
+  private mergeFormValue(entry: PendingSet, formValue: Record<string, unknown>): void {
+    entry.prompt.questions.forEach((q, i) => {
+      if (q.options === undefined) {
+        const custom = readText(formValue[`q${i}`])
+        if (custom !== undefined) entry.answers.set(q.id, { selected: [], custom })
+        return
+      }
+      const selected = readSelected(formValue[`q${i}`])
+      const custom = readText(formValue[`q${i}__custom`])
+      if (selected.length === 0 && custom === undefined) return
+      entry.answers.set(q.id, { selected, ...(custom !== undefined ? { custom } : {}) })
+    })
   }
 
   /** settle 公共尾：摘 pending → 注销 abort 监听 → 定格卡片（fire-and-forget，失败由 presenter 自告警）→ breakCard 续接输出。 */
@@ -146,10 +176,9 @@ export class QuestionCenter {
     const key = this.newId()
     const prompt: QuestionPrompt = { key, chatId: rt.chatId, botName: channel.botName, questions: req.questions }
     const answers: AnswerMap = new Map()
-    const toggled = new Map<string, string[]>()
     let presentation: QuestionPresentation
     try {
-      presentation = await channel.presenter.present(prompt, { answers, toggled })
+      presentation = await channel.presenter.present(prompt)
     } catch (error) {
       this.debug?.({
         event: 'question-fallback', reason: 'present-failed', sessionId, botId: rt.botId, qCount: req.questions.length,
@@ -161,7 +190,7 @@ export class QuestionCenter {
     this.debug?.({ event: 'question-presented', key, sessionId, botId: rt.botId, chatId: rt.chatId, qCount: req.questions.length })
     return new Promise<QuestionAnswerLike>((resolve, reject) => {
       const entry: PendingSet = {
-        sessionId, prompt, presentation, answers, toggled, signal: req.signal, resolve, reject,
+        sessionId, prompt, presentation, answers, signal: req.signal, resolve, reject,
         onAbort: () => this.settleCancelled(key, entry, 'ASK_ABORTED', 'ask_user_question was aborted before the user answered'),
       }
       this.pending.set(key, entry)
@@ -176,7 +205,7 @@ export class QuestionCenter {
   }
 
   handleCardAction(action: CardActionInput): CardActionAck | undefined {
-    const value = action.value as { kind?: unknown; key?: unknown; qid?: unknown; select?: unknown; toggle?: unknown; confirm?: unknown; cancel?: unknown } | null
+    const value = action.value as { kind?: unknown; key?: unknown; submit?: unknown; cancel?: unknown } | null
     if (value === null || typeof value !== 'object' || value.kind !== 'question' || typeof value.key !== 'string') return undefined
     const entry = this.pending.get(value.key)
     if (entry === undefined) return { toast: '该问题已作答或已失效' }
@@ -184,30 +213,14 @@ export class QuestionCenter {
     if (rt === undefined || rt.initiatorOpenId !== action.operatorOpenId) return { toast: '仅会话发起人可作答' }
     if (value.cancel === true) {
       this.settleCancelled(value.key, entry, 'ASK_CANCELLED', 'The user dismissed the question to speak instead')
-      return { toast: '已取消提问' }
+      return { toast: '已跳过提问' }
     }
-    if (typeof value.qid !== 'string') return undefined
-    const question = entry.prompt.questions.find((q) => q.id === value.qid)
-    if (question === undefined || entry.answers.has(question.id)) return { toast: '该问题已作答或已失效' }
-    if (typeof value.select === 'string') {
-      entry.answers.set(question.id, { selected: [value.select] })
-    } else if (typeof value.toggle === 'string') {
-      const current = entry.toggled.get(question.id) ?? []
-      entry.toggled.set(question.id, current.includes(value.toggle) ? current.filter((l) => l !== value.toggle) : [...current, value.toggle])
-      void entry.presentation.refresh(entry.prompt, this.viewOf(entry)).catch(() => undefined)
-      return {}
-    } else if (value.confirm === true) {
-      entry.answers.set(question.id, { selected: [...(entry.toggled.get(question.id) ?? [])] })
-      entry.toggled.delete(question.id)
-    } else {
-      return undefined
-    }
-    if (this.allAnswered(entry)) {
-      this.settleAnswered(value.key, entry)
-      return { toast: '已提交作答' }
-    }
-    void entry.presentation.refresh(entry.prompt, this.viewOf(entry)).catch(() => undefined)
-    return { toast: '已记录，请继续作答剩余问题' }
+    if (value.submit !== true) return undefined
+    this.mergeFormValue(entry, action.formValue ?? {})
+    const missing = entry.prompt.questions.filter((q) => !this.isAnswered(entry, q.id)).length
+    if (missing > 0) return { toast: `还有 ${missing} 道题未作答` }
+    this.settleAnswered(value.key, entry)
+    return { toast: '已提交作答' }
   }
 
   /** 开放题文本应答：该 chat 最早未完结且含未答开放题的 key 消费此文本（仅发起人）。 */
@@ -219,11 +232,7 @@ export class QuestionCenter {
       const open = entry.prompt.questions.find((q) => q.options === undefined && !entry.answers.has(q.id))
       if (open === undefined) continue
       entry.answers.set(open.id, { selected: [], custom: text })
-      if (this.allAnswered(entry)) {
-        this.settleAnswered(key, entry)
-      } else {
-        void entry.presentation.refresh(entry.prompt, this.viewOf(entry)).catch(() => undefined)
-      }
+      if (this.allAnswered(entry)) this.settleAnswered(key, entry)
       return true
     }
     return false

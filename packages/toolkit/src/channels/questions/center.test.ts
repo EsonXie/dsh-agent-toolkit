@@ -24,19 +24,17 @@ function fakeRt(sessionId: string, reply: ReplyHandle, botId = 'reviewer', initi
 
 interface ViewSnapshot {
   answers: Map<string, { selected: string[]; custom?: string }>
-  toggled: Map<string, readonly string[]>
 }
 
 function snapshot(view: QuestionView): ViewSnapshot {
-  return { answers: new Map(view.answers), toggled: new Map(view.toggled) }
+  return { answers: new Map(view.answers) }
 }
 
 function harness(opts: { presentError?: Error; abortDuringPresent?: AbortController } = {}) {
   const sessions = new Map<string, SessionRuntime>()
   const warns: string[] = []
   const debugEvents: Record<string, unknown>[] = []
-  const presented: { prompt: QuestionPrompt; view: ViewSnapshot }[] = []
-  const refreshed: { prompt: QuestionPrompt; view: ViewSnapshot }[] = []
+  const presented: { prompt: QuestionPrompt }[] = []
   const finalized: { prompt: QuestionPrompt; view: ViewSnapshot; status: string }[] = []
   const breakCard = vi.fn(async () => undefined)
   const reply: ReplyHandle = {
@@ -47,7 +45,6 @@ function harness(opts: { presentError?: Error; abortDuringPresent?: AbortControl
     breakCard,
   }
   const presentation: QuestionPresentation = {
-    refresh: async (prompt, view) => { refreshed.push({ prompt, view: snapshot(view) }) },
     finalize: async (prompt, view, status) => { finalized.push({ prompt, view: snapshot(view), status }) },
   }
   const center = new QuestionCenter(
@@ -56,10 +53,10 @@ function harness(opts: { presentError?: Error; abortDuringPresent?: AbortControl
       ? {
           botName: '评审',
           presenter: {
-            present: async (prompt, view) => {
+            present: async (prompt) => {
               if (opts.presentError !== undefined) throw opts.presentError
               opts.abortDuringPresent?.abort()
-              presented.push({ prompt, view: snapshot(view) })
+              presented.push({ prompt })
               return presentation
             },
           },
@@ -69,7 +66,7 @@ function harness(opts: { presentError?: Error; abortDuringPresent?: AbortControl
     () => randomUUID(),
     (e) => { debugEvents.push(e) },
   )
-  return { sessions, warns, debugEvents, presented, refreshed, finalized, breakCard, center, reply }
+  return { sessions, warns, debugEvents, presented, finalized, breakCard, center, reply }
 }
 
 function item(id: string, extra: Partial<QuestionItemLike> = {}): QuestionItemLike {
@@ -135,77 +132,115 @@ test('发卡失败 → undefined + warn（调用方回退其他应答通道）',
   expect(warns.some((m) => m.includes('cardkit boom'))).toBe(true)
 })
 
-test('单选题点击 → resolve 已选答案、定格 answered、breakCard 续接', async () => {
-  const { sessions, presented, finalized, breakCard, center, reply } = harness()
-  sessions.set('s1', fakeRt('s1', reply))
-  const pending = center.handleRequest(ask('s1', [item('q1', { options: [{ label: '红' }, { label: '蓝' }] })]))
-  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
-  expect(presented[0]!.prompt).toMatchObject({ chatId: CHAT, botName: '评审' })
-  const ack = center.handleCardAction({
-    chatId: CHAT, operatorOpenId: INITIATOR,
-    value: { kind: 'question', key: presented[0]!.prompt.key, qid: 'q1', select: '蓝' },
-  })
-  expect(ack).toEqual({ toast: '已提交作答' })
-  await expect(pending).resolves.toEqual({ answers: [{ id: 'q1', selected: ['蓝'] }] })
-  await vi.waitFor(() => { expect(finalized.map((f) => f.status)).toEqual(['answered']) })
-  expect(finalized[0]!.view.answers.get('q1')).toEqual({ selected: ['蓝'] })
-  expect(breakCard).toHaveBeenCalledTimes(1)
-})
-
-test('多问题：答完第一题不 resolve（refresh 被调），全部收齐才 resolve', async () => {
-  const { sessions, presented, refreshed, center, reply } = harness()
+test('submit：单选+多选+开放+自定义混合，formValue 按位置序号聚合，全齐 resolve', async () => {
+  const { sessions, presented, finalized, center, reply } = harness()
   sessions.set('s1', fakeRt('s1', reply))
   const pending = center.handleRequest(ask('s1', [
     item('q1', { options: [{ label: '红' }, { label: '蓝' }] }),
-    item('q2', { options: [{ label: '是' }, { label: '否' }] }),
+    item('q2', { multiSelect: true, options: [{ label: '甲' }, { label: '乙' }] }),
+    item('q3'),
+    item('q4', { options: [{ label: '对' }, { label: '错' }] }),
+  ]))
+  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  const key = presented[0]!.prompt.key
+  const ack = center.handleCardAction({
+    chatId: CHAT, operatorOpenId: INITIATOR,
+    value: { kind: 'question', key, submit: true },
+    formValue: { q0: '蓝', q1: ['甲', '乙'], q2: '自由回答', q3: '对', 'q3__custom': '补充说明' },
+  })
+  expect(ack).toEqual({ toast: '已提交作答' })
+  await expect(pending).resolves.toEqual({
+    answers: [
+      { id: 'q1', selected: ['蓝'] },
+      { id: 'q2', selected: ['甲', '乙'] },
+      { id: 'q3', selected: [], custom: '自由回答' },
+      { id: 'q4', selected: ['对'], custom: '补充说明' },
+    ],
+  })
+  await vi.waitFor(() => { expect(finalized.map((f) => f.status)).toEqual(['answered']) })
+})
+
+test('submit 缺题：toast 指出未答数，保持 pending 不 resolve', async () => {
+  const { sessions, presented, finalized, center, reply } = harness()
+  sessions.set('s1', fakeRt('s1', reply))
+  const pending = center.handleRequest(ask('s1', [
+    item('q1', { options: [{ label: '红' }] }),
+    item('q2'),
   ]))
   const tracker = track(pending)
   await vi.waitFor(() => { expect(presented).toHaveLength(1) })
   const key = presented[0]!.prompt.key
   expect(center.handleCardAction({
-    chatId: CHAT, operatorOpenId: INITIATOR, value: { kind: 'question', key, qid: 'q1', select: '红' },
-  })).toEqual({ toast: '已记录，请继续作答剩余问题' })
-  await vi.waitFor(() => { expect(refreshed).toHaveLength(1) })
-  expect(refreshed[0]!.view.answers.get('q1')).toEqual({ selected: ['红'] })
+    chatId: CHAT, operatorOpenId: INITIATOR,
+    value: { kind: 'question', key, submit: true },
+    formValue: { q0: '红' },
+  })).toEqual({ toast: '还有 1 道题未作答' })
+  await Promise.resolve()
   expect(tracker.done).toBe(false)
+  expect(finalized).toHaveLength(0)
   expect(center.handleCardAction({
-    chatId: CHAT, operatorOpenId: INITIATOR, value: { kind: 'question', key, qid: 'q2', select: '否' },
+    chatId: CHAT, operatorOpenId: INITIATOR,
+    value: { kind: 'question', key, submit: true },
+    formValue: { q0: '红', q1: '开放作答' },
   })).toEqual({ toast: '已提交作答' })
   await expect(pending).resolves.toEqual({
-    answers: [{ id: 'q1', selected: ['红'] }, { id: 'q2', selected: ['否'] }],
+    answers: [{ id: 'q1', selected: ['红'] }, { id: 'q2', selected: [], custom: '开放作答' }],
   })
 })
 
-test('multi_select：toggle 刷新携带勾选态，confirm 后才记入 answers', async () => {
-  const { sessions, presented, refreshed, center, reply } = harness()
+test('submit 与文本拦截合并：开放题先被 inbound 文本作答，submit 时其余题经 formValue 补齐', async () => {
+  const { sessions, presented, center, reply } = harness()
   sessions.set('s1', fakeRt('s1', reply))
   const pending = center.handleRequest(ask('s1', [
-    item('q1', { multiSelect: true, options: [{ label: '甲' }, { label: '乙' }] }),
+    item('q1', { options: [{ label: '红' }] }),
+    item('q2'),
   ]))
-  const tracker = track(pending)
+  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  const key = presented[0]!.prompt.key
+  expect(center.tryConsumeText('reviewer', CHAT, INITIATOR, '文本作答')).toBe(true)
+  expect(center.handleCardAction({
+    chatId: CHAT, operatorOpenId: INITIATOR,
+    value: { kind: 'question', key, submit: true },
+    formValue: { q0: '红' },
+  })).toEqual({ toast: '已提交作答' })
+  await expect(pending).resolves.toEqual({
+    answers: [{ id: 'q1', selected: ['红'] }, { id: 'q2', selected: [], custom: '文本作答' }],
+  })
+})
+
+test('submit 时 formValue 对某题给空值 → 该题视为未答', async () => {
+  const { sessions, presented, finalized, center, reply } = harness()
+  sessions.set('s1', fakeRt('s1', reply))
+  const pending = center.handleRequest(ask('s1', [item('q1', { options: [{ label: '红' }] })]))
+  track(pending)
   await vi.waitFor(() => { expect(presented).toHaveLength(1) })
   const key = presented[0]!.prompt.key
   expect(center.handleCardAction({
-    chatId: CHAT, operatorOpenId: INITIATOR, value: { kind: 'question', key, qid: 'q1', toggle: '甲' },
-  })).toEqual({})
-  await vi.waitFor(() => { expect(refreshed).toHaveLength(1) })
-  expect(refreshed[0]!.view.toggled.get('q1')).toEqual(['甲'])
-  expect(refreshed[0]!.view.answers.has('q1')).toBe(false)
+    chatId: CHAT, operatorOpenId: INITIATOR,
+    value: { kind: 'question', key, submit: true },
+    formValue: { q0: '' },
+  })).toEqual({ toast: '还有 1 道题未作答' })
   expect(center.handleCardAction({
-    chatId: CHAT, operatorOpenId: INITIATOR, value: { kind: 'question', key, qid: 'q1', toggle: '乙' },
-  })).toEqual({})
-  await vi.waitFor(() => { expect(refreshed).toHaveLength(2) })
-  expect(refreshed[1]!.view.toggled.get('q1')).toEqual(['甲', '乙'])
+    chatId: CHAT, operatorOpenId: INITIATOR,
+    value: { kind: 'question', key, submit: true },
+    formValue: {},
+  })).toEqual({ toast: '还有 1 道题未作答' })
+  await Promise.resolve()
+  expect(finalized).toHaveLength(0)
+})
+
+test('选项题只填自定义（不选选项）→ 视为已答', async () => {
+  const { sessions, presented, center, reply } = harness()
+  sessions.set('s1', fakeRt('s1', reply))
+  const pending = center.handleRequest(ask('s1', [item('q1', { options: [{ label: '红' }] })]))
+  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  const key = presented[0]!.prompt.key
   expect(center.handleCardAction({
-    chatId: CHAT, operatorOpenId: INITIATOR, value: { kind: 'question', key, qid: 'q1', toggle: '甲' },
-  })).toEqual({})
-  await vi.waitFor(() => { expect(refreshed).toHaveLength(3) })
-  expect(refreshed[2]!.view.toggled.get('q1')).toEqual(['乙'])
-  expect(tracker.done).toBe(false)
-  expect(center.handleCardAction({
-    chatId: CHAT, operatorOpenId: INITIATOR, value: { kind: 'question', key, qid: 'q1', confirm: true },
+    chatId: CHAT, operatorOpenId: INITIATOR,
+    value: { kind: 'question', key, submit: true },
+    formValue: { 'q0__custom': '都不是' },
   })).toEqual({ toast: '已提交作答' })
-  await expect(pending).resolves.toEqual({ answers: [{ id: 'q1', selected: ['乙'] }] })
+  await expect(pending).resolves.toEqual({ answers: [{ id: 'q1', selected: [], custom: '都不是' }] })
 })
 
 test('取消按钮 → reject UserQuestionError ASK_CANCELLED 且定格 cancelled', async () => {
@@ -215,9 +250,27 @@ test('取消按钮 → reject UserQuestionError ASK_CANCELLED 且定格 cancelle
   await vi.waitFor(() => { expect(presented).toHaveLength(1) })
   expect(center.handleCardAction({
     chatId: CHAT, operatorOpenId: INITIATOR, value: { kind: 'question', key: presented[0]!.prompt.key, cancel: true },
-  })).toEqual({ toast: '已取消提问' })
+  })).toEqual({ toast: '已跳过提问' })
   await expect(pending).rejects.toMatchObject({ name: 'UserQuestionError', code: 'ASK_CANCELLED' })
   await vi.waitFor(() => { expect(finalized.map((f) => f.status)).toEqual(['cancelled']) })
+})
+
+test('旧版 select/toggle/confirm value 不再识别 → undefined', async () => {
+  const { sessions, presented, center, reply } = harness()
+  sessions.set('s1', fakeRt('s1', reply))
+  const pending = center.handleRequest(ask('s1', [item('q1', { options: [{ label: '红' }] })]))
+  track(pending)
+  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  const key = presented[0]!.prompt.key
+  expect(center.handleCardAction({
+    chatId: CHAT, operatorOpenId: INITIATOR, value: { kind: 'question', key, qid: 'q1', select: '红' },
+  })).toBeUndefined()
+  expect(center.handleCardAction({
+    chatId: CHAT, operatorOpenId: INITIATOR, value: { kind: 'question', key, qid: 'q1', toggle: '红' },
+  })).toBeUndefined()
+  expect(center.handleCardAction({
+    chatId: CHAT, operatorOpenId: INITIATOR, value: { kind: 'question', key, qid: 'q1', confirm: true },
+  })).toBeUndefined()
 })
 
 test('pending 中 signal abort → reject ASK_ABORTED 且定格 cancelled', async () => {
@@ -239,7 +292,9 @@ test('作答 settle 后 signal 再 abort → 不重复 finalize/breakCard，prom
   const tracker = track(pending)
   await vi.waitFor(() => { expect(presented).toHaveLength(1) })
   expect(center.handleCardAction({
-    chatId: CHAT, operatorOpenId: INITIATOR, value: { kind: 'question', key: presented[0]!.prompt.key, qid: 'q1', select: '红' },
+    chatId: CHAT, operatorOpenId: INITIATOR,
+    value: { kind: 'question', key: presented[0]!.prompt.key, submit: true },
+    formValue: { q0: '红' },
   })).toEqual({ toast: '已提交作答' })
   await expect(pending).resolves.toEqual({ answers: [{ id: 'q1', selected: ['红'] }] })
   await vi.waitFor(() => { expect(finalized.map((f) => f.status)).toEqual(['answered']) })
@@ -252,19 +307,19 @@ test('作答 settle 后 signal 再 abort → 不重复 finalize/breakCard，prom
 })
 
 test('非发起人点击 → toast 越权，pending 不动', async () => {
-  const { sessions, presented, refreshed, finalized, center, reply } = harness()
+  const { sessions, presented, finalized, center, reply } = harness()
   sessions.set('s1', fakeRt('s1', reply))
   const pending = center.handleRequest(ask('s1', [item('q1', { options: [{ label: '红' }] })]))
   const tracker = track(pending)
   await vi.waitFor(() => { expect(presented).toHaveLength(1) })
   const ack = center.handleCardAction({
     chatId: CHAT, operatorOpenId: 'ou_someone_else',
-    value: { kind: 'question', key: presented[0]!.prompt.key, qid: 'q1', select: '红' },
+    value: { kind: 'question', key: presented[0]!.prompt.key, submit: true },
+    formValue: { q0: '红' },
   })
   expect(ack).toEqual({ toast: '仅会话发起人可作答' })
   await Promise.resolve()
   expect(tracker.done).toBe(false)
-  expect(refreshed).toHaveLength(0)
   expect(finalized).toHaveLength(0)
   center.dispose()
   await expect(pending).rejects.toMatchObject({ code: 'ASK_CANCELLED' })
@@ -273,7 +328,7 @@ test('非发起人点击 → toast 越权，pending 不动', async () => {
 test('未知 key → toast 已失效', () => {
   const { center } = harness()
   expect(center.handleCardAction({
-    chatId: CHAT, operatorOpenId: INITIATOR, value: { kind: 'question', key: 'gone', qid: 'q1', select: '红' },
+    chatId: CHAT, operatorOpenId: INITIATOR, value: { kind: 'question', key: 'gone', submit: true },
   })).toEqual({ toast: '该问题已作答或已失效' })
 })
 
@@ -286,7 +341,7 @@ test('value 畸形（无 key / kind 非 question）→ undefined 静默忽略', 
 })
 
 test('tryConsumeText：开放题归属该 chat 最早 pending key，仅发起人，答完即 settle', async () => {
-  const { sessions, presented, refreshed, center, reply } = harness()
+  const { sessions, presented, center, reply } = harness()
   // 无 pending → false
   expect(center.tryConsumeText('reviewer', CHAT, INITIATOR, 'hi')).toBe(false)
   // 该 chat 只有带选项的 pending（无开放题）→ false
@@ -305,7 +360,6 @@ test('tryConsumeText：开放题归属该 chat 最早 pending key，仅发起人
   expect(pickTracker.done).toBe(false)
   expect(center.tryConsumeText('reviewer', CHAT, INITIATOR, '第一个答案')).toBe(true)
   await expect(first).resolves.toEqual({ answers: [{ id: 'q_open1', selected: [], custom: '第一个答案' }] })
-  await vi.waitFor(() => { expect(refreshed).toHaveLength(0) })
   expect(center.tryConsumeText('reviewer', CHAT, INITIATOR, '第二个答案')).toBe(true)
   await expect(second).resolves.toEqual({ answers: [{ id: 'q_open2', selected: [], custom: '第二个答案' }] })
   // 全部收齐后（剩余 options-only pending 无开放题）→ false
