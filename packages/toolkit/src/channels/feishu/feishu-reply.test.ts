@@ -514,13 +514,13 @@ describe('ReplyHandle.breakCard', () => {
     inner.state = state
   }
 
-  test('有活卡：关流 + 整卡重放（状态行保持「输出中…」），后续输出建新卡只含 break 之后的段', async () => {
+  test('有活卡：关流 + 整卡重放（状态行定格「已暂停」），后续输出建新卡只含 break 之后的段', async () => {
     const { api, calls } = fakeApi()
     const { reply } = make(api)
     await reply.update([{ kind: 'text', content: '结论' }])
     await vi.advanceTimersByTimeAsync(500)
     await reply.breakCard()
-    // 旧卡：关流（settings streaming:false）后整卡重放（RULING A），不追加状态行 update（状态行保持流式文案）
+    // 旧卡：关流（settings streaming:false）后整卡重放（中途定格状态行，不残留「输出中」）
     expect(calls.map((c) => c.op)).toEqual(['createCard', 'sendCardMessage', 'insertElement', 'setCardStreaming', 'replaceCard'])
     expect(calls[3].args).toEqual(['card_1', false, 2])   // insert 占 seq 1 → 关流 seq+1
     const replace = calls[4]
@@ -532,7 +532,7 @@ describe('ReplyHandle.breakCard', () => {
     }
     expect(replayed.config.streaming_mode).toBe(false)
     expect(replayed.body.elements[0]).toMatchObject({ content: '结论', element_id: 'seg_1' })
-    expect(replayed.body.elements.at(-1)).toMatchObject({ content: '⏳ 输出中…', element_id: 'status' })
+    expect(replayed.body.elements.at(-1)).toMatchObject({ content: '⏸ 已暂停，后续输出见下方新卡片', element_id: 'status' })
     // 流完整性不变量：关流次数 === 整卡重放次数（breakCard 同步入列）
     expect(calls.filter((c) => c.op === 'replaceCard')).toHaveLength(
       calls.filter((c) => c.op === 'setCardStreaming' && c.args[1] === false).length,
@@ -600,7 +600,7 @@ describe('ReplyHandle.breakCard', () => {
     expect(calls[1].args[2]).toBe(4)
     const seeded = JSON.parse(String(calls[1].args[1])) as { body: { elements: { content: string }[] } }
     expect(seeded.body.elements[0]!.content).toBe('第一段')   // 重放取 tail.shownText：未打完部分不在旧卡
-    expect(seeded.body.elements.at(-1)!.content).toBe('⏳ 输出中…')
+    expect(seeded.body.elements.at(-1)!.content).toBe('⏸ 已暂停，后续输出见下方新卡片')
     await reply.update([{ kind: 'text', content: '第一段第二段第三段' }])
     await vi.advanceTimersByTimeAsync(500)
     const inserts = calls.filter((c) => c.op === 'insertElement')

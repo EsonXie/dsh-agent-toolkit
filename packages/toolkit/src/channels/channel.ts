@@ -22,7 +22,7 @@ export interface ReplyHandle {
   notice(text: string): Promise<void>
   /** 发送文件消息（可选能力；渠道不支持时缺省，由核心降级提示）。错误向调用方传播。 */
   sendFile?(name: string, data: Uint8Array): Promise<void>
-  /** 定格当前流式卡（关流 + 整卡重放，状态行保持「⏳ 输出中…」、不追加终态行），后续 update 开新卡续写；无卡/已 finalize 时空操作。问答卡 settle 后调用。 */
+  /** 定格当前流式卡（关流 + 整卡重放，状态行定格「⏸ 已暂停，后续输出见下方新卡片」），后续 update 开新卡续写；无卡/已 finalize 时空操作。问答卡 settle 后调用。 */
   breakCard?(): Promise<void>
 }
 
