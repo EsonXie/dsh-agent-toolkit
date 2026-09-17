@@ -111,6 +111,43 @@ describe('disableSubagentRows', () => {
   })
 })
 
+describe('agent-team 工具面守护（2026-09-16：bot 会话含 ask_user_question）', () => {
+  test('disableSubagentRows 不误伤 tool-ask-user 行——生成 composition 保留 ask_user_question 面', () => {
+    // 镜像宿主 shipped standard 的两个关键行：待收窄的 subagent 族 + 必须保留的 ask-user 行。
+    const source = [
+      '# demo composition',
+      '- id: tool-ask-user',
+      "  name: '@deepseek-ai/dsh-tool-ask-user'",
+      '',
+      '- id: delegation',
+      '  name: cordis:group',
+      '  group: true',
+      '  config:',
+      '    - id: tool-subagent',
+      "      name: '@deepseek-ai/dsh-tool-subagent'",
+      '',
+      '    - id: tool-subagent-fork',
+      "      name: '@deepseek-ai/dsh-tool-subagent'",
+      '',
+      '    - id: tool-subagent-control',
+      "      name: '@deepseek-ai/dsh-tool-subagent-control'",
+      '',
+      '    - id: tool-subagent-list-agents',
+      "      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'",
+      '',
+    ].join('\n')
+    const warn = vi.fn()
+    const result = disableSubagentRows(source, warn)
+    expect(warn).not.toHaveBeenCalled()
+    // ask-user 行逐字节保留，且块内没有被插入 disabled（bot 会话工具面仍含 ask_user_question）。
+    expect(result).toContain("- id: tool-ask-user\n  name: '@deepseek-ai/dsh-tool-ask-user'")
+    const askUserBlock = result.slice(result.indexOf('- id: tool-ask-user'), result.indexOf('- id: delegation'))
+    expect(askUserBlock).not.toContain('disabled')
+    // 收窄只针对 subagent 族。
+    expect(result).toContain("    - id: tool-subagent\n      disabled: true")
+  })
+})
+
 describe('setupAgentTeamPreset', () => {
   const CONFIG: AgentTeamPresetConfig = {
     enabled: true,
