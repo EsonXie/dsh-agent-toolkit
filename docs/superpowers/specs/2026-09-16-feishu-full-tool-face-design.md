@@ -1,6 +1,6 @@
 # 飞书 bot 会话工具面对齐 web 端 — 设计
 
-> 状态：待实施。本文是实施期权威设计；完成并发布后移入 `specs/archive/`，现行事实并入 `docs/domains/{agents,feishu,delegation}.md`。
+> 状态：已实施。本文是实施期权威设计；完成并发布后移入 `specs/archive/`，现行事实并入 `docs/domains/{agents,feishu,delegation}.md`。
 
 ## 背景与目标
 
@@ -49,7 +49,7 @@
 ### 3.2 QuestionCenter（渠道无关核心）
 
 - `pending: Map<key, PendingQuestionSet>`：一次 `ask`（可含多问题）挂起为一个 key；**全部问题收齐才 resolve `answers[]`**。
-- abort / 会话终结 / dispose → 以 `UserQuestionError`（ASK_CANCELLED 语义）reject——plan-mode 的 catch 依赖该错误类型把「用户取消评审」翻译成「留在计划模式等消息」，不得返回普通值。
+- abort / 会话终结 / dispose → 以 `UserQuestionError` reject——signal abort → `ASK_ABORTED`（宿主与 plan-mode 消费者依赖），显式取消 / 会话终结 / dispose → `ASK_CANCELLED`；plan-mode 的 catch 依赖该错误类型把「用户取消评审」翻译成「留在计划模式等消息」，不得返回普通值。
 - **仅发起人可答**（`initiatorOpenId` 比对，按钮与文本答案同规则）。
 - 并发：多 key 并存（同审批）；**文本应答**只归属该 chat 最早未完结且含开放问题的 key。
 - 不超时（与审批一致）。

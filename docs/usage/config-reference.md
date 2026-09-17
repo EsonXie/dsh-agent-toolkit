@@ -79,7 +79,6 @@ Agent 团队 preset 自动生成（见 [agent-team-preset.md](agent-team-preset.
 | `agentTeamPreset.source` | string | `standard` | 派生源 preset id，读其 composition 做文本级派生 |
 | `agentTeamPreset.name` | string | `Agent 团队` | preset.yml 的显示名（roster 显示） |
 | `agentTeamPreset.description` | string | `Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色` | preset.yml 的描述 |
-| `agentTeamPreset.botsId` | string | `agent-bot` | 飞书 bot 会话挂载的最小 preset id（内容 = 基础工具 5 行，从 `BASIC_TOOLS` 序列化）。`enabled: false` 时不挂（bot 直接走基础工具 standing scope）；非法 id 时启动跳过生成，bot 会话挂载失败走 warn 回退 |
 
 ## `schedule.*` 字段
 

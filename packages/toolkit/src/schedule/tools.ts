@@ -1,4 +1,4 @@
-/** cron_* 模型工具：注册在主 Agent scope（不进 subagent/插件自有会话）+ 宿主 schedule 互斥探测。 */
+/** cron_* 模型工具：注册在主 Agent scope（不进 subagent/cron 执行会话）+ 宿主 schedule 互斥探测。 */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
