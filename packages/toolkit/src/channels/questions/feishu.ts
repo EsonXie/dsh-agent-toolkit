@@ -44,16 +44,24 @@ function questionMarkdown(q: QuestionItemLike, maxBytes: number): string {
   return lines.join('\n')
 }
 
-/** 单题的表单组件：选项题 = 选择器 + 可选自定义输入；开放题 = 输入框。name 用位置序号（q.id 字符不受控）。 */
+/** 单题的表单组件：单选 = 下拉 + 可选自定义输入；多选 = 每选项一行 checker + 可选自定义输入；开放题 = 输入框。name 用位置序号（q.id 字符不受控）。 */
 function questionFields(q: QuestionItemLike, index: number): Record<string, unknown>[] {
   if (q.options === undefined) {
     return [{ tag: 'input', name: `q${index}`, placeholder: { tag: 'plain_text', content: '请输入回答' }, width: 'fill' }]
   }
+  const custom = { tag: 'input', name: `q${index}__custom`, placeholder: { tag: 'plain_text', content: '其他（可补充自定义说明）' }, width: 'fill' }
+  if (q.multiSelect === true) {
+    // checkbox 平铺（2026-09-17 验收裁定：选项全部可见；飞书卡片 2.0 无复选框组组件，逐行 checker 代替）。
+    // checker 在 form 内不挂 behaviors（勾选仅本地，提交时 form_value[name] 回传布尔）；value 供客户端交互组件校验（缺省报 200340）。
+    const checkers = q.options.map((o, j) => ({
+      tag: 'checker', name: `q${index}__opt${j}`, checked: false,
+      text: { tag: 'plain_text', content: o.label }, value: { option: o.label },
+    }))
+    return [...checkers, custom]
+  }
   const options = q.options.map((o) => ({ text: { tag: 'plain_text', content: o.label }, value: o.label }))
-  const select = q.multiSelect === true
-    ? { tag: 'multi_select_static', name: `q${index}`, placeholder: { tag: 'plain_text', content: '请选择（可多选）' }, width: 'fill', options }
-    : { tag: 'select_static', name: `q${index}`, placeholder: { tag: 'plain_text', content: '请选择' }, width: 'fill', options }
-  return [select, { tag: 'input', name: `q${index}__custom`, placeholder: { tag: 'plain_text', content: '其他（可补充自定义说明）' }, width: 'fill' }]
+  const select = { tag: 'select_static', name: `q${index}`, placeholder: { tag: 'plain_text', content: '请选择' }, width: 'fill', options }
+  return [select, custom]
 }
 
 /** 提交按钮：form 容器底部（form_action_type submit 触发整表回调，value 供 dispatcher 路由）。 */

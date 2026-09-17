@@ -146,7 +146,7 @@ test('submit：单选+多选+开放+自定义混合，formValue 按位置序号�
   const ack = center.handleCardAction({
     chatId: CHAT, operatorOpenId: INITIATOR,
     value: { kind: 'question', key, submit: true },
-    formValue: { q0: '蓝', q1: ['甲', '乙'], q2: '自由回答', q3: '对', 'q3__custom': '补充说明' },
+    formValue: { q0: '蓝', 'q1__opt0': true, 'q1__opt1': 'true', q2: '自由回答', q3: '对', 'q3__custom': '补充说明' },
   })
   expect(ack).toEqual({ toast: '已提交作答' })
   await expect(pending).resolves.toEqual({

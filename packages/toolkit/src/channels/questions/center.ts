@@ -121,7 +121,10 @@ export class QuestionCenter {
         if (custom !== undefined) entry.answers.set(q.id, { selected: [], custom })
         return
       }
-      const selected = readSelected(formValue[`q${i}`])
+      const selected = q.multiSelect === true
+        // 多选 checker 行：form_value 按 q{i}__opt{j} 回传布尔（true / 'true' 均视为勾选）。
+        ? q.options.filter((_, j) => { const v = formValue[`q${i}__opt${j}`]; return v === true || v === 'true' }).map((o) => o.label)
+        : readSelected(formValue[`q${i}`])
       const custom = readText(formValue[`q${i}__custom`])
       if (selected.length === 0 && custom === undefined) return
       entry.answers.set(q.id, { selected, ...(custom !== undefined ? { custom } : {}) })

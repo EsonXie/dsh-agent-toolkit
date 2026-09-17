@@ -53,7 +53,7 @@ function markdowns(card: CardLike): string[] {
   return source.filter((e) => e.tag === 'markdown').map((e) => e.content ?? '')
 }
 
-const FIELD_TAGS = new Set(['select_static', 'multi_select_static', 'input'])
+const FIELD_TAGS = new Set(['select_static', 'checker', 'input'])
 
 /** form 内交互组件（选择器/输入框）序列。 */
 function fields(card: CardLike): ElementLike[] {
@@ -95,11 +95,11 @@ test('进行卡：单 form 容器；每题 markdown + 对应组件；提交按�
   expect(JSON.stringify(card)).not.toContain('"action"')
   const form = formOf(card)
   expect(form.name).toBe('q')
-  // 组件序列：select_static + input、multi_select_static + input、input（开放）
+  // 组件序列：select_static + input、checker × 选项数 + input、input（开放）
   const elements = fields(card)
   expect(elements.map((f) => [f.tag, f.name])).toEqual([
     ['select_static', 'q0'], ['input', 'q0__custom'],
-    ['multi_select_static', 'q1'], ['input', 'q1__custom'],
+    ['checker', 'q1__opt0'], ['checker', 'q1__opt1'], ['input', 'q1__custom'],
     ['input', 'q2'],
   ])
   // 选项 value = label（form_value 直接回传 label）
@@ -108,6 +108,11 @@ test('进行卡：单 form 容器；每题 markdown + 对应组件；提交按�
     { text: { tag: 'plain_text', content: '红' }, value: '红' },
     { text: { tag: 'plain_text', content: '蓝' }, value: '蓝' },
   ])
+  // 多选 checker 行：每选项一行、初始未勾、value 带 option（飞书客户端交互组件校验 200340 需要 value）
+  expect(elements[2]).toEqual({
+    tag: 'checker', name: 'q1__opt0', checked: false,
+    text: { tag: 'plain_text', content: '甲' }, value: { option: '甲' },
+  })
   // form 内组件不带 required / behaviors
   for (const f of elements) {
     expect(f).not.toHaveProperty('required')
@@ -228,7 +233,7 @@ test('卡片提交按钮 value 与 QuestionCenter.handleCardAction 对接：form
     chatId: 'oc_chat1',
     operatorOpenId: 'ou_initiator',
     value: submitValue,
-    formValue: { q0: '红', q1: ['甲'] },
+    formValue: { q0: '红', 'q1__opt0': true },
   })
   expect(ack).toEqual({ toast: '已提交作答' })
   await expect(pending).resolves.toMatchObject({ answers: expect.any(Array) })
