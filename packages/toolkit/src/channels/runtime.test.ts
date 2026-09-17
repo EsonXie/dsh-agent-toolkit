@@ -373,6 +373,24 @@ test('问答集成：渠道 questions presenter 发卡，io.onCardAction(kind:qu
   await expect(pending).resolves.toEqual({ answers: [{ id: 'q1', selected: ['继续'] }] })
 })
 
+test('问答集成：发起人下一条纯文本经 inbound 拦截直接作答，不触发新 turn', async () => {
+  const { runtime, fakeReply, presented } = questionHarness()
+  await runtime.startAll()
+  const rt = await runtime.router.ensure(BOT, 'oc_chat1', fakeReply, 'ou_initiator')
+  const pending = runtime.questions.handleRequest({
+    agent: { session: { id: rt.sessionId } },
+    questions: [{ id: 'q1', question: '你的想法？' }],
+  })
+  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  const ensureSpy = vi.spyOn(runtime.router, 'ensure')
+  runtime.inbound.onMessage({
+    botId: 'reviewer', chatId: 'oc_chat1', userId: 'ou_initiator', messageId: 'om_ans', text: '我的想法是这样',
+    reply: fakeReply, ackProcessing: async () => () => undefined,
+  })
+  await expect(pending).resolves.toEqual({ answers: [{ id: 'q1', selected: [], custom: '我的想法是这样' }] })
+  expect(ensureSpy).not.toHaveBeenCalled()
+})
+
 test('stopAll 兜底 dispose：挂起问答 settle cancelled 且 questions.dispose 被调用', async () => {
   const { runtime, fakeReply, presented } = questionHarness()
   await runtime.startAll()

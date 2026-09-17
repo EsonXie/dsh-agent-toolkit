@@ -25,6 +25,8 @@ export interface InboundDeps {
   attachments?: () => AttachmentsPort | undefined
   /** 可选：候选会话目录的惰性取用器（attachments 同款"消息时解析"）；缺席 = /sessions、/switch 降级文案。 */
   catalog?: () => SessionCatalogPort | undefined
+  /** 可选：开放题文本作答消费器（发起人纯文本作为 pending 问答答案）；返回 true = 已消费、不触发新 turn。 */
+  consumeAnswer?: (botId: string, chatId: string, userId: string, text: string) => boolean
   onError(message: string): void
 }
 
@@ -122,6 +124,13 @@ export class Inbound {
     }
     if (directive?.name === 'switch') {
       await this.switchSession(bot, msg, directive.arg)
+      return
+    }
+
+    // 开放题作答拦截：该 chat 有 pending 问答且为发起人纯文本 → 作为答案消费，
+    // 不进队列、不触发新 turn（拦截点必须在排队逻辑之前）。
+    if (msg.loadImages === undefined && msg.text.length > 0
+      && this.deps.consumeAnswer?.(msg.botId, msg.chatId, msg.userId, msg.text) === true) {
       return
     }
 

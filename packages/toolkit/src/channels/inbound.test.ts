@@ -33,6 +33,7 @@ function harness(opts: {
   catalog?: () => SessionCatalogPort | undefined
   followupThrowsOn?: string
   extraBots?: BotRecord[]
+  consumeAnswer?: InboundDeps['consumeAnswer']
 } = {}) {
   const rec: Recorded = { notices: [], acked: 0, followups: [], cancels: 0, hookInputs: [] }
   const bot: BotRecord = { ...BOT, ...(opts.project !== undefined ? { project: opts.project } : {}) }
@@ -73,6 +74,7 @@ function harness(opts: {
     docMaxBytes: 1024 * 1024,
     ...(opts.attachments !== undefined ? { attachments: opts.attachments } : {}),
     ...(opts.catalog !== undefined ? { catalog: opts.catalog } : {}),
+    ...(opts.consumeAnswer !== undefined ? { consumeAnswer: opts.consumeAnswer } : {}),
     onError: () => undefined,
   })
   function msg(text: string, chatId = 'oc_1', loadImages?: InboundMessage['loadImages'], reply?: ReplyHandle, ackProcessing?: InboundMessage['ackProcessing']): InboundMessage {
@@ -546,6 +548,64 @@ test('/switch 目标写句柄被占用（web 界面打开中）：占用提示�
   inbound.onMessage(msg('/switch aaaa1111'))
   await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('正被占用'))).toBe(true) })
   expect(router.boundSessionId('reviewer', 'oc_1')).toBe(before)
+})
+
+describe('开放题文本拦截（consumeAnswer）', () => {
+  test('发起人纯文本被消费为答案：不建/复用会话、不排队、不 followup、无 notice/ack', async () => {
+    const calls: unknown[][] = []
+    const { rec, inbound, sessions, router, msg } = harness({
+      consumeAnswer: (...args) => { calls.push(args); return true },
+    })
+    const ensureSpy = vi.spyOn(router, 'ensure')
+    inbound.onMessage(msg('这就是我的答案'))
+    await vi.waitFor(() => { expect(calls).toHaveLength(1) })
+    expect(calls[0]).toEqual(['reviewer', 'oc_1', 'ou_u1', '这就是我的答案'])
+    expect(ensureSpy).not.toHaveBeenCalled()
+    expect(sessions.size).toBe(0)
+    expect(rec.followups).toHaveLength(0)
+    expect(rec.acked).toBe(0)
+    expect(rec.notices).toHaveLength(0)
+  })
+
+  test('consumeAnswer 返回 false（非发起人/无 pending 开放题）：走正常流程建会话', async () => {
+    const { rec, inbound, sessions, msg } = harness({ consumeAnswer: () => false })
+    inbound.onMessage(msg('普通消息'))
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+    expect(sessions.size).toBe(1)
+  })
+
+  test('带图片消息不拦截：consumeAnswer 不被调用，图片照常落库', async () => {
+    const consumer = vi.fn(() => true)
+    const { rec, inbound, msg } = harness({
+      consumeAnswer: consumer,
+      attachments: () => ({
+        saveImages: async (inputs) => inputs.map((_i, index) => ({
+          attachmentId: `att_${index}` as ImageAttachmentRef['attachmentId'], mediaType: 'image/png', bytes: 1, width: 1, height: 1,
+        })),
+      }),
+    })
+    inbound.onMessage(msg('看图', 'oc_1', async () => [{ data: new Uint8Array([1]), mediaType: 'image/png' }]))
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+    expect(consumer).not.toHaveBeenCalled()
+    const content = rec.followups[0].content as { type: string }[]
+    expect(content.map((b) => b.type)).toEqual(['text', 'image'])
+  })
+
+  test('指令优先于拦截：pending 中 /stop 仍走指令分支，consumeAnswer 不被调用', async () => {
+    const consumer = vi.fn(() => true)
+    const { rec, inbound, msg } = harness({ consumeAnswer: consumer })
+    inbound.onMessage(msg('/stop'))
+    await vi.waitFor(() => { expect(rec.notices).toContain('当前没有进行中的任务') })
+    expect(consumer).not.toHaveBeenCalled()
+    expect(rec.followups).toHaveLength(0)
+  })
+
+  test('deps 未传 consumeAnswer：行为与现状一致（正常建会话）', async () => {
+    const { rec, inbound, sessions, msg } = harness()
+    inbound.onMessage(msg('普通消息'))
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+    expect(sessions.size).toBe(1)
+  })
 })
 
 describe('/doc 指令', () => {
