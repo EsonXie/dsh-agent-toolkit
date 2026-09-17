@@ -15,6 +15,8 @@ import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 // Side-effect type import: declaration-merges the `approval/request` waterfall event
 // answered below（照 host api-proxy.ts L87-90 同款；type-only，bundle 期擦除无运行时依赖）。
 import type {} from '@deepseek-ai/dsh-user-approval'
+// type-only：激活 user-questions/request waterfall 的声明合并（approval/request 同款先例）。
+import type {} from '@deepseek-ai/dsh-user-questions'
 // type-only：激活 permissionPresets 服务在 Context 上的声明合并（ctx.get 可选服务读取）。
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import type { AgentRegistry } from '../agents/registry.ts'
@@ -32,6 +34,7 @@ import { BotRuntime } from '../channels/runtime.ts'
 import { createScopeJoiner, type ScopeJoiner } from '../channels/scope-joiner.ts'
 import { createToolsScope } from '../channels/tool-scope.ts'
 import { createApprovalAnswerer } from '../channels/approval/answerer.ts'
+import { createQuestionAnswerer } from '../channels/questions/answerer.ts'
 import { createPresetApplier } from './permission-preset.ts'
 import { createApiHandler } from './api.ts'
 import { RegisterAppService } from './register-app.ts'
@@ -57,6 +60,8 @@ export interface BotsModuleConfig {
   injectSender: boolean
   /** 飞书审批卡片：bot 会话的工具提权申请改由飞书卡片审批（仅会话发起人可点）。 */
   approval: boolean
+  /** 飞书问答卡：bot 会话的 ask_user_question / plan 评审改由飞书卡片作答（仅会话发起人可答）。 */
+  questions: boolean
   /** bot 会话建账即应用的宿主权限预设名（缺省维持宿主默认；danger-full-access 风险见 Config 注释）。 */
   permissionPreset?: string
   /** /doc 发送文件的大小上限（字节）。 */
@@ -230,6 +235,11 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
   // runtime 未启动/非自有会话/发卡失败时 createApprovalAnswerer 内部 next() 透传，行为回到现状。
   if (config.approval) {
     ctx.on('approval/request', createApprovalAnswerer(() => runtime?.approval), { prepend: true })
+  }
+
+  // 问答 answerer：prepend 与审批同款；runtime 未启动/非自有会话/发卡失败时 next() 透传（web 浏览器应答）。
+  if (config.questions) {
+    ctx.on('user-questions/request', createQuestionAnswerer(() => runtime?.questions), { prepend: true })
   }
 
   // turn 外错误（无 turn/end 兜底）：agent/error → notice 错误摘要 + 释放 inflight（outbound 内去重）。

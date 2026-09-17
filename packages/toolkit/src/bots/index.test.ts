@@ -3,6 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { setupBots, type BotsModuleConfig } from './index.ts'
 import type { AgentRegistry } from '../agents/registry.ts'
 import type { ApprovalOutcome, ApprovalRequestLike } from '../channels/approval/center.ts'
+import type { QuestionAnswerLike, QuestionRequestLike } from '../channels/questions/center.ts'
 import { createAgentsPort } from '../channels/agents-port.ts'
 
 vi.mock('../channels/agents-port.ts', async (importOriginal) => {
@@ -12,7 +13,7 @@ vi.mock('../channels/agents-port.ts', async (importOriginal) => {
 
 beforeEach(() => vi.mocked(createAgentsPort).mockClear())
 
-function makeConfig(approval: boolean): BotsModuleConfig {
+function makeConfig(approval: boolean, questions = true): BotsModuleConfig {
   return {
     cardUpdateThrottleMs: 500,
     cardMaxBytes: 28000,
@@ -23,6 +24,7 @@ function makeConfig(approval: boolean): BotsModuleConfig {
     errorDetailMaxChars: 500,
     injectSender: true,
     approval,
+    questions,
     docMaxBytes: 0,
     debugLog: false,
     debugLogDir: '',
@@ -61,10 +63,14 @@ function makeCtx(permissionPresets?: unknown): { ctx: Context; on: ReturnType<ty
   return { ctx, on }
 }
 
-function approvalRegistrations(on: ReturnType<typeof vi.fn>): { handler: unknown; options: unknown }[] {
+function registrationsOf(on: ReturnType<typeof vi.fn>, event: string): { handler: unknown; options: unknown }[] {
   return on.mock.calls
-    .filter(([event]) => event === 'approval/request')
+    .filter(([name]) => name === event)
     .map(([, handler, options]) => ({ handler, options }))
+}
+
+function approvalRegistrations(on: ReturnType<typeof vi.fn>): { handler: unknown; options: unknown }[] {
+  return registrationsOf(on, 'approval/request')
 }
 
 describe('setupBots 审批 answerer 注册门控', () => {
@@ -93,6 +99,37 @@ describe('setupBots 审批 answerer 注册门控', () => {
     const req: ApprovalRequestLike = { agent: { session: { id: 's1' } }, toolName: 'write' }
     const next = vi.fn(async () => 'unavailable' as const)
     expect(await handler(req, next)).toBe('unavailable')
+    expect(next).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('setupBots 问答 answerer 注册门控', () => {
+  test('questions=true：注册 user-questions/request answerer（prepend 抢在 web api-proxy 前）', () => {
+    const { ctx, on } = makeCtx()
+    setupBots(ctx, makeConfig(true, true), { registry: makeRegistry() })
+    const regs = registrationsOf(on, 'user-questions/request')
+    expect(regs).toHaveLength(1)
+    expect(regs[0]!.options).toEqual({ prepend: true })
+    expect(typeof regs[0]!.handler).toBe('function')
+  })
+
+  test('questions=false：不注册 user-questions/request answerer（回到 web 浏览器应答）', () => {
+    const { ctx, on } = makeCtx()
+    setupBots(ctx, makeConfig(true, false), { registry: makeRegistry() })
+    expect(registrationsOf(on, 'user-questions/request')).toHaveLength(0)
+  })
+
+  test('runtime 未启动（undefined）：注册的 answerer 透传 next', async () => {
+    const { ctx, on } = makeCtx()
+    setupBots(ctx, makeConfig(true, true), { registry: makeRegistry() })
+    const handler = registrationsOf(on, 'user-questions/request')[0]!.handler as (
+      req: QuestionRequestLike,
+      next: () => Promise<QuestionAnswerLike>,
+    ) => Promise<QuestionAnswerLike>
+    const req: QuestionRequestLike = { questions: [{ id: 'q1', question: '继续吗？' }] }
+    const answer = { answers: [{ id: 'q1', selected: [] }] }
+    const next = vi.fn(async () => answer)
+    expect(await handler(req, next)).toBe(answer)
     expect(next).toHaveBeenCalledTimes(1)
   })
 })

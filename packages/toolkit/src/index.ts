@@ -95,6 +95,7 @@ export const Config: z<unknown, Config> = z.object({
     errorDetailMaxChars: z.number().default(500),
     injectSender: z.boolean().default(true),
     approval: z.boolean().default(true),
+    questions: z.boolean().default(true),
     /** bot 会话建账即应用的宿主权限预设名（如 danger-full-access = 完全权限不审批；缺省维持宿主默认）。
      *  警告：完全权限下任何能给 bot 发消息的人即获宿主完全文件/命令权限，建议仅私聊 bot 启用。 */
     permissionPreset: z.string(),
@@ -116,6 +117,7 @@ export const Config: z<unknown, Config> = z.object({
     errorDetailMaxChars: 500,
     injectSender: true,
     approval: true,
+    questions: true,
     docMaxBytes: 30 * 1024 * 1024,
     debugLog: true,
     debugLogDir: '',

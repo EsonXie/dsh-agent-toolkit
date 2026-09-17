@@ -154,6 +154,7 @@ describe('Config 默认值', () => {
       errorDetailMaxChars: 500,
       injectSender: true,
       approval: true,
+      questions: true,
       docMaxBytes: 31_457_280,
       debugLog: true,
       debugLogDir: '',
@@ -177,6 +178,20 @@ describe('Config 默认值', () => {
   test('feishu.approval=false 原样保留（关闭飞书审批卡片，回到 web api-proxy 弹窗）', () => {
     const config = Config({ feishu: { approval: false } })
     expect(config.feishu.approval).toBe(false)
+  })
+
+  test('feishu.questions：默认开启（ask_user_question / plan 评审走飞书卡片作答），显式关闭原样保留', () => {
+    expect(Config({}).feishu.questions).toBe(true)
+    expect(Config({ feishu: { questions: false } }).feishu.questions).toBe(false)
+  })
+
+  test('存量多余键兼容：agentTeamPreset.botsId 与 feishu 未知键均不炸（schemastery 宽容）', () => {
+    const config = Config({
+      agentTeamPreset: { botsId: 'agent-bot' },
+      feishu: { legacyUnknownKey: true },
+    })
+    expect(config.feishu.questions).toBe(true)
+    expect(config.agentTeamPreset.id).toBe('agent-team')
   })
 
   test('feishu.permissionPreset：缺省 undefined（维持宿主默认预设），显式配置原样保留', () => {

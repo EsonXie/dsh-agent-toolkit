@@ -1,6 +1,7 @@
 /** 渠道抽象：飞书是第一个实现；核心只依赖本文件，不感知任何飞书 SDK 类型。 */
 import type { BotRecord } from '../bots/store.ts'
 import type { ApprovalPresenter, CardActionAck, CardActionInput } from './approval/center.ts'
+import type { QuestionPresenter } from './questions/center.ts'
 
 export type Disposer = () => void | Promise<void>
 
@@ -62,6 +63,8 @@ export interface ChannelHandle {
   status(): ChannelStatus
   /** 该渠道的审批卡片能力（有交互卡片的渠道实现；缺席 = ask 回退其他审批通道）。 */
   approval?: ApprovalPresenter
+  /** 该渠道的问答卡能力（user-questions 应答端；缺席 = ask 回退其他应答通道）。 */
+  questions?: QuestionPresenter
 }
 
 /** 生产调试事件 sink（JSONL 文件日志等；undefined = 不记录）。 */

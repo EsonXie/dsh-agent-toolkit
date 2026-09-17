@@ -9,6 +9,7 @@ import type { AgentsPort, BindingStore, DefaultModelAccessor, SessionCatalogPort
 import { Router } from './router.ts'
 import type { AttachmentsPort } from './inbound.ts'
 import { ApprovalCenter } from './approval/center.ts'
+import { QuestionCenter } from './questions/center.ts'
 
 export interface RuntimeDeps {
   bots: KvTable<string, BotRecord>
@@ -47,6 +48,7 @@ export class BotRuntime {
   readonly inbound: Inbound
   readonly outbound: Outbound
   readonly approval: ApprovalCenter
+  readonly questions: QuestionCenter
   private readonly handles = new Map<string, ChannelHandle>()
 
   constructor(private readonly deps: RuntimeDeps) {
@@ -66,6 +68,15 @@ export class BotRuntime {
       this.sessions,
       (botId) => {
         const presenter = this.handles.get(botId)?.approval
+        if (presenter === undefined) return undefined
+        return { presenter, botName: this.deps.bots.get(botId)?.name ?? botId }
+      },
+      (m) => deps.log.warn(m),
+    )
+    this.questions = new QuestionCenter(
+      this.sessions,
+      (botId) => {
+        const presenter = this.handles.get(botId)?.questions
         if (presenter === undefined) return undefined
         return { presenter, botName: this.deps.bots.get(botId)?.name ?? botId }
       },
@@ -101,7 +112,15 @@ export class BotRuntime {
     try {
       const handle = await channel.start(
         { record, secret },
-        { onMessage: (msg) => this.inbound.onMessage(msg), onCardAction: (action) => this.approval.handleCardAction(action), onMessageRecalled: (botId, chatId, messageId) => this.inbound.revokeQueued(botId, chatId, messageId) },
+        {
+          onMessage: (msg) => this.inbound.onMessage(msg),
+          // 卡片回调按 value.kind 路由：问答卡带 kind:'question'（审批卡无该字段，legacy 兼容）。
+          onCardAction: (action) => {
+            const kind = (action.value as { kind?: unknown } | null | undefined)?.kind
+            return kind === 'question' ? this.questions.handleCardAction(action) : this.approval.handleCardAction(action)
+          },
+          onMessageRecalled: (botId, chatId, messageId) => this.inbound.revokeQueued(botId, chatId, messageId),
+        },
         this.deps.tunables,
         (m) => this.deps.log.warn(m),
       )
@@ -163,6 +182,7 @@ export class BotRuntime {
     await Promise.allSettled([...this.handles.values()].map((h) => h.close()))
     this.handles.clear()
     this.approval.dispose()
+    this.questions.dispose()
     // 全停路径同样清排队队列：释放条目持有的渠道句柄（卸载时随实例回收，但显式清理不留悬垂）。
     for (const botId of this.deps.bots.keys()) this.inbound.clearQueues(botId)
   }

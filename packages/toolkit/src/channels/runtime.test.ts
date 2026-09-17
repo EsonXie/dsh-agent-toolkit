@@ -4,6 +4,7 @@ import { BotRuntime, type RuntimeDeps } from './runtime.ts'
 import type { BotRecord } from '../bots/store.ts'
 import type { AgentRegistry } from '../agents/registry.ts'
 import type { ApprovalPrompt, CardActionAck, CardActionInput } from './approval/center.ts'
+import type { QuestionPrompt } from './questions/center.ts'
 
 const fakeRegistry: AgentRegistry = {
   list: () => [],
@@ -295,4 +296,94 @@ test('stopAll 兜底 dispose：挂起审批 settle cancelled', async () => {
   await vi.waitFor(() => { expect(presented).toHaveLength(1) })
   await runtime.stopAll()
   await expect(pending).resolves.toBe('cancelled')
+})
+
+/** 带问答能力的渠道 harness：capture io + 记录 present 的 key。 */
+function questionHarness() {
+  let io: { onMessage(m: unknown): void; onCardAction?(a: CardActionInput): CardActionAck | undefined } | undefined
+  const presented: QuestionPrompt[] = []
+  const channel: BotChannel = {
+    type: 'feishu',
+    start: async (_bot, channelIo) => {
+      io = channelIo as typeof io
+      return {
+        close: async () => undefined,
+        status: () => 'connected' as const,
+        questions: {
+          present: async (prompt: QuestionPrompt) => {
+            presented.push(prompt)
+            return { refresh: async () => undefined, finalize: async () => undefined }
+          },
+        },
+      }
+    },
+  }
+  const fakeReply: ReplyHandle = {
+    beginTurn: async () => undefined, update: async () => undefined,
+    finalize: async () => undefined, notice: async () => undefined,
+  }
+  const { runtime } = harness({
+    channels: new Map([['feishu', channel]]),
+    agents: {
+      get: () => undefined,
+      create: async (input: { sessionId: string }) => ({
+        sessionId: input.sessionId,
+        followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined,
+      }),
+      resume: async (input: { sessionId: string }) => ({
+        sessionId: input.sessionId,
+        followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined,
+      }),
+    } as unknown as RuntimeDeps['agents'],
+  })
+  return { runtime, fakeReply, presented, ioOf: () => io }
+}
+
+test('onCardAction 按 value.kind 路由：question → QuestionCenter，无 kind → ApprovalCenter', async () => {
+  const { runtime, ioOf } = questionHarness()
+  await runtime.startAll()
+  const questionAck: CardActionAck = { toast: 'question' }
+  const approvalAck: CardActionAck = { toast: 'approval' }
+  const questionSpy = vi.spyOn(runtime.questions, 'handleCardAction').mockReturnValue(questionAck)
+  const approvalSpy = vi.spyOn(runtime.approval, 'handleCardAction').mockReturnValue(approvalAck)
+  const action = (value: unknown): CardActionInput => ({ chatId: 'oc_chat1', operatorOpenId: 'ou_initiator', value })
+  expect(ioOf()!.onCardAction!(action({ kind: 'question', key: 'k', qid: 'q1' }))).toEqual(questionAck)
+  expect(questionSpy).toHaveBeenCalledTimes(1)
+  expect(approvalSpy).not.toHaveBeenCalled()
+  // 审批卡无 kind 字段（legacy 兼容）：落回 ApprovalCenter
+  expect(ioOf()!.onCardAction!(action({ key: 'k', decision: 'allow' }))).toEqual(approvalAck)
+  expect(approvalSpy).toHaveBeenCalledTimes(1)
+  expect(questionSpy).toHaveBeenCalledTimes(1)
+})
+
+test('问答集成：渠道 questions presenter 发卡，io.onCardAction(kind:question) 路由回 center resolve', async () => {
+  const { runtime, fakeReply, presented, ioOf } = questionHarness()
+  await runtime.startAll()
+  const rt = await runtime.router.ensure(BOT, 'oc_chat1', fakeReply, 'ou_initiator')
+  const pending = runtime.questions.handleRequest({
+    agent: { session: { id: rt.sessionId } },
+    questions: [{ id: 'q1', question: '继续吗？', options: [{ label: '继续' }, { label: '停止' }] }],
+  })
+  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  const ack = ioOf()!.onCardAction!({
+    chatId: 'oc_chat1', operatorOpenId: 'ou_initiator',
+    value: { kind: 'question', key: presented[0]!.key, qid: 'q1', select: '继续' },
+  })
+  expect(ack).toEqual({ toast: '已提交作答' })
+  await expect(pending).resolves.toEqual({ answers: [{ id: 'q1', selected: ['继续'] }] })
+})
+
+test('stopAll 兜底 dispose：挂起问答 settle cancelled 且 questions.dispose 被调用', async () => {
+  const { runtime, fakeReply, presented } = questionHarness()
+  await runtime.startAll()
+  const rt = await runtime.router.ensure(BOT, 'oc_chat1', fakeReply, 'ou_initiator')
+  const pending = runtime.questions.handleRequest({
+    agent: { session: { id: rt.sessionId } },
+    questions: [{ id: 'q1', question: '继续吗？' }],
+  })
+  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  const disposeSpy = vi.spyOn(runtime.questions, 'dispose')
+  await runtime.stopAll()
+  expect(disposeSpy).toHaveBeenCalledTimes(1)
+  await expect(pending).rejects.toMatchObject({ name: 'UserQuestionError', code: 'ASK_CANCELLED' })
 })

@@ -90,6 +90,7 @@
     "@deepseek-ai/dsh-tool-pwsh": "link:../../deepseek-harness/packages/shell/tool-pwsh",
     "@deepseek-ai/dsh-tools": "link:../../deepseek-harness/packages/core/tools",
     "@deepseek-ai/dsh-user-approval": "link:../../deepseek-harness/packages/interaction/user-approval",
+    "@deepseek-ai/dsh-user-questions": "link:../../deepseek-harness/packages/interaction/user-questions",
     "@deepseek-ai/dsh-util-values": "link:../../deepseek-harness/packages/util/values",
     "@deepseek-ai/schemastery": "link:../../deepseek-harness/vendor/schemastery",
     "@testing-library/react": "^16.1.0",

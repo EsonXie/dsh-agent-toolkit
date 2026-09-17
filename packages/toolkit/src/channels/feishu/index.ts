@@ -5,6 +5,7 @@ import { createFeishuApi } from './api.ts'
 import { MessageDedup, parseMessageEvent, parseRecallEvent } from './parse.ts'
 import { FeishuReplyHandle, makeAck } from './reply.ts'
 import { FeishuApprovalPresenter } from '../approval/feishu.ts'
+import { FeishuQuestionPresenter } from '../questions/feishu.ts'
 import { toCardActionInput, toastResponse } from './card-action.ts'
 
 export const feishuChannel: BotChannel = {
@@ -61,6 +62,7 @@ export const feishuChannel: BotChannel = {
 
     return {
       approval: new FeishuApprovalPresenter(api, log),
+      questions: new FeishuQuestionPresenter(api, tunables.cardMaxBytes, log),
       close: () => {
         ws.close({ force: true })
         return Promise.resolve()
