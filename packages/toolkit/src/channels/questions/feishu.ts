@@ -22,11 +22,14 @@ function sliceChars(text: string, maxChars: number): string {
   return chars.length <= maxChars ? text : chars.slice(0, maxChars).join('')
 }
 
-/** 答案只读行：文本作答 → 已答（受 200 字与卡片预算双重约束）；选项作答 → 已选。 */
+/** 答案只读行：文本作答 → 已答；选项作答 → 已选；两者并存 → 单行并列（自定义文本同受 200 字与卡片预算双重约束）。 */
 function answerLine(answer: { selected: string[]; custom?: string }, maxBytes: number): string {
   if (answer.custom !== undefined) {
     const budget = Math.min(CUSTOM_ANSWER_MAX_CHARS, detailBudget(maxBytes))
-    return `> 已答：${sliceChars(answer.custom, budget)}`
+    const custom = sliceChars(answer.custom, budget)
+    return answer.selected.length > 0
+      ? `> 已选：${answer.selected.join('、')} ｜ 补充：${custom}`
+      : `> 已答：${custom}`
   }
   return `> 已选：${answer.selected.join('、')}`
 }

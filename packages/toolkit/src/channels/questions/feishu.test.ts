@@ -152,6 +152,10 @@ test('终态卡：保留全部题目与回答、无任何交互组件；cancelle
   expect(md).toHaveLength(2)
   expect(md[0]).toContain('已选：蓝')
   expect(md[1]).toContain('已答：就这样')
+  // selected + custom 并存：定格卡同时呈现所选选项与自定义文本（mergeFormValue 会产出两者并存）
+  const mixed = cardOf(buildQuestionFinalCardJson(promptOf([CHOICE]), viewOf([['q1', { selected: ['红'], custom: '别选蓝' }]]), 'answered', 20_000))
+  expect(markdowns(mixed)[0]).toContain('已选：红')
+  expect(markdowns(mixed)[0]).toContain('补充：别选蓝')
   const grey = cardOf(buildQuestionFinalCardJson(promptOf([CHOICE, OPEN]), viewOf(), 'cancelled', 20_000))
   expect(grey.header.template).toBe('grey')
   expect(buttons(grey)).toHaveLength(0)
