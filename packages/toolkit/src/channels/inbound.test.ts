@@ -59,6 +59,8 @@ function harness(opts: {
     deleteBot: async () => undefined,
   }
   const sessions = new Map<string, SessionRuntime>()
+  const workspace = { attach: vi.fn(async () => undefined) }
+  const onWarn = vi.fn()
   const registry: AgentRegistry = {
     list: () => [],
     get: () => undefined,
@@ -66,7 +68,7 @@ function harness(opts: {
     remove: async () => undefined,
     subscribe: () => () => undefined,
   }
-  const router = new Router(agents, bindings, sessions, () => ({ provider: 'deepseek', model: 'deepseek-v4' }), { attach: async () => undefined }, () => undefined, registry)
+  const router = new Router(agents, bindings, sessions, () => ({ provider: 'deepseek', model: 'deepseek-v4' }), workspace, onWarn, registry)
   const inbound = new Inbound({
     router,
     bots: { get: (id) => allBots.find((b) => b.id === id) },
@@ -89,7 +91,7 @@ function harness(opts: {
     }),
   }
 }
-  return { rec, inbound, sessions, router, msg }
+  return { rec, inbound, sessions, router, msg, workspace, onWarn }
 }
 
 function fakeAgent(sessionId: string, rec: Recorded, opts: { followupThrowsOn?: string }): AgentPort {
@@ -123,6 +125,34 @@ test('普通消息：建会话、表情回复、followup 携带 user source（�
   expect(rec.followups[0].text).toBe('帮我评审这段代码')
   expect(rec.followups[0].source).toEqual({ kind: 'user' })
   expect(sessions.size).toBe(1)
+})
+
+test('首条消息投递时惰性 attach 到 bot 项目 workspace（/new 空白会话在此之前不被 web blank 复用捕获）', async () => {
+  const { rec, inbound, router, msg, workspace } = harness()
+  inbound.onMessage(msg('帮我评审这段代码'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  const rt = router.lookup('reviewer', 'oc_1')!
+  expect(workspace.attach).toHaveBeenCalledOnce()
+  expect(workspace.attach).toHaveBeenCalledWith('D:\\work\\demo', rt.sessionId)
+})
+
+test('同一会话后续消息不重复 attach', async () => {
+  const { rec, inbound, router, msg, workspace } = harness()
+  inbound.onMessage(msg('第一条'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  const rt = router.lookup('reviewer', 'oc_1')!
+  rt.inflight = undefined
+  inbound.onMessage(msg('第二条'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(2) })
+  expect(workspace.attach).toHaveBeenCalledOnce()
+})
+
+test('attach 失败仅告警，消息照常投递', async () => {
+  const { rec, inbound, msg, workspace, onWarn } = harness()
+  workspace.attach.mockRejectedValueOnce(new Error('no workspaceRegistry'))
+  inbound.onMessage(msg('帮我评审这段代码'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  expect(onWarn).toHaveBeenCalledOnce()
 })
 
 test('in-flight 占用期间第二条消息排队并提示队位', async () => {

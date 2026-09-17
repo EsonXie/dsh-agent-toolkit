@@ -174,6 +174,10 @@ export class Inbound {
       ],
       source: { kind: 'user' },
     })
+    // 惰性挂载 workspace：首条消息投递即转 non-blank，此刻进 workspace 无 web blank 复用捕获窗口
+    // （更早挂载会让 web「新会话」直接复用本渠道绑定会话，消息与出站回流飞书）。bot 已删则跳过（会话收尾中）。
+    const bot = this.deps.bots.get(rt.botId)
+    if (bot !== undefined) await this.deps.router.attachOnce(bot, rt.sessionId)
     try {
       rt.agent.followup(message)
     } catch (error) {

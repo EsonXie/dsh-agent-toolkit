@@ -30,7 +30,7 @@ export class Router {
     private readonly sessions: Map<string, SessionRuntime>,
     /** main 形态会话（bot 未自配 agentOptions 时）与未配置模型的角色的模型来源（宿主默认模型）。 */
     private readonly defaultModel: DefaultModelAccessor,
-    /** 会话归入 bot 项目 workspace（与原生 UI session.create 同款挂载）。 */
+    /** 会话归入 bot 项目 workspace：首条消息投递时惰性挂载（attachOnce），建账期不挂。 */
     private readonly workspace: WorkspacePort,
     private readonly onWarn: (message: string) => void,
     /** Agent 注册表（agentRef → main/角色），会话创建时决定 persona/工具/模型装配。 */
@@ -38,6 +38,26 @@ export class Router {
     /** 开启时在 guidance 段之后再追加渠道发起人提示段（guidance 与它语义不同，恒注入）。 */
     private readonly injectSender = true,
   ) {}
+
+  /** 本进程内已挂载的 sessionId（宿主 attachSession 幂等，重启后首条消息补挂一次）。 */
+  private readonly attached = new Set<string>()
+
+  /**
+   * 首条消息投递时的惰性 workspace 挂载（每会话每进程一次；失败仅告警且不计入，下条消息重试）。
+   * 建账（create/resume/接管/switch）时不挂：空白会话一旦进 workspace 且 cwd 匹配，会被宿主 web
+   * 客户端 connectWorkspace 的 blank 复用启发式捕获——web「新会话」实际打开的是飞书绑定会话，
+   * 消息与出站全部回流飞书。首条消息投递即转 non-blank，此刻挂载无捕获窗口。
+   */
+  async attachOnce(bot: BotRecord, sessionId: string): Promise<void> {
+    if (this.attached.has(sessionId)) return
+    try {
+      await this.workspace.attach(bot.project, sessionId)
+    } catch (error) {
+      this.onWarn(`[project-bot] 会话 ${sessionId} 挂载 workspace 失败：${error instanceof Error ? error.message : String(error)}`)
+      return
+    }
+    this.attached.add(sessionId)
+  }
 
   /**
    * 取（或建/恢复）该 chat 的会话 runtime。存量活跃会话保持其 reply——运行中 turn 的出站
@@ -53,23 +73,12 @@ export class Router {
       if (existing !== undefined && !existing.retiring) return existing
       // 宿主内存中已存活（web 界面等持有写句柄）→ 接管复用；冷会话才 resume（避免 already owned）。
       const agent = this.agents.get(bound) ?? await this.agents.resume({ sessionId: bound, ...this.resolveSession(bot, userId) })
-      await this.attach(bot.project, bound)
       return this.adopt(bot.id, chatId, userId, bound, agent, reply)
     }
     const sessionId = randomUUID()
     const agent = await this.agents.create({ sessionId, cwd: bot.project, ...this.resolveSession(bot, userId) })
     await this.bindings.set(bot.id, chatId, sessionId)
-    await this.attach(bot.project, sessionId)
     return this.adopt(bot.id, chatId, userId, sessionId, agent, reply)
-  }
-
-  /** attach 失败仅告警（会话降级为未分组），不阻塞消息处理。 */
-  private async attach(cwd: string, sessionId: string): Promise<void> {
-    try {
-      await this.workspace.attach(cwd, sessionId)
-    } catch (error) {
-      this.onWarn(`[project-bot] 会话 ${sessionId} 挂载 workspace 失败：${error instanceof Error ? error.message : String(error)}`)
-    }
   }
 
   /** 向 hooks.sections 追加渠道段：guidance（order 15）恒注入；injectSender 开启时再追加 sender（order 20）。 */
@@ -158,7 +167,6 @@ export class Router {
       rt = existing
     } else {
       const agent = this.agents.get(sessionId) ?? await this.agents.resume({ sessionId, ...this.resolveSession(bot, userId) })
-      await this.attach(bot.project, sessionId)
       rt = this.adopt(bot.id, chatId, userId, sessionId, agent, reply)
       adopted = true
     }

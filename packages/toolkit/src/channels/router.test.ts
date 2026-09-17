@@ -159,32 +159,17 @@ describe('Router.ensure', () => {
     expect(created[0].input.agentOptions).toEqual({ provider: 'acme', model: 'acme-x' })
   })
 
-  test('create 后 attach 到 bot 项目 workspace（原生 UI 同款挂载）', async () => {
+  test('create 后不 attach：空白会话不进 workspace（防 web「新会话」blank 复用捕获渠道绑定会话）', async () => {
     const { router, workspace } = setup()
-    const rt = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
-    expect(workspace.attach).toHaveBeenCalledWith('D:\\work\\demo', rt.sessionId)
+    await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
+    expect(workspace.attach).not.toHaveBeenCalled()
   })
 
-  test('resume 后同样 attach（bootstrap 之后才建的会话兜底归组）', async () => {
+  test('resume 后同样不 attach（空白窗口期一律不挂载）', async () => {
     const { router, bindings, workspace } = setup()
     await bindings.set('reviewer', 'oc_1', 'sess-old')
     await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
-    expect(workspace.attach).toHaveBeenCalledWith('D:\\work\\demo', 'sess-old')
-  })
-
-  test('进程内复用路径不重复 attach', async () => {
-    const { router, workspace } = setup()
-    await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
-    await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
-    expect(workspace.attach).toHaveBeenCalledOnce()
-  })
-
-  test('attach 失败仅告警，不阻塞 ensure', async () => {
-    const { router, workspace, onWarn } = setup()
-    workspace.attach.mockRejectedValueOnce(new Error('no workspaceRegistry'))
-    const rt = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
-    expect(rt.sessionId).toBeTruthy()
-    expect(onWarn).toHaveBeenCalledOnce()
+    expect(workspace.attach).not.toHaveBeenCalled()
   })
 })
 
@@ -492,10 +477,10 @@ describe('Router.switchTo（/switch）', () => {
     expect(old.agent.dispose).not.toHaveBeenCalled()
   })
 
-  test('switchTo 后 attach 目标会话到 bot 项目 workspace（幂等兜底归组）', async () => {
+  test('switchTo 不 attach：目标会话可能仍是空白（挂载延迟到首条消息投递）', async () => {
     const { router, workspace } = setup()
     await router.switchTo(fakeBot(), 'oc_1', 'sess-target', reply, 'ou_u1')
-    expect(workspace.attach).toHaveBeenCalledWith('D:\\work\\demo', 'sess-target')
+    expect(workspace.attach).not.toHaveBeenCalled()
   })
 
   test('/new retire：收尾落定后 dispose 释放写句柄（旧会话之后可被 /switch resume 接管）', async () => {
@@ -530,5 +515,36 @@ describe('Router.switchTo（/switch）', () => {
     const rt = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
     expect(resumed).toHaveLength(0)
     expect(rt.agent).toBe(webOwned)
+  })
+})
+
+describe('Router.attachOnce（首条消息投递时的惰性 workspace 挂载）', () => {
+  test('首次调用 attach 到 bot 项目 workspace', async () => {
+    const { router, workspace } = setup()
+    await router.attachOnce(fakeBot(), 'sess-1')
+    expect(workspace.attach).toHaveBeenCalledWith('D:\\work\\demo', 'sess-1')
+  })
+
+  test('同一会话重复调用只 attach 一次（每进程幂等）', async () => {
+    const { router, workspace } = setup()
+    await router.attachOnce(fakeBot(), 'sess-1')
+    await router.attachOnce(fakeBot(), 'sess-1')
+    expect(workspace.attach).toHaveBeenCalledOnce()
+  })
+
+  test('不同会话各自 attach 一次', async () => {
+    const { router, workspace } = setup()
+    await router.attachOnce(fakeBot(), 'sess-1')
+    await router.attachOnce(fakeBot(), 'sess-2')
+    expect(workspace.attach).toHaveBeenCalledTimes(2)
+  })
+
+  test('attach 失败仅告警、不计入已挂载（下条消息重试）', async () => {
+    const { router, workspace, onWarn } = setup()
+    workspace.attach.mockRejectedValueOnce(new Error('no workspaceRegistry'))
+    await router.attachOnce(fakeBot(), 'sess-1')       // 不抛出
+    expect(onWarn).toHaveBeenCalledOnce()
+    await router.attachOnce(fakeBot(), 'sess-1')       // 重试
+    expect(workspace.attach).toHaveBeenCalledTimes(2)
   })
 })
