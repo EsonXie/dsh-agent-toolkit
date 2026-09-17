@@ -44,6 +44,8 @@ export interface CardActionInput {
   operatorOpenId: string
   operatorName?: string
   value: unknown
+  /** form 容器提交回调的表单值（name → 值；lark SDK normalizeCardAction 丢弃 form_value，渠道从 raw 直取）。 */
+  formValue?: Record<string, unknown>
 }
 
 /** 回调应答（飞书侧经 WS 响应帧回 toast）。 */

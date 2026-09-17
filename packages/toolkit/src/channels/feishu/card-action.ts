@@ -8,11 +8,15 @@ export function toCardActionInput(raw: unknown): CardActionInput | undefined {
   if (raw === null || typeof raw !== 'object') return undefined
   const evt = lark.normalizeCardAction(raw as lark.RawCardActionEvent)
   if (evt === null) return undefined
+  // normalizeCardAction 丢弃 form_value：form 提交回调的值从 raw 直取。
+  const formValue = (raw as { action?: { form_value?: unknown } }).action?.form_value
   return {
     chatId: evt.chatId,
     operatorOpenId: evt.operator.openId,
     ...(evt.operator.name !== undefined ? { operatorName: evt.operator.name } : {}),
     value: evt.action.value,
+    ...(formValue !== null && typeof formValue === 'object' && !Array.isArray(formValue)
+      ? { formValue: formValue as Record<string, unknown> } : {}),
   }
 }
 
