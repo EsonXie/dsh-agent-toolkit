@@ -63,6 +63,7 @@
 | `feishu.errorDetailMaxChars` | number | `500` | 回传飞书的错误摘要最大字符数 |
 | `feishu.injectSender` | boolean | `true` | 会话创建时注入「渠道 + 发起人 open_id」提示段（`dsh-agent-toolkit:channel:sender`），供 Agent 写多维表格人员字段等场景使用 |
 | `feishu.approval` | boolean | `true` | bot 会话工具提权申请改由飞书审批卡片处理（仅会话发起人可点）。注意：存量飞书应用需在开发者后台补开「卡片回传」(card.action.trigger) 订阅，否则卡片按钮无响应、审批会一直挂起；如无法开启可将该项设为 `false` 回退 web 审批弹窗 |
+| `feishu.questions` | boolean | `true` | bot 会话的 `ask_user_question` / plan 评审改由飞书问答卡片作答（仅会话发起人可答；见 [飞书渠道](../domains/feishu.md)）。注意：飞书应用需开启卡片回传订阅（同 `feishu.approval`），否则卡片按钮无响应、提问会一直挂起；如无法开启可将该项设为 `false` 回退 web 浏览器作答 |
 | `feishu.permissionPreset` | string | `danger-full-access`（插件自带 cordis.patch.yml 默认） | bot 会话建账（create/冷 resume/web 存活接管）即应用的宿主权限预设名；`danger-full-access` = 完全权限、不再发起任何审批（审批卡路径不触发）。**安全警示**：任何能给 bot 发消息的人（含群聊 @ 它的成员）即获宿主完全文件/命令权限，建议仅私聊 bot 启用。回落宿主默认审批：在你的 profile/home `cordis.patch.yml` 用同 id 覆盖 config 且不写此键（patch 整行替换 config，不写即 `undefined` = 维持宿主默认审核） |
 | `feishu.debugLog` | boolean | `true` | 生产调试日志总开关：出站卡片 op/close/replace/abandon 与流对账 reconcile/frame-stats 事件写 JSONL 文件（内容只记长度+首尾 20 字，不落全文） |
 | `feishu.debugLogDir` | string | `''` | 调试日志目录（留空 = `~/.dsh/logs/feishu-debug/`；JSONL 按日滚动 `feishu-YYYY-MM-DD.jsonl`） |
