@@ -78,6 +78,23 @@ test('tab 切换：默认 Agents 卡片，切到 Schedule 见任务列表，切�
   expect(await screen.findByText(zh['prompt.card.identity'])).toBeTruthy()
 })
 
+test('tab 样式：激活项同时带基础类与激活类，非激活项仅基础类（回归保护）', async () => {
+  stubFetch()
+  renderSection()
+  await screen.findByText('AAA')
+
+  // 回归：激活 tab 曾只挂激活类、丢基础类，渲染成浏览器默认按钮。激活态须保留基础类。
+  const active = screen.getByRole('tab', { name: zh['tab.agents'] })
+  expect(active.getAttribute('aria-selected')).toBe('true')
+  expect(active.className.split(/\s+/)).toContain('tab')
+  expect(active.className.split(/\s+/)).toContain('tabActive')
+
+  const inactive = screen.getByRole('tab', { name: zh['tab.schedule'] })
+  expect(inactive.getAttribute('aria-selected')).toBe('false')
+  expect(inactive.className.split(/\s+/)).toContain('tab')
+  expect(inactive.className.split(/\s+/)).not.toContain('tabActive')
+})
+
 test('setupSettingsClient：注册 settings.section（id agent-toolkit, order 25），label thunk 本地化', () => {
   const registered: Array<{ options: Record<string, unknown>; component: unknown }> = []
   const localeRegistered: Array<{ ns: string; dicts: Record<string, unknown> }> = []

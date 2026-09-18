@@ -1,5 +1,6 @@
 /** 设置面板「Agent 工具箱」section 壳：页内三 tab（Agents / 定时任务 / 分层提示词）。 */
 import { useState, type ReactNode } from 'react'
+import clsx from 'clsx'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { AgentsPage } from '../agents/AgentsPage.tsx'
 import { SchedulePage } from '../schedule/SchedulePage.tsx'
@@ -28,7 +29,7 @@ export function ToolkitSection(props: Props): ReactNode {
       <div className={css.tabs} role="tablist">
         {(['agents', 'schedule', 'prompt'] as const).map((id) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id}
-            className={tab === id ? css.tabActive : css.tab}
+            className={clsx(css.tab, tab === id && css.tabActive)}
             onClick={() => { setTab(id) }}>
             {t(TAB_KEYS[id])}
           </button>

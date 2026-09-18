@@ -143,16 +143,6 @@
   line-height: 18px;
   color: var(--dsw-alias-state-error-primary);
 }
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
-  position: sticky;
-  bottom: 0;
-  padding: 8px 0;
-  background: var(--dsw-alias-bg-layer-1);
-}
 .dangerButton { color: var(--dsw-alias-state-error-primary); }
 
 /* 设置页卡片流（AgentsPage） */

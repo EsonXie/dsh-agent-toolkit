@@ -1,8 +1,8 @@
 /** Agent 编辑器：基本信息 + 提示词（persona）+ 模型（级联下拉）+ 工具白名单 四区块。 */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AgentRecord } from '../../agents/store.ts'
-import { deleteAgent, fetchModels, fetchProviders, fetchTools, saveAgent, type ModelOption, type ProviderOption, type ToolsCatalog } from './api.ts'
+import { fetchModels, fetchProviders, fetchTools, saveAgent, type ModelOption, type ProviderOption, type ToolsCatalog } from './api.ts'
 import { SaveBar, type SaveBarLabels } from '../shared/feedback.tsx'
 import css from './agents.module.css'
 
@@ -12,16 +12,14 @@ const AGENT_ID_RE = /^(?:main|[a-z][a-z0-9-]{0,31})$/
 export interface AgentEditorProps {
   /** undefined = 新建模式（id 可编辑）。 */
   agent?: AgentRecord
-  /** 提供时底部渲染共享 SaveBar（设置页内联编辑）；缺省保留旧 actions 行。 */
-  labels?: SaveBarLabels
+  /** 底部共享 SaveBar 的本地化文案（设置页内联编辑恒提供）。 */
+  labels: SaveBarLabels
   onSaved(saved: AgentRecord): void
-  onDeleted?(id: string): void
   onCancel?(): void
 }
 
-export function AgentEditor({ agent, labels, onSaved, onDeleted, onCancel }: AgentEditorProps): ReactNode {
+export function AgentEditor({ agent, labels, onSaved, onCancel }: AgentEditorProps): ReactNode {
   const creating = agent === undefined
-  const locked = agent !== undefined && (agent.id === 'main' || agent.builtin === true)
 
   const [id, setId] = useState(agent?.id ?? '')
   const [name, setName] = useState(agent?.name ?? '')
@@ -101,20 +99,6 @@ export function AgentEditor({ agent, labels, onSaved, onDeleted, onCancel }: Age
     try {
       await saveAgent(record)
       onSaved(record)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function remove(): Promise<void> {
-    if (agent === undefined) return
-    setError(null)
-    setSaving(true)
-    try {
-      await deleteAgent(agent.id)
-      onDeleted?.(agent.id)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -228,26 +212,15 @@ export function AgentEditor({ agent, labels, onSaved, onDeleted, onCancel }: Age
         )}
       </section>
 
-      {labels === undefined && error !== null && <p role="alert" className={css.error}>{error}</p>}
-      {labels === undefined ? (
-        <div className={css.actions}>
-          {onCancel !== undefined && <Button variant="outline" onClick={onCancel}>取消</Button>}
-          {onDeleted !== undefined && !creating && !locked && (
-            <Button variant="outline" className={css.dangerButton} disabled={saving} onClick={() => { void remove() }}>删除</Button>
-          )}
-          <Button variant="primary" disabled={saving || (creating && !catalogLoaded) || (toolsMode === 'custom' && tools.length === 0)} onClick={() => { void save() }}>保存</Button>
-        </div>
-      ) : (
-        <SaveBar
-          labels={labels}
-          dirty={dirty}
-          saving={saving}
-          saved={false}
-          error={error}
-          onSave={() => { void save() }}
-          onCancel={onCancel ?? (() => undefined)}
-        />
-      )}
+      <SaveBar
+        labels={labels}
+        dirty={dirty}
+        saving={saving}
+        saved={false}
+        error={error}
+        onSave={() => { void save() }}
+        onCancel={onCancel ?? (() => undefined)}
+      />
     </div>
   )
 }
