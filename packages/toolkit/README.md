@@ -52,9 +52,9 @@ dsh plugin --profile <profile 名> add dsh-agent-toolkit
 
 ### Agent 注册表
 
-侧边栏底栏「Agent 管理」打开面板，创建/编辑/删除角色。每个角色有 id、名称、描述、persona 提示词、可选模型覆盖、可选工具白名单（团队 preset 工具 + 全局工具，仅白名单语义）。首次激活时把 `$DSH_HOME/agent-team/roles/*.yml` 一次性导入。
+宿主**设置面板 → 「Agent 工具箱」→ Agents** tab（页内三 tab：Agents / 定时任务 / 分层提示词）创建/编辑/删除角色。页面为卡片流，按创建时间升序，`main` 置顶只读，编辑/新建内联展开；飞书 Bot 列表也并入各 Agent 卡片。每个角色有 id、名称、描述、persona 提示词、可选模型覆盖、可选工具白名单（团队 preset 工具 + 全局工具，仅白名单语义）。首次激活时把 `$DSH_HOME/agent-team/roles/*.yml` 一次性导入。
 
-![Agent 注册表面板](https://raw.githubusercontent.com/EsonXie/dsh-agent-toolkit/master/docs/usage/images/agents-modal.png)
+> 截图待补拍（设置面板收编后界面已变）。
 
 ### 分层提示词
 
@@ -66,9 +66,9 @@ dsh plugin --profile <profile 名> add dsh-agent-toolkit
 
 ### 飞书 bots
 
-侧边栏底栏「消息机器人」打开面板。两步创建：绑定项目 + Agent + 模型，再绑定飞书应用——扫码一键创建（OAuth 2.0 Device Authorization Grant，密钥只入 credentials 不落表）或手动填 App ID / App Secret。群聊需 @机器人；运维指令 `/new`、`/stop`、`/status`。
+在**设置面板 → 「Agent 工具箱」→ Agents** 的各 Agent 卡片下方管理该 Agent 名下的 Bot（归属锁定，不可改绑）。两步创建：绑定项目（归属 `main` 时另配 Provider/模型；归角色则继承角色装配），再绑定飞书应用——扫码一键创建（OAuth 2.0 Device Authorization Grant，密钥只入 credentials 不落表）或手动填 App ID / App Secret。群聊需 @机器人；运维指令 `/new`、`/stop`、`/status`。
 
-![飞书 bots 面板](https://raw.githubusercontent.com/EsonXie/dsh-agent-toolkit/master/docs/usage/images/bots-modal.png)
+> 截图待补拍（Bot 列表已并入 Agents 卡片）。
 
 ### Token 用量
 
