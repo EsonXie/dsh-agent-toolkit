@@ -27,9 +27,8 @@ test('双装：usage 入口被独立包占用时 apply 不向上抛，其余面�
     expect(() => apply(ctx as unknown as Context)).not.toThrow()
     expect(warn).toHaveBeenCalledTimes(1)
     expect(String(warn.mock.calls[0][0])).toContain('token-usage')
-    // 其余面板（agents/prompt 侧边栏入口）不受影响，照常注册。
+    // 其余面板（agents 侧边栏入口）不受影响，照常注册。
     expect(registered).toContain('dsh-agent-toolkit:agents')
-    expect(registered).toContain('dsh-agent-toolkit:prompt-layers')
   } finally {
     warn.mockRestore()
   }

@@ -1,42 +1,57 @@
-.dialog { width: 720px; }
+.page { display: flex; flex-direction: column; gap: 12px; max-width: 760px; }
 
-.split {
-  display: flex;
-  gap: 16px;
-  height: 70vh;
-  min-height: 420px;
-}
-.listPane {
-  flex: none;
-  width: 200px;
+/* 顶部说明区：可折叠（默认展开）。 */
+.intro {
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 12px;
+  padding: 12px 16px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
+  background: var(--dsw-alias-bg-layer-1);
 }
-.layerRow {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
+.introHead {
+  align-self: flex-start;
+  border: none;
+  padding: 0;
   background: transparent;
   cursor: pointer;
   font: inherit;
-  color: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
   text-align: left;
 }
-.layerRow:hover { background: var(--dsw-alias-interactive-bg-hover); }
-.layerRowActive {
-  border-color: var(--dsw-alias-brand-primary);
-  background: var(--dsw-alias-interactive-bg-hover);
+.introBody {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
 }
-.layerName { font-size: 14px; line-height: 22px; }
-.layerOrder { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary); }
-.readonlyTag {
-  margin-left: 6px;
-  padding: 0 4px;
+
+/* 纵向四卡。 */
+.card {
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cardTitle {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
+.badge {
+  flex: none;
+  padding: 0 6px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 4px;
   font-size: 11px;
@@ -44,26 +59,45 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.editorPane { flex: 1; min-width: 0; height: 100%; overflow-y: auto; }
-.editor { display: flex; flex-direction: column; gap: 16px; height: 100%; }
-.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; flex: 1; min-height: 0; }
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
 .textarea {
   box-sizing: border-box;
   width: 100%;
-  flex: 1;
-  min-height: 0;
   padding: 8px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
-  background: var(--dsw-alias-bg-elevated, transparent);
+  background: var(--dsw-alias-bg-layer-1);
   font: inherit;
   color: inherit;
-  resize: none;
+  resize: vertical;
 }
-.actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.textarea:focus { outline: none; border-color: var(--dsw-alias-brand-primary); }
 
-.hint { font-size: 13px; color: var(--dsw-alias-label-tertiary); }
-.error { font-size: 13px; color: var(--dsw-alias-status-danger, red); }
+.examples { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.disclosure {
+  align-self: flex-start;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-brand-primary);
+  text-align: left;
+}
+
+.resetBar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.hint { margin: 0; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-tertiary); }
 
 /* tab 栏：规则切换（分段控件观感，同 UsageModal）；规则多时可换行。 */
 .tabs {

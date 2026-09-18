@@ -1,0 +1,106 @@
+/** 设置面板文案词典：zh 为真源，en 键集严格一致（Task 12 继续扩）。 */
+// 触发 ui-slots 对 LocaleNamespaceMap 的声明合并（'agent-toolkit' 键域）。
+import type {} from '@deepseek-ai/dsh-client-ui-slots'
+
+export const NS = 'agent-toolkit'
+
+export const zh = {
+  nav: 'Agent 工具箱',
+  'tab.agents': 'Agents',
+  'tab.schedule': '定时任务',
+  'tab.prompt': '分层提示词',
+  'feedback.saved': '已保存',
+  'feedback.deleted': '已删除',
+  'prompt.introTitle': '四层提示词如何拼装？',
+  'prompt.intro': '最终系统提示词由四层自上而下拼装：身份层（谁在说话）→ 模型层（模型族行为规范）→ persona 层（角色人设，唯一可自定义）→ 动态层（会话上下文与工具说明）。越靠上越基础、越稳定；越靠下越贴近本次会话。',
+  'prompt.card.identity': '身份层',
+  'prompt.card.model': '模型层',
+  'prompt.card.persona': 'persona 层',
+  'prompt.card.dynamic': '动态层',
+  'prompt.badge.readonly': '只读',
+  'prompt.badge.editable': '可编辑',
+  'prompt.identity.desc': 'dsh 原生身份段，决定 Agent 的自我认知；可在下方整份覆盖。',
+  'prompt.identity.nativeLabel': '原生身份段',
+  'prompt.identity.overrideLabel': '身份段覆盖文本',
+  'prompt.identity.note': '仅主 Agent 会话生效（委派子 Agent 仍用原生）；留空则还原原生。',
+  'prompt.model.desc': '内置提示词：运行时按当前模型命中规则整份覆盖，不可编辑。',
+  'prompt.model.builtin': '内置默认',
+  'prompt.model.source': '来源：',
+  'prompt.model.textLabel': '模型层只读文本',
+  'prompt.persona.desc': '唯一可编辑的层：定义角色定位、语气与行为边界，留空则不追加任何内容。',
+  'prompt.persona.label': 'persona 文本',
+  'prompt.persona.placeholder': '例如：你是一名资深代码评审，先讲结论再给依据。',
+  'prompt.guide': '建议写：角色定位、语气风格、行为边界。不建议写：具体任务指令、临时上下文（这些应放在会话里）。',
+  'prompt.exampleReviewerName': '资深代码评审',
+  'prompt.exampleReviewer': '你是一名资深代码评审。评审时先给结论，再列出可验证的依据；只审查给定改动，不做无关重构。语气直接、对事不对人。',
+  'prompt.exampleOpsName': '谨慎的运维助手',
+  'prompt.exampleOps': '你是一名谨慎的运维助手。执行任何有副作用的命令前，先说明影响范围并请求确认；优先给出可回滚的最小操作，并保留执行证据。',
+  'prompt.dynamic.desc': '只读展示：规则命中的 model-notes 追加段（会话上下文与工具说明由此渲染）。',
+  'prompt.dynamic.expand': '展开查看动态层',
+  'prompt.dynamic.collapse': '收起动态层',
+  'prompt.dynamic.textLabel': '动态层只读文本',
+  'prompt.dynamic.empty': '当前配置没有 append 规则。',
+  'prompt.save': '保存',
+  'prompt.cancel': '取消',
+  'prompt.reset': '重置为默认层',
+  'prompt.resetHint': '确认用默认层覆盖当前层（连带清空 identity 覆盖）？',
+  'prompt.resetConfirm': '确认重置',
+  'prompt.resetCancel': '取消重置',
+  'prompt.loading': '加载中…',
+  'prompt.loadError': '加载失败，请重试',
+} as const
+
+export type ToolkitKey = keyof typeof zh
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** Agent 工具箱设置面板文案。 */
+    'agent-toolkit': ToolkitKey
+  }
+}
+
+export const en: Record<ToolkitKey, string> = {
+  nav: 'Agent Toolkit',
+  'tab.agents': 'Agents',
+  'tab.schedule': 'Scheduled tasks',
+  'tab.prompt': 'Layered prompts',
+  'feedback.saved': 'Saved',
+  'feedback.deleted': 'Deleted',
+  'prompt.introTitle': 'How are the four prompt layers assembled?',
+  'prompt.intro': 'The final system prompt is assembled top-down from four layers: identity (who is speaking) → model (model-family behavior norms) → persona (the role, the only editable layer) → dynamic (session context and tool notes). Higher layers are more fundamental and stable; lower layers stay closer to the current session.',
+  'prompt.card.identity': 'Identity',
+  'prompt.card.model': 'Model',
+  'prompt.card.persona': 'Persona',
+  'prompt.card.dynamic': 'Dynamic',
+  'prompt.badge.readonly': 'Read-only',
+  'prompt.badge.editable': 'Editable',
+  'prompt.identity.desc': 'The native dsh identity section that defines the agent\'s self-perception; you may override it wholesale below.',
+  'prompt.identity.nativeLabel': 'Native identity section',
+  'prompt.identity.overrideLabel': 'Identity override text',
+  'prompt.identity.note': 'Applies to the main agent session only (delegated subagents still use the native text); leave empty to restore the native text.',
+  'prompt.model.desc': 'Built-in prompt: at runtime it is fully replaced by the rule matching the current model, and is not editable.',
+  'prompt.model.builtin': 'Built-in default',
+  'prompt.model.source': 'Source: ',
+  'prompt.model.textLabel': 'Read-only model-layer text',
+  'prompt.persona.desc': 'The only editable layer: define the role, tone, and behavioral boundaries; leave empty to append nothing.',
+  'prompt.persona.label': 'Persona text',
+  'prompt.persona.placeholder': 'e.g. You are a senior code reviewer; lead with the conclusion, then the evidence.',
+  'prompt.guide': 'Recommended: role, tone, and behavioral boundaries. Avoid: concrete task instructions and temporary context (keep those in the conversation).',
+  'prompt.exampleReviewerName': 'Senior code reviewer',
+  'prompt.exampleReviewer': 'You are a senior code reviewer. Lead with the conclusion, then list verifiable evidence; review only the given changes and make no unrelated refactors. Be direct and impersonal.',
+  'prompt.exampleOpsName': 'Cautious ops assistant',
+  'prompt.exampleOps': 'You are a cautious operations assistant. Before running any command with side effects, state its impact and ask for confirmation; prefer the smallest reversible action and keep execution evidence.',
+  'prompt.dynamic.desc': 'Read-only: the model-notes section appended when a rule matches (session context and tool notes render here).',
+  'prompt.dynamic.expand': 'Show dynamic layer',
+  'prompt.dynamic.collapse': 'Hide dynamic layer',
+  'prompt.dynamic.textLabel': 'Read-only dynamic-layer text',
+  'prompt.dynamic.empty': 'No append rule is configured.',
+  'prompt.save': 'Save',
+  'prompt.cancel': 'Cancel',
+  'prompt.reset': 'Reset to default layers',
+  'prompt.resetHint': 'Overwrite the current layers with the defaults (this also clears the identity override)?',
+  'prompt.resetConfirm': 'Confirm reset',
+  'prompt.resetCancel': 'Cancel reset',
+  'prompt.loading': 'Loading…',
+  'prompt.loadError': 'Failed to load, please retry',
+}
