@@ -72,7 +72,7 @@ function RuleTabs({ tabs, textLabel, emptyLabel, source }: {
   )
 }
 
-/** 单张层卡：卡头（标题 + 只读/可编辑徽标）+ 一句话说明 + 内容。 */
+/** 单张层卡：卡头（标题 + 只读/可编辑徽标，整头可点折叠/展开）+ 一句话说明 + 内容（默认折叠）。 */
 function LayerCard({ id, title, badge, desc, children }: {
   id: string
   title: string
@@ -80,14 +80,16 @@ function LayerCard({ id, title, badge, desc, children }: {
   desc: string
   children: ReactNode
 }): ReactNode {
+  const [open, setOpen] = useState(false)
   return (
     <section className={css.card} data-testid={`prompt-card-${id}`}>
-      <div className={css.cardHead}>
+      <button type="button" className={css.cardHead} data-testid="prompt-card-toggle"
+        aria-expanded={open} onClick={() => { setOpen(!open) }}>
         <span className={css.cardTitle} data-testid="prompt-card-title">{title}</span>
         <span className={css.badge}>{badge}</span>
-      </div>
+      </button>
       <p className={css.hint}>{desc}</p>
-      {children}
+      {open && children}
     </section>
   )
 }
@@ -106,7 +108,6 @@ export function PromptPage(props: PromptPageProps): ReactNode {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [introOpen, setIntroOpen] = useState(true)
-  const [dynamicOpen, setDynamicOpen] = useState(false)
   const [confirmingReset, setConfirmingReset] = useState(false)
 
   useEffect(() => {
@@ -191,11 +192,6 @@ export function PromptPage(props: PromptPageProps): ReactNode {
 
       <LayerCard id="identity" title={t('prompt.card.identity')} badge={t('prompt.badge.editable')} desc={t('prompt.identity.desc')}>
         <label className={css.field}>
-          {t('prompt.identity.nativeLabel')}
-          <textarea className={css.textarea} readOnly rows={4}
-            aria-label={t('prompt.identity.nativeLabel')} value={nativeText(native, IDENTITY_SECTION)} />
-        </label>
-        <label className={css.field}>
           {t('prompt.identity.overrideLabel')}
           <textarea className={css.textarea} rows={4}
             aria-label={t('prompt.identity.overrideLabel')} value={identityOverride}
@@ -232,13 +228,7 @@ export function PromptPage(props: PromptPageProps): ReactNode {
       </LayerCard>
 
       <LayerCard id="dynamic" title={t('prompt.card.dynamic')} badge={t('prompt.badge.readonly')} desc={t('prompt.dynamic.desc')}>
-        <button type="button" className={css.disclosure} aria-expanded={dynamicOpen}
-          onClick={() => { setDynamicOpen(!dynamicOpen) }}>
-          {dynamicOpen ? t('prompt.dynamic.collapse') : t('prompt.dynamic.expand')}
-        </button>
-        {dynamicOpen && (
-          <RuleTabs tabs={notesTabs} textLabel={t('prompt.dynamic.textLabel')} emptyLabel={t('prompt.dynamic.empty')} />
-        )}
+        <RuleTabs tabs={notesTabs} textLabel={t('prompt.dynamic.textLabel')} emptyLabel={t('prompt.dynamic.empty')} />
       </LayerCard>
 
       {confirmingReset ? (

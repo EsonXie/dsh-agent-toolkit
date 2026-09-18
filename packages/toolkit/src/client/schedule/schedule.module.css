@@ -16,6 +16,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  /* border-box：width:100% + padding/border 不加盒会溢出页面容器。 */
+  box-sizing: border-box;
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--dsw-alias-border-l2);

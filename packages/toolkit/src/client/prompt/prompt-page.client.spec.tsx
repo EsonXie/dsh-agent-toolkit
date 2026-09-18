@@ -51,10 +51,15 @@ function renderPage(): void {
   render(<PromptPage t={t} />)
 }
 
+/** 层卡默认折叠：点卡头开关展开内容。 */
+function expandCard(id: string): void {
+  fireEvent.click(within(screen.getByTestId(`prompt-card-${id}`)).getByTestId('prompt-card-toggle'))
+}
+
 test('无弹窗壳 + 四层卡按 identity/模型层/persona/动态层顺序渲染，只读与可编辑徽标各二', async () => {
   stubFetch()
   renderPage()
-  await screen.findByLabelText(zh['prompt.persona.label'])
+  await screen.findByText(zh['prompt.card.persona'])
 
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(screen.getAllByTestId('prompt-card-title').map((n) => n.textContent)).toEqual([
@@ -62,6 +67,24 @@ test('无弹窗壳 + 四层卡按 identity/模型层/persona/动态层顺序渲�
   ])
   expect(screen.getAllByText(zh['prompt.badge.readonly'])).toHaveLength(2)
   expect(screen.getAllByText(zh['prompt.badge.editable'])).toHaveLength(2)
+})
+
+test('层卡默认折叠：内容隐藏，点卡头展开（aria-expanded 联动）', async () => {
+  stubFetch()
+  renderPage()
+  await screen.findByText(zh['prompt.card.persona'])
+
+  const personaCard = screen.getByTestId('prompt-card-persona')
+  const toggle = within(personaCard).getByTestId('prompt-card-toggle')
+  expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  expect(within(personaCard).queryByLabelText(zh['prompt.persona.label'])).toBeNull()
+
+  expandCard('persona')
+  expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  expect(within(personaCard).getByLabelText(zh['prompt.persona.label'])).toBeTruthy()
+
+  fireEvent.click(toggle)
+  expect(within(personaCard).queryByLabelText(zh['prompt.persona.label'])).toBeNull()
 })
 
 test('说明区默认展开，点击标题折叠、再点击展开', async () => {
@@ -83,6 +106,8 @@ test('说明区默认展开，点击标题折叠、再点击展开', async () =>
 test('persona 示例模板一键填入并置 dirty，保存携带新文本', async () => {
   const calls = stubFetch()
   renderPage()
+  await screen.findByText(zh['prompt.card.persona'])
+  expandCard('persona')
   const textarea = await screen.findByLabelText(zh['prompt.persona.label']) as HTMLTextAreaElement
 
   fireEvent.click(screen.getByRole('button', { name: zh['prompt.exampleReviewerName'] }))
@@ -98,13 +123,15 @@ test('persona 示例模板一键填入并置 dirty，保存携带新文本', asy
   })
 })
 
-test('identity 卡：原生文本只读回显；覆盖编辑留空保存 = 空串还原原生', async () => {
+test('identity 卡：单输入框，原生文本作 placeholder；覆盖编辑留空保存 = 空串还原原生', async () => {
   const calls = stubFetch({ ...PAYLOAD, identityOverride: 'SAVED-IDENTITY' })
   renderPage()
+  await screen.findByText(zh['prompt.card.identity'])
+  expandCard('identity')
   const override = await screen.findByLabelText(zh['prompt.identity.overrideLabel']) as HTMLTextAreaElement
 
   expect(override.value).toBe('SAVED-IDENTITY')
-  expect(screen.getByLabelText(zh['prompt.identity.nativeLabel'])).toHaveProperty('value', 'IDENTITY')
+  expect(override.placeholder).toBe('IDENTITY')
   expect(screen.getByText(zh['prompt.identity.note'])).toBeTruthy()
 
   fireEvent.change(override, { target: { value: '' } })
@@ -118,6 +145,8 @@ test('identity 卡：原生文本只读回显；覆盖编辑留空保存 = 空�
 test('保存成功 → 顶部 toast 反馈', async () => {
   stubFetch()
   renderPage()
+  await screen.findByText(zh['prompt.card.persona'])
+  expandCard('persona')
   const textarea = await screen.findByLabelText(zh['prompt.persona.label'])
   fireEvent.change(textarea, { target: { value: 'NEW' } })
 
@@ -129,7 +158,7 @@ test('保存成功 → 顶部 toast 反馈', async () => {
 test('重置两段确认：首点仅变确认态不发请求，再点 POST reset', async () => {
   const calls = stubFetch()
   renderPage()
-  await screen.findByLabelText(zh['prompt.persona.label'])
+  await screen.findByText(zh['prompt.card.persona'])
 
   fireEvent.click(screen.getByRole('button', { name: zh['prompt.reset'] }))
   expect(screen.getByRole('button', { name: zh['prompt.resetConfirm'] })).toBeTruthy()
@@ -141,22 +170,22 @@ test('重置两段确认：首点仅变确认态不发请求，再点 POST reset
   })
 })
 
-test('模型层卡展示兜底文本与命中规则 tab；动态层默认折叠、展开显示 append 只读文本', async () => {
+test('模型层卡展示兜底文本与命中规则 tab；动态层展开卡头显示 append 只读文本', async () => {
   stubFetch()
   renderPage()
-  await screen.findByLabelText(zh['prompt.persona.label'])
+  await screen.findByText(zh['prompt.card.persona'])
 
+  expandCard('model')
   const modelCard = screen.getByTestId('prompt-card-model')
   expect(within(modelCard).getByRole('tab', { name: '内置默认' }).getAttribute('aria-selected')).toBe('true')
   expect(within(modelCard).getByText(zh['prompt.model.sourceBuiltin'])).toBeTruthy()
   expect((within(modelCard).getByLabelText(zh['prompt.model.textLabel']) as HTMLTextAreaElement).value).toBe('FALLBACK-BASE')
 
   const dynamicCard = screen.getByTestId('prompt-card-dynamic')
-  const toggle = within(dynamicCard).getByRole('button', { name: zh['prompt.dynamic.expand'] })
-  expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  expect(within(dynamicCard).getByTestId('prompt-card-toggle').getAttribute('aria-expanded')).toBe('false')
   expect(within(dynamicCard).queryByLabelText(zh['prompt.dynamic.textLabel'])).toBeNull()
 
-  fireEvent.click(toggle)
+  expandCard('dynamic')
   expect(within(dynamicCard).getByRole('tab', { name: 'deepseek*' }).getAttribute('aria-selected')).toBe('true')
   const notes = within(dynamicCard).getByLabelText(zh['prompt.dynamic.textLabel']) as HTMLTextAreaElement
   expect(notes.value).toBe('V4-NOTES')
@@ -166,8 +195,9 @@ test('模型层卡展示兜底文本与命中规则 tab；动态层默认折叠�
 test('模型层来源注随 tab 切换：内置默认 ↔ 命中规则 overrides.base', async () => {
   stubFetch()
   renderPage()
-  await screen.findByLabelText(zh['prompt.persona.label'])
+  await screen.findByText(zh['prompt.card.persona'])
 
+  expandCard('model')
   const modelCard = screen.getByTestId('prompt-card-model')
   expect(within(modelCard).getByText(zh['prompt.model.sourceBuiltin'])).toBeTruthy()
 
@@ -178,10 +208,10 @@ test('模型层来源注随 tab 切换：内置默认 ↔ 命中规则 overrides
 test('动态层无 append 规则时展开显示空态提示，无 tab 栏', async () => {
   stubFetch({ ...PAYLOAD, rules: [{ match: { modelPattern: 'claude*' }, overrides: { base: 'CLAUDE-BASE' } }] })
   renderPage()
-  await screen.findByLabelText(zh['prompt.persona.label'])
+  await screen.findByText(zh['prompt.card.persona'])
 
+  expandCard('dynamic')
   const dynamicCard = screen.getByTestId('prompt-card-dynamic')
-  fireEvent.click(within(dynamicCard).getByRole('button', { name: zh['prompt.dynamic.expand'] }))
   expect(within(dynamicCard).queryByRole('tablist')).toBeNull()
   expect(within(dynamicCard).getByText(zh['prompt.dynamic.empty'])).toBeTruthy()
 })

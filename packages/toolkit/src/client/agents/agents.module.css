@@ -164,7 +164,17 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  /* 卡头整行可点（折叠/展开手风琴）：按钮重置。 */
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
 }
+.cardHead:hover .cardName { color: var(--dsw-alias-brand-primary); }
 .cardName {
   font-size: 16px;
   line-height: 24px;

@@ -43,7 +43,17 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  /* 卡头整行可点（折叠/展开）：按钮重置。 */
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
 }
+.cardHead:hover .cardTitle { color: var(--dsw-alias-brand-primary); }
 .cardTitle {
   font-size: 16px;
   line-height: 24px;
@@ -81,19 +91,6 @@
 .textarea:focus { outline: none; border-color: var(--dsw-alias-brand-primary); }
 
 .examples { display: flex; flex-wrap: wrap; gap: 8px; }
-
-.disclosure {
-  align-self: flex-start;
-  border: none;
-  padding: 0;
-  background: transparent;
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-brand-primary);
-  text-align: left;
-}
 
 .resetBar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 

@@ -34,6 +34,8 @@ export function AgentsPage(props: AgentsPageProps): ReactNode {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  /** 卡片手风琴：默认折叠（只露头与摘要），点卡头展开操作区与 Bot 列表。 */
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   /** 新建 Bot 归属的卡片；与 botEditing 互斥。 */
   const [botAddingFor, setBotAddingFor] = useState<string | null>(null)
   const [botEditing, setBotEditing] = useState<{ agentId: string; bot: BotListItem } | null>(null)
@@ -139,59 +141,66 @@ export function AgentsPage(props: AgentsPageProps): ReactNode {
       {state.data.agents.map((agent) => {
         const isMain = agent.id === 'main'
         const bots = botsByAgent.get(agent.id) ?? []
+        const expanded = expandedId === agent.id
         return (
           <div key={agent.id} data-testid="agent-card" className={css.card}>
-            <div className={css.cardHead}>
+            <button type="button" data-testid="agent-card-toggle" className={css.cardHead}
+              aria-expanded={expanded}
+              onClick={() => { setExpandedId(expanded ? null : agent.id) }}>
               <span data-testid="agent-card-name" className={css.cardName}>{agent.name}</span>
               {agent.builtin === true && <Pill className={css.badge}>{t('agents.builtin')}</Pill>}
               {agent.visibleInTeam === false && <Pill className={css.badge}>{t('agents.hiddenInTeam')}</Pill>}
-            </div>
+            </button>
             {isMain ? (
               <p className={css.readonlyNote}>{t('agents.mainNote')}</p>
             ) : (
+              <p className={css.summary}>
+                {agent.model === undefined
+                  ? t('agents.modelFollowDefault')
+                  : t('agents.modelValue', { provider: agent.model.provider, model: agent.model.model })}
+                {' · '}
+                {agent.tools === undefined
+                  ? t('agents.toolsUnrestricted')
+                  : t('agents.toolsAllow', { count: agent.tools.allow.length })}
+                {' · '}
+                {t('agents.botCount', { count: bots.length })}
+              </p>
+            )}
+            {expanded && (
               <>
-                <p className={css.summary}>
-                  {agent.model === undefined
-                    ? t('agents.modelFollowDefault')
-                    : t('agents.modelValue', { provider: agent.model.provider, model: agent.model.model })}
-                  {' · '}
-                  {agent.tools === undefined
-                    ? t('agents.toolsUnrestricted')
-                    : t('agents.toolsAllow', { count: agent.tools.allow.length })}
-                  {' · '}
-                  {t('agents.botCount', { count: bots.length })}
-                </p>
-                <div className={css.cardActions} data-testid="agent-card-actions">
-                  <Button variant="outline" onClick={() => {
-                    setEditingId(editingId === agent.id ? null : agent.id)
-                    setConfirmDeleteId(null)
-                  }}>{t('agents.edit')}</Button>
-                  {/* 内置角色服务端恒拒删（registry.remove 抛错 → 409），不渲染必然失败的删除按钮。 */}
-                  {agent.builtin !== true && (
-                    <Button variant="outline" className={css.dangerButton} disabled={deletingId !== null}
-                      onClick={() => { void remove(agent) }}>
-                      {confirmDeleteId === agent.id ? t('agents.confirmDelete') : t('agents.delete')}
-                    </Button>
-                  )}
+                {!isMain && (
+                  <div className={css.cardActions} data-testid="agent-card-actions">
+                    <Button variant="outline" onClick={() => {
+                      setEditingId(editingId === agent.id ? null : agent.id)
+                      setConfirmDeleteId(null)
+                    }}>{t('agents.edit')}</Button>
+                    {/* 内置角色服务端恒拒删（registry.remove 抛错 → 409），不渲染必然失败的删除按钮。 */}
+                    {agent.builtin !== true && (
+                      <Button variant="outline" className={css.dangerButton} disabled={deletingId !== null}
+                        onClick={() => { void remove(agent) }}>
+                        {confirmDeleteId === agent.id ? t('agents.confirmDelete') : t('agents.delete')}
+                      </Button>
+                    )}
+                  </div>
+                )}
+                <div className={css.botList}>
+                  <BotList
+                    bots={bots}
+                    onEdit={(bot) => { setBotAddingFor(null); setBotEditing({ agentId: agent.id, bot }) }}
+                    onDeleted={handleBotDeleted}
+                  />
+                  {botEditing !== null && botEditing.agentId === agent.id && renderBotForm(agent.id, botEditing.bot)}
+                  {botAddingFor === agent.id && renderBotForm(agent.id)}
+                  <div>
+                    <Button variant="outline" onClick={() => {
+                      setBotEditing(null)
+                      setBotAddingFor(botAddingFor === agent.id ? null : agent.id)
+                    }}>{t('agents.addBot')}</Button>
+                  </div>
                 </div>
+                {editingId === agent.id && renderEditor(agent)}
               </>
             )}
-            <div className={css.botList}>
-              <BotList
-                bots={bots}
-                onEdit={(bot) => { setBotAddingFor(null); setBotEditing({ agentId: agent.id, bot }) }}
-                onDeleted={handleBotDeleted}
-              />
-              {botEditing !== null && botEditing.agentId === agent.id && renderBotForm(agent.id, botEditing.bot)}
-              {botAddingFor === agent.id && renderBotForm(agent.id)}
-              <div>
-                <Button variant="outline" onClick={() => {
-                  setBotEditing(null)
-                  setBotAddingFor(botAddingFor === agent.id ? null : agent.id)
-                }}>{t('agents.addBot')}</Button>
-              </div>
-            </div>
-            {editingId === agent.id && renderEditor(agent)}
           </div>
         )
       })}
