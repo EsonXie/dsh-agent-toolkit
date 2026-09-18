@@ -4,7 +4,7 @@
 
 ## 注册表与存储
 
-Agent 注册表：UI 管理（Agents 面板，创建/编辑/删除）+ YAML 首启导入（`roles_yaml_imported` 一次性标记）；存储域 `dsh_agent_toolkit`（表 `agents` + `meta`），schema 与 domain 布局的单一来源在 `src/agents/store.ts`。内置 explorer 默认携带只读白名单 10 个（旧 5 个派生 + web_search/todo_write/job_list/job_output/skill），general 默认显式 preset 面 20 个（不含 team_delegate/run_code），存量仍是旧默认值的 builtin 记录经 meta 标记 `builtin_tools_recatalog_migrated` 一次性条件迁移（用户改过的跳过）；Agents 面板工具区块为「不限制 / 自定义白名单」radio 二选一（不限制 = 省略 tools 字段），deny 语义不存在。
+Agent 注册表：UI 管理（**设置面板 → Agent 工具箱 → Agents**，创建/编辑/删除，编辑/新建内联展开）+ YAML 首启导入（`roles_yaml_imported` 一次性标记）；存储域 `dsh_agent_toolkit`（表 `agents` + `meta`），schema 与 domain 布局的单一来源在 `src/agents/store.ts`。卡片流按 `createdAt` 升序渲染（服务端排序：main 恒置顶只读、无编辑/删除按钮；内置卡带「内置」徽标且不渲染删除按钮；存量缺时间戳记录经 `agents_timestamps_backfilled` 一次性按 id 序回填）；删除名下有 Bot 的角色返回 409 `{ error, bots }`（前端提示 Bot 数量），保存/删除成功 toast。内置 explorer 默认携带只读白名单 10 个（旧 5 个派生 + web_search/todo_write/job_list/job_output/skill），general 默认显式 preset 面 20 个（不含 team_delegate/run_code），存量仍是旧默认值的 builtin 记录经 meta 标记 `builtin_tools_recatalog_migrated` 一次性条件迁移（用户改过的跳过）；Agents 页工具区块为「不限制 / 自定义白名单」radio 二选一（不限制 = 省略 tools 字段），deny 语义不存在。飞书 Bot 列表也并入本页各 Agent 卡片（见 [feishu.md](feishu.md)）。
 
 ## 工具名册与白名单求交
 
