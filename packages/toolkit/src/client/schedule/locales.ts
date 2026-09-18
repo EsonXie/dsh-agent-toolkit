@@ -1,4 +1,7 @@
 /** schedule 浏览器半文案：zh 为真源，en 键集严格一致。 */
+// 触发 ui-slots 对 LocaleNamespaceMap 的声明合并（'agent-schedule' 键域）。
+import type {} from '@deepseek-ai/dsh-client-ui-slots'
+
 export const NS = 'agent-schedule'
 
 export const zh = {
@@ -20,6 +23,23 @@ export const zh = {
   'list.noNextRun': '已停用',
   'list.history': '运行历史',
   'list.historyEmpty': '暂无运行记录',
+  'desc.daily': '每天 {time}',
+  'desc.weekdays': '每工作日 {time}',
+  'desc.weekly': '每周{weekday} {time}',
+  'desc.hourly': '每小时第 {minute} 分',
+  'desc.everySeconds': '每 {seconds} 秒',
+  'desc.at': '一次性 {time}',
+  'desc.cron': '自定义 {expr}',
+  'desc.weekday.0': '日',
+  'desc.weekday.1': '一',
+  'desc.weekday.2': '二',
+  'desc.weekday.3': '三',
+  'desc.weekday.4': '四',
+  'desc.weekday.5': '五',
+  'desc.weekday.6': '六',
+  'feedback.saved': '已保存',
+  'feedback.deleted': '已删除',
+  'feedback.triggered': '已触发',
   'run.ok': '成功',
   'run.error': '失败',
   'run.running': '运行中',
@@ -49,6 +69,13 @@ export const zh = {
 
 export type ScheduleKey = keyof typeof zh
 
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** 定时任务面板文案。 */
+    'agent-schedule': ScheduleKey
+  }
+}
+
 export const en: Record<ScheduleKey, string> = {
   'modal.title': 'Scheduled tasks',
   'modal.close': 'Close',
@@ -68,6 +95,23 @@ export const en: Record<ScheduleKey, string> = {
   'list.noNextRun': 'Disabled',
   'list.history': 'Run history',
   'list.historyEmpty': 'No runs yet',
+  'desc.daily': 'Daily at {time}',
+  'desc.weekdays': 'Weekdays at {time}',
+  'desc.weekly': 'Weekly on {weekday} at {time}',
+  'desc.hourly': 'Hourly at minute {minute}',
+  'desc.everySeconds': 'Every {seconds}s',
+  'desc.at': 'One-shot at {time}',
+  'desc.cron': 'Custom {expr}',
+  'desc.weekday.0': 'Sun',
+  'desc.weekday.1': 'Mon',
+  'desc.weekday.2': 'Tue',
+  'desc.weekday.3': 'Wed',
+  'desc.weekday.4': 'Thu',
+  'desc.weekday.5': 'Fri',
+  'desc.weekday.6': 'Sat',
+  'feedback.saved': 'Saved',
+  'feedback.deleted': 'Deleted',
+  'feedback.triggered': 'Triggered',
   'run.ok': 'OK',
   'run.error': 'Error',
   'run.running': 'Running',

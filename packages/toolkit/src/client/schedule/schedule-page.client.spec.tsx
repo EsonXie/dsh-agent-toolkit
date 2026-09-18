@@ -1,14 +1,8 @@
 // @vitest-environment jsdom
-import { createElement, type ComponentType } from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { CommonKeyOf } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import type { Context } from '@deepseek-ai/cordis'
 import { afterEach, expect, test, vi } from 'vitest'
-import { setupScheduleClient } from './index.ts'
-import { ScheduleModal } from './ScheduleModal.tsx'
+import { SchedulePage } from './SchedulePage.tsx'
 import { zh, type ScheduleKey } from './locales.ts'
 
 /** t 桩：zh 真源 + {param} 插值（delegate-card.test.tsx 同款）。键域含共享 common 词汇（TranslateNS 并入）。 */
@@ -42,15 +36,22 @@ function stubFetch(routes: Record<string, (body?: unknown) => unknown>) {
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
-function renderModal() {
+function renderPage() {
   const openSession = vi.fn()
-  render(<ScheduleModal open onClose={() => undefined} openSession={openSession} t={t} />)
+  render(<SchedulePage t={t} openSession={openSession} />)
   return { openSession }
 }
 
+test('无弹窗壳：整页渲染不出现 dialog role', async () => {
+  stubFetch({ '/dsh-agent-toolkit/api/cron/tasks': () => ({ tasks: [TASK] }) })
+  renderPage()
+  await screen.findByText('日报')
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
 test('列表渲染：名称/调度摘要/目标/下次触发/上次运行徽标', async () => {
   stubFetch({ '/dsh-agent-toolkit/api/cron/tasks': () => ({ tasks: [TASK] }) })
-  renderModal()
+  renderPage()
   await screen.findByText('日报')
   expect(screen.getByText(/cron: 0 9 \* \* \* \(Asia\/Shanghai\)/)).toBeDefined()
   expect(screen.getByText('主 Agent')).toBeDefined()
@@ -58,80 +59,77 @@ test('列表渲染：名称/调度摘要/目标/下次触发/上次运行徽标'
   expect(screen.getByText('成功')).toBeDefined()
 })
 
-test('enabled 行内开关：PUT enabled=false', async () => {
+test('enabled 行内开关：PUT enabled=false 并 toast', async () => {
   const calls = stubFetch({
     '/dsh-agent-toolkit/api/cron/tasks/task-1': () => ({ task: TASK }),
     '/dsh-agent-toolkit/api/cron/tasks': () => ({ tasks: [TASK] }),
   })
-  renderModal()
-  const toggle = await screen.findByRole('checkbox', { name: /日报/ })
+  renderPage()
+  const toggle = await screen.findByRole('switch', { name: /日报/ })
   fireEvent.click(toggle)
   await vi.waitFor(() => {
     const put = calls.find((c) => c.method === 'PUT' && c.url.includes('task-1'))
     expect(put?.body).toEqual({ enabled: false })
   })
+  expect(await screen.findByRole('alert')).toBeTruthy()
 })
 
-test('删除两段确认：第一次点击变确认，第二次发 DELETE', async () => {
+test('删除两段确认：第一次点击变确认，第二次发 DELETE 并 toast', async () => {
   const calls = stubFetch({ '/dsh-agent-toolkit/api/cron/tasks': () => ({ tasks: [TASK] }) })
-  renderModal()
+  renderPage()
   const del = await screen.findByRole('button', { name: '删除' })
   fireEvent.click(del)
   expect(screen.getByRole('button', { name: '确认删除？' })).toBeDefined()
   expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: '确认删除？' }))
   await vi.waitFor(() => { expect(calls.some((c) => c.method === 'DELETE' && c.url.includes('task-1'))).toBe(true) })
+  expect(await screen.findByRole('alert')).toBeTruthy()
 })
 
 test('立即触发：POST trigger 并重拉', async () => {
   const calls = stubFetch({ '/dsh-agent-toolkit/api/cron/tasks': () => ({ tasks: [TASK] }) })
-  renderModal()
+  renderPage()
   fireEvent.click(await screen.findByRole('button', { name: '立即触发' }))
   await vi.waitFor(() => { expect(calls.some((c) => c.method === 'POST' && c.url.includes('/trigger'))).toBe(true) })
 })
 
-test('运行历史：展开拉取 runs，sessionId 链接点击打开会话', async () => {
+test('运行历史：点击任务行展开拉取 runs，sessionId 链接点击打开会话', async () => {
   stubFetch({
     '/dsh-agent-toolkit/api/cron/tasks/task-1/runs': () => ({
       runs: [{ id: 'r1', taskId: 'task-1', triggeredAt: '2026-09-07T01:00:00.000Z', finishedAt: '2026-09-07T01:02:00.000Z', status: 'ok', sessionId: 'sess-1' }],
     }),
     '/dsh-agent-toolkit/api/cron/tasks': () => ({ tasks: [TASK] }),
   })
-  const { openSession } = renderModal()
-  fireEvent.click(await screen.findByRole('button', { name: '运行历史' }))
+  const { openSession } = renderPage()
+  fireEvent.click(await screen.findByRole('button', { name: /日报/ }))
   fireEvent.click(await screen.findByRole('button', { name: '查看会话' }))
   expect(openSession).toHaveBeenCalledWith('sess-1')
 })
 
-test('生产 renderForm 闭包：新建任务渲染 TaskForm 元素（React #310 hooks 边界回归）', async () => {
+test('新建任务：直接渲染 SchedulePage 后点添加，内联渲染 TaskForm（React #310 hooks 宿主回归）', async () => {
   stubFetch({
     '/dsh-agent-toolkit/api/cron/projects': () => ({ projects: ['D:\\work'] }),
     '/dsh-agent-toolkit/api/agents': () => [],
     '/dsh-agent-toolkit/api/cron/tasks': () => ({ tasks: [] }),
   })
-  // 经 setupScheduleClient 捕获真实 slot 渲染器（index.ts 里 renderForm 闭包生产形态），
-  // 复现人工验收同款路径：点开侧边栏入口 → 新建任务 → TaskForm 直调导致 hooks 挂错宿主。
-  let slotRenderer: ComponentType | undefined
-  const ctx = {
-    effect: (fn: () => unknown) => { fn(); return () => {} },
-    locale: { register: () => {} },
-    sessions: { open: vi.fn() },
-    slots: {
-      inject: (_key: string, callback: () => unknown) => { callback(); return () => {} },
-      register: (_options: unknown, renderer: ComponentType) => { slotRenderer = renderer; return () => {} },
-    },
-  }
-  setupScheduleClient(ctx as unknown as Context)
-  const RUNTIME = {
-    useSessions: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<SessionListState>,
-    useWorkspaces: ((selector: (state: { items: readonly unknown[] }) => unknown) =>
-      selector({ items: [] })) as unknown as SnapshotSelectorHook<WorkspaceSnapshot>,
-  }
-  render(createElement(
-    slotRenderer as ComponentType<{ t: typeof t; wide: boolean; useSessions: typeof RUNTIME.useSessions; useWorkspaces: typeof RUNTIME.useWorkspaces }>,
-    { t, wide: true, ...RUNTIME },
-  ))
-  fireEvent.click(await screen.findByRole('button', { name: '定时任务' }))
+  renderPage()
   fireEvent.click(await screen.findByRole('button', { name: '新建任务' }))
   expect(await screen.findByLabelText('名称')).toBeDefined()
+})
+
+test('保存成功：POST 后回列表并 toast', async () => {
+  const calls = stubFetch({
+    '/dsh-agent-toolkit/api/cron/projects': () => ({ projects: ['D:\\work'] }),
+    '/dsh-agent-toolkit/api/agents': () => [],
+    '/dsh-agent-toolkit/api/cron/tasks': () => ({ tasks: [] }),
+  })
+  renderPage()
+  fireEvent.click(await screen.findByRole('button', { name: '新建任务' }))
+  fireEvent.change(await screen.findByLabelText('名称'), { target: { value: '日报' } })
+  fireEvent.change(screen.getByLabelText('提示词'), { target: { value: '写日报' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+  await vi.waitFor(() => {
+    expect(calls.some((c) => c.method === 'POST' && c.url === '/dsh-agent-toolkit/api/cron/tasks')).toBe(true)
+  })
+  expect(await screen.findByRole('alert')).toBeTruthy()
 })

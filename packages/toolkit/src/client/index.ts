@@ -5,7 +5,6 @@ import { setupSubagentModelClient } from './subagent-model/index.ts'
 import { setupAgentsClient } from './agents/index.ts'
 import { setupPromptClient } from './prompt/index.ts'
 import { setupUsageClient } from '@dsh-agent-toolkit/token-usage/client-module'
-import { setupScheduleClient } from './schedule/index.ts'
 
 export const inject = ['sessions', 'slots', 'locale']
 
@@ -21,5 +20,4 @@ export function apply(ctx: Context): void {
     // id 抛错——本包停用用量面板，不向上抛以免拖垮整个浏览器半（其余面板照常注册）。
     console.warn('[dsh-agent-toolkit] 侧边栏「Token 用量」入口已由独立包 @dsh-agent-toolkit/token-usage 注册，本包停用用量面板', error)
   }
-  setupScheduleClient(ctx)
 }

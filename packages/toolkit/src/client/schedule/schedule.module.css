@@ -1,6 +1,17 @@
-.dialog { width: 640px; }
+/* 设置页整页容器 + 工具条（「+ 新建任务」内联展开表单）。 */
+.page {
+  display: flex;
+  flex-direction: column;
+  max-width: 760px;
+}
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
 
 /* 任务列表行：卡片化（对齐 bots 面板 .botRow）。 */
+.taskBlock { display: flex; flex-direction: column; }
 .row {
   display: flex;
   align-items: center;
