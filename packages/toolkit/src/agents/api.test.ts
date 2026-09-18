@@ -44,7 +44,7 @@ function harness(overrides: Partial<AgentsApiDeps> = {}) {
       const rest = [...store.entries()]
         .filter(([id]) => id !== 'main')
         .map(([, record]) => record)
-        .sort((a, b) => a.id.localeCompare(b.id))
+        .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id))
       return main === undefined ? rest : [main, ...rest]
     },
     get: (id) => store.get(id),
@@ -82,7 +82,7 @@ function harness(overrides: Partial<AgentsApiDeps> = {}) {
 }
 
 describe('GET /agents', () => {
-  test('返回 AgentRecord[] 裸数组（main 置顶，其余按 id 字典序）', async () => {
+  test('返回 AgentRecord[] 裸数组（main 置顶，其余按 createdAt 升序、并列按 id）', async () => {
     const { handler } = harness()
     const res = mockRes()
     await handler(mockReq('GET', '/dsh-agent-toolkit/api/agents'), res)

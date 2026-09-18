@@ -6,7 +6,7 @@ import { importRolesYaml } from './import-yaml.ts'
 import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 
 export interface AgentRegistry {
-  /** main 置顶，其余按 id 字典序。 */
+  /** main 置顶，其余按 createdAt 升序（并列按 id）。 */
   list(): AgentRecord[]
   get(id: string): AgentRecord | undefined
   /** main 的 name/builtin 不可改；builtin 可改配置不可删。 */
@@ -29,6 +29,9 @@ export const TOOLS_PRESET_MIGRATED_KEY = 'tools_preset_catalog_migrated'
 /** 内置角色工具名单重选（explorer 5→10 / general 无→20）一次性迁移的 meta 表标记键。 */
 export const BUILTIN_TOOLS_RECATALOG_MIGRATED_KEY = 'builtin_tools_recatalog_migrated'
 
+/** 存量 Agent 缺 createdAt/updatedAt 时一次性回填的 meta 表标记键。 */
+export const AGENTS_TIMESTAMPS_BACKFILLED_KEY = 'agents_timestamps_backfilled'
+
 /**
  * 打开 dsh_agent_toolkit 域 → 首启 YAML 导入 → 旧记录迁移（promptLayers/原生并入/preset 差集并入/explorer 只读/内置名单重选）→
  * 缺 main/explorer/general 时种入内置 → 构建内存缓存。域由 apply 统一 open（storage-domain 同名单开），此处只消费表句柄。
@@ -38,6 +41,8 @@ export async function createRegistry(
   tables: { agents: KvTable<string, AgentRecord>; meta: KvTable<string, { value: string }> },
   /** 动态 preset 工具面（tool-catalog.ts）；缺席 = 跳过 preset 并入迁移（不置标记）。 */
   listPresetTools?: () => Promise<string[]>,
+  /** 回填时间戳的时钟；测试可注入固定值。 */
+  now: () => number = Date.now,
 ): Promise<AgentRegistry> {
   const { agents, meta } = tables
 
@@ -116,6 +121,23 @@ export async function createRegistry(
 
   await seedBuiltins(agents)
 
+  // 存量记录时间戳一次性回填（2026-09-17）：缺 createdAt/updatedAt 的记录按 id 字典序
+  // 依次赋 now()+index，使列表按创建时间升序有稳定基准。在 seedBuiltins 之后执行——
+  // 新种入的内置记录同样缺时间戳，一并回填（与用户自建记录同规参与排序，而非因缺字段排前）。
+  // meta 标记幂等：二次启动不再改写用户已有时间戳。
+  if (meta.get(AGENTS_TIMESTAMPS_BACKFILLED_KEY) === undefined) {
+    const missing = [...agents.keys()]
+      .filter((id) => agents.get(id)?.createdAt === undefined)
+      .sort((a, b) => a.localeCompare(b))
+    const base = now()
+    for (const [index, id] of missing.entries()) {
+      const record = agents.get(id)
+      if (record === undefined) continue
+      await agents.put(id, { ...record, createdAt: base + index, updatedAt: base + index })
+    }
+    await meta.put(AGENTS_TIMESTAMPS_BACKFILLED_KEY, { value: '1' })
+  }
+
   const cache = new Map<string, AgentRecord>()
   for (const [id, record] of agents.entries()) cache.set(id, record)
 
@@ -130,7 +152,7 @@ export async function createRegistry(
       const rest = [...cache.entries()]
         .filter(([id]) => id !== 'main')
         .map(([, record]) => record)
-        .sort((a, b) => a.id.localeCompare(b.id))
+        .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id))
       return main === undefined ? rest : [main, ...rest]
     },
     get(id: string): AgentRecord | undefined {

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { DomainSpec, KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { agentToolkitDomain, type AgentRecord } from './store.ts'
-import { createRegistry, BUILTIN_TOOLS_RECATALOG_MIGRATED_KEY, EXPLORER_READONLY_MIGRATED_KEY, TOOLS_NATIVE_MIGRATED_KEY, type AgentRegistry } from './registry.ts'
+import { createRegistry, AGENTS_TIMESTAMPS_BACKFILLED_KEY, BUILTIN_TOOLS_RECATALOG_MIGRATED_KEY, EXPLORER_READONLY_MIGRATED_KEY, TOOLS_NATIVE_MIGRATED_KEY, type AgentRegistry } from './registry.ts'
 import { EXPLORER_READONLY_ALLOW, GENERAL_ALLOW, LEGACY_EXPLORER_ALLOW } from './builtin.ts'
 import { NATIVE_TOOL_NAMES } from '../channels/basic-tools.ts'
 
@@ -73,16 +73,42 @@ test('createRegistry：已有记录不重复种入', async () => {
   const domain = new FakeDomain(agentToolkitDomain)
   await agentsOf(domain).put('general', { id: 'general', name: '自定义', builtin: false })
   const registry = await createRegistry(vi.fn(), tablesOf(domain))
-  expect(registry.get('general')).toEqual({ id: 'general', name: '自定义', builtin: false })
+  expect(registry.get('general')).toMatchObject({ id: 'general', name: '自定义', builtin: false })
   expect(registry.list().map(r => r.id)).toEqual(['main', 'explorer', 'general'])
 })
 
-test('list：main 置顶，其余按 id 字典序', async () => {
+test('list：main 置顶，其余按 createdAt 升序（存量回填基准 = id 序）', async () => {
   const domain = new FakeDomain(agentToolkitDomain)
   await agentsOf(domain).put('zeta', { id: 'zeta', name: 'Zeta' })
   await agentsOf(domain).put('alpha', { id: 'alpha', name: 'Alpha' })
   const registry = await createRegistry(vi.fn(), tablesOf(domain))
   expect(registry.list().map(r => r.id)).toEqual(['main', 'alpha', 'explorer', 'general', 'zeta'])
+})
+
+test('list：main 置顶，其余按 createdAt 升序、并列按 id 字典序', async () => {
+  const domain = new FakeDomain(agentToolkitDomain)
+  const { agents, meta } = tablesOf(domain)
+  await agents.put('b', { id: 'b', name: 'B', createdAt: 20 })
+  await agents.put('a', { id: 'a', name: 'A', createdAt: 20 })
+  await agents.put('c', { id: 'c', name: 'C', createdAt: 10 })
+  const registry = await createRegistry(vi.fn(), { agents, meta }, async () => [], () => 1000)
+  // 内置 explorer/general 由种入后回填获得 now()+index（晚于用户自建），排在用户记录之后。
+  expect(registry.list().map(r => r.id)).toEqual(['main', 'c', 'a', 'b', 'explorer', 'general'])
+})
+
+test('回填迁移：缺 createdAt 的存量记录按 id 序回填 now()+index，幂等', async () => {
+  const domain = new FakeDomain(agentToolkitDomain)
+  const { agents, meta } = tablesOf(domain)
+  await agents.put('b', { id: 'b', name: 'B' })
+  await agents.put('a', { id: 'a', name: 'A' })
+  const registry = await createRegistry(vi.fn(), { agents, meta }, async () => [], () => 1000)
+  expect(agents.get('a')?.createdAt).toBe(1000)
+  expect(agents.get('b')?.createdAt).toBe(1001)
+  expect(meta.get(AGENTS_TIMESTAMPS_BACKFILLED_KEY)).toEqual({ value: '1' })
+  // 幂等：二次创建不再改写
+  const again = await createRegistry(vi.fn(), { agents, meta }, async () => [], () => 2000)
+  expect(agents.get('a')?.createdAt).toBe(1000)
+  expect(again.list()[0].id).toBe('main')
 })
 
 test('upsert：写穿到持久层并刷新缓存', async () => {
@@ -173,8 +199,8 @@ test('createRegistry：旧记录 promptLayers 迁移为 persona 并写回持久�
     ],
   })
   const registry = await createRegistry(vi.fn(), tablesOf(domain))
-  expect(registry.get('legacy')).toEqual({ id: 'legacy', name: 'Legacy', persona: 'A\n\nB' })
-  expect(agentsOf(domain).get('legacy')).toEqual({ id: 'legacy', name: 'Legacy', persona: 'A\n\nB' })
+  expect(registry.get('legacy')).toMatchObject({ id: 'legacy', name: 'Legacy', persona: 'A\n\nB' })
+  expect(agentsOf(domain).get('legacy')).toMatchObject({ id: 'legacy', name: 'Legacy', persona: 'A\n\nB' })
 })
 
 test('createRegistry：存量 tools.allow 一次性并入原生工具名，meta 标记后不再改动', async () => {
@@ -337,6 +363,6 @@ test('createRegistry：同 id 非 builtin 记录不动（用户数据），built
   await tables.meta.put(TOOLS_NATIVE_MIGRATED_KEY, { value: '1' })
   await tables.agents.put('general', { id: 'general', name: '自定义', builtin: false })
   const registry = await createRegistry(vi.fn(), tables)
-  expect(registry.get('general')).toEqual({ id: 'general', name: '自定义', builtin: false })
+  expect(registry.get('general')).toMatchObject({ id: 'general', name: '自定义', builtin: false })
   expect(tables.meta.get(BUILTIN_TOOLS_RECATALOG_MIGRATED_KEY)).toEqual({ value: '1' })
 })

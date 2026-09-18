@@ -19,6 +19,10 @@ export interface AgentRecord {
   builtin?: boolean
   /** 团队可见性：省略/true = 出现在 Agent 团队名册并可被委派；false = 隐藏。bot 绑定不受此字段影响。 */
   visibleInTeam?: boolean
+  /** 创建时间（epoch ms，int）；存量记录由 createRegistry 一次性回填。 */
+  createdAt?: number
+  /** 最后更新时间（epoch ms，int）；存量记录由 createRegistry 一次性回填。 */
+  updatedAt?: number
 }
 
 export const LayerConfigSchema = z.object({
@@ -37,6 +41,8 @@ export const AgentRecordSchema: z.ZodType<AgentRecord> = z.object({
   tools: z.object({ allow: z.array(z.string()).min(1) }).optional(),
   builtin: z.boolean().optional(),
   visibleInTeam: z.boolean().optional(),
+  createdAt: z.number().int().nonnegative().optional(),
+  updatedAt: z.number().int().nonnegative().optional(),
 })
 
 /** domain 名/表名受 UNIT_NAME_RE 约束（^[a-z][a-z0-9_]*$），不允许连字符。 */

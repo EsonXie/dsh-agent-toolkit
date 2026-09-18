@@ -66,6 +66,12 @@ describe('AgentRecordSchema', () => {
     expect(AgentRecordSchema.safeParse({ id: 'x', name: 'X', visibleInTeam: false }).success).toBe(true)
     expect(AgentRecordSchema.safeParse({ id: 'x', name: 'X', visibleInTeam: 'yes' }).success).toBe(false)
   })
+
+  test('AgentRecordSchema 接受可选 createdAt/updatedAt', () => {
+    const r = AgentRecordSchema.parse({ id: 'a1', name: 'A', createdAt: 1, updatedAt: 2 })
+    expect(r.createdAt).toBe(1)
+    expect(r.updatedAt).toBe(2)
+  })
 })
 
 describe('isTeamVisible', () => {
