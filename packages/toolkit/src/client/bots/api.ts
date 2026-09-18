@@ -8,10 +8,8 @@ export interface BotInput {
   id?: string
   name: string
   project: string
-  persona?: string
   /** 绑定的 Agent（'main' 或注册表角色 id）；null 清回主 Agent。 */
   agentRef?: string | null
-  tools?: string[]
   /** 绑 main 时自配模型（必填）；null = 清除（编辑模式绑角色时提交）。 */
   agentOptions?: { provider?: string; model?: string } | null
   /** 渠道绑定：null = 解绑（服务端删密钥、保留会话绑定）；扫码路径传 appSecretRef。 */
