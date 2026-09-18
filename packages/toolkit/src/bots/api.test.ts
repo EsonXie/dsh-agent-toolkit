@@ -302,15 +302,20 @@ describe('PUT /bots', () => {
     expect(record).not.toHaveProperty('agentOptions')
   })
 
-  test('PUT 切 agentRef 到角色且携带 agentOptions：400', async () => {
-    const { handler, bots } = harness()
+  test('PUT 切 agentRef 到角色且携带 agentOptions：400，且校验先于渠道副作用（重绑密钥不落库、旧密钥不删）', async () => {
+    const { handler, bots, storedSecrets, deletedSecrets, unbound, reconciled } = harness()
     const res = mockRes()
     await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=reviewer', {
       agentRef: 'role-x', agentOptions: { provider: 'p', model: 'm' },
+      feishu: { appId: 'cli_000000000000000a', appSecret: 'new-secret' },
     }), res)
     expect(res.status).toBe(400)
     expect(JSON.parse(res.body)).toEqual({ error: 'agentOptions 仅在绑定主 Agent 时可用' })
-    expect(bots.get('reviewer')).not.toHaveProperty('agentRef')
+    expect(storedSecrets).toEqual([])
+    expect(deletedSecrets).toEqual([])
+    expect(unbound).toEqual([])
+    expect(reconciled).toEqual([])
+    expect(bots.get('reviewer')).toEqual(BOT)
   })
 
   test('PUT agentRef=null 回 main：允许携带/保留 agentOptions', async () => {
