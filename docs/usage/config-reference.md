@@ -42,7 +42,7 @@
 
 | 字段 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
-| `modules.feishu` | boolean | `true` | 启用飞书 bots 模块。`false` 时不开 `project_bot` 存储域、不注册 bots API |
+| `modules.feishu` | boolean | `true` | 启用飞书 bots 模块。`false` 时不注册 bots API、面板 Agents 页的 Bot 列表降级为空（`project_bot` 存储域仍开启——agents 删除守卫需 Bot 计数） |
 | `modules.usage` | boolean | `true` | 启用 token 用量模块。`false` 时不开 `token_usage` 域、不注册 `/token-usage` 命令 |
 | `layers` | array | `[{ name: 'persona', order: 10, text: '' }]` | 语义化提示词分层，见 [prompt-layers.md](prompt-layers.md)。元素：`{name: string, order: number, text: string}` 皆必填（首启种子；若已用 UI 管理分层提示词，此后由存储域生效，此处仅在重置时作为默认值）。层结构固定：UI/API 仅可改 persona 文本，增删层/改名/改序被拒绝；`base` / `model-notes` 为保留层名不可占用 |
 | `rules` | array | 内置 15 条规则 | 按模型匹配的覆盖/追加规则。元素：`{match: {provider?, model?, modelPattern?}, overrides?: Record<string,string>, append?: string}` |

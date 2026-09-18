@@ -260,6 +260,19 @@ test('加载失败：整页错误态', async () => {
   expect(await screen.findByRole('alert')).toBeTruthy()
 })
 
+test('modules.feishu=false：bots API 404 时降级为空列表，Agent 卡片仍正常渲染', async () => {
+  // bots 路由未注册 → 404（fetchBots 拒绝）；agents 路由正常，页面不应整页报错。
+  stubFetch(routes({ '/dsh-agent-toolkit/api/bots/bots': () => ({ status: 404, body: {} }) }))
+  renderPage()
+
+  const names = await screen.findAllByTestId('agent-card-name')
+  expect(names.map((n) => n.textContent)).toEqual(['主 Agent', 'AAA', 'Explorer'])
+  expect(screen.queryByRole('alert')).toBeNull()
+  // Bot 区降级：无 Bot 行，但「+ 添加 Bot」按钮仍在（归属本卡）。
+  expect(screen.queryAllByTestId('bot-row')).toHaveLength(0)
+  expect(within(cardOf('AAA')).getByRole('button', { name: zh['agents.addBot'] })).toBeTruthy()
+})
+
 // —— 以下由 agents.spec.tsx（AgentsModal）迁入，经 AgentsPage 内联编辑器覆盖同一 AgentEditor 行为。 ——
 
 test('新建角色→保存：persona 单文本 + 工具默认全勾（preset+全局）→ PUT /agents/:id 携带记录', async () => {

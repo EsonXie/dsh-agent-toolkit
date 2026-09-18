@@ -112,7 +112,7 @@ Agent 工作时，回复以飞书卡片实时更新：
 
 ## 相关配置
 
-全部位于 `feishu.*` 命名空间下，默认值与含义见 [config-reference.md](config-reference.md)。模块整体可用 `modules.feishu: false` 关闭（关闭后不开存储域、不注册 API、面板入口消失）。
+全部位于 `feishu.*` 命名空间下，默认值与含义见 [config-reference.md](config-reference.md)。模块整体可用 `modules.feishu: false` 关闭（关闭后不注册 bots API，面板 Agents 页的 Bot 列表降级为空；`project_bot` 存储域仍开启——agents 删除守卫需 Bot 计数）。
 
 ## 存储
 

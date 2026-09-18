@@ -23,8 +23,11 @@ export interface AgentsPageProps {
 export function AgentsPage(props: AgentsPageProps): ReactNode {
   const { t } = props
   const { showToast, toastNode } = useToast()
+  // bots 拉取容错：modules.feishu=false 时 bots API 未注册（404），Bot 区降级为空列表，
+  // 不拖垮整个 Agents 页（Agent 注册表 API 恒注册）。
   const { state, reload } = useLoadState(
-    () => Promise.all([fetchAgents(), fetchBots()]).then(([agents, bots]) => ({ agents, bots })),
+    () => Promise.all([fetchAgents(), fetchBots().catch((): BotListItem[] => [])])
+      .then(([agents, bots]) => ({ agents, bots })),
     [],
   )
   const [editingId, setEditingId] = useState<string | null>(null)
