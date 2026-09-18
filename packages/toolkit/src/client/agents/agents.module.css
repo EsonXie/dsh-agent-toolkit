@@ -154,3 +154,80 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 .dangerButton { color: var(--dsw-alias-state-error-primary); }
+
+/* 设置页卡片流（AgentsPage） */
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 760px;
+}
+.card {
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cardName {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
+.badge { flex: none; }
+.summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+.readonlyNote {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.cardActions {
+  display: flex;
+  gap: 8px;
+}
+.botList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 0.5px solid var(--dsw-alias-border-l4);
+  padding-top: 8px;
+}
+.botRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 20px;
+}
+.botName { font-weight: 500; }
+.botProject {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+}
+.botStatus {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--dsw-alias-label-secondary);
+}
+.editorWrap {
+  border-top: 0.5px solid var(--dsw-alias-border-l4);
+  padding-top: 8px;
+}
