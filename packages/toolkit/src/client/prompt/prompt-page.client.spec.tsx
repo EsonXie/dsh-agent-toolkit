@@ -147,6 +147,7 @@ test('模型层卡展示兜底文本与命中规则 tab；动态层默认折叠�
 
   const modelCard = screen.getByTestId('prompt-card-model')
   expect(within(modelCard).getByRole('tab', { name: '内置默认' }).getAttribute('aria-selected')).toBe('true')
+  expect(within(modelCard).getByText(zh['prompt.model.sourceBuiltin'])).toBeTruthy()
   expect((within(modelCard).getByLabelText(zh['prompt.model.textLabel']) as HTMLTextAreaElement).value).toBe('FALLBACK-BASE')
 
   const dynamicCard = screen.getByTestId('prompt-card-dynamic')
@@ -159,6 +160,18 @@ test('模型层卡展示兜底文本与命中规则 tab；动态层默认折叠�
   const notes = within(dynamicCard).getByLabelText(zh['prompt.dynamic.textLabel']) as HTMLTextAreaElement
   expect(notes.value).toBe('V4-NOTES')
   expect(notes.readOnly).toBe(true)
+})
+
+test('模型层来源注随 tab 切换：内置默认 ↔ 命中规则 overrides.base', async () => {
+  stubFetch()
+  renderPage()
+  await screen.findByLabelText(zh['prompt.persona.label'])
+
+  const modelCard = screen.getByTestId('prompt-card-model')
+  expect(within(modelCard).getByText(zh['prompt.model.sourceBuiltin'])).toBeTruthy()
+
+  fireEvent.click(within(modelCard).getByRole('tab', { name: 'deepseek*' }))
+  expect(within(modelCard).getByText(`${zh['prompt.model.sourceRule']}（deepseek*）`)).toBeTruthy()
 })
 
 test('动态层无 append 规则时展开显示空态提示，无 tab 栏', async () => {

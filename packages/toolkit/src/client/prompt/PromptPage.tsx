@@ -37,8 +37,14 @@ function formatMatch(match: RuleMatch): string {
 /** 规则查看 tab 项：标签（匹配条件或「内置默认」）+ 只读文本。 */
 interface RuleTabItem { label: string; text: string }
 
-/** 只读规则 tab 栏 + 文本框：内部自持选中态（默认第一页），随 key 重挂载复位。 */
-function RuleTabs({ tabs, textLabel, emptyLabel }: { tabs: RuleTabItem[]; textLabel: string; emptyLabel: string }): ReactNode {
+/** 只读规则 tab 栏 + 文本框：内部自持选中态（默认第一页），随 key 重挂载复位。
+ *  提供 source 时，在文本上方渲染当前命中来源注（模型层显式来源）。 */
+function RuleTabs({ tabs, textLabel, emptyLabel, source }: {
+  tabs: RuleTabItem[]
+  textLabel: string
+  emptyLabel: string
+  source?: (current: RuleTabItem, index: number) => string
+}): ReactNode {
   const [index, setIndex] = useState(0)
   const current = tabs[index] ?? tabs[0]
   if (tabs.length === 0) {
@@ -58,6 +64,7 @@ function RuleTabs({ tabs, textLabel, emptyLabel }: { tabs: RuleTabItem[]; textLa
             onClick={() => { setIndex(i) }}>{tab.label}</button>
         ))}
       </div>
+      {source !== undefined && current !== undefined && <p className={css.hint}>{source(current, index)}</p>}
       <textarea className={css.textarea} readOnly aria-label={textLabel} rows={6}
         value={current?.text ?? ''} />
     </>
@@ -198,7 +205,10 @@ export function PromptPage(props: PromptPageProps): ReactNode {
       </LayerCard>
 
       <LayerCard id="model" title={t('prompt.card.model')} badge={t('prompt.badge.readonly')} desc={t('prompt.model.desc')}>
-        <RuleTabs tabs={modelTabs} textLabel={t('prompt.model.textLabel')} emptyLabel={t('prompt.model.builtin')} />
+        <RuleTabs tabs={modelTabs} textLabel={t('prompt.model.textLabel')} emptyLabel={t('prompt.model.builtin')}
+          source={(current, index) => index === 0
+            ? t('prompt.model.sourceBuiltin')
+            : `${t('prompt.model.sourceRule')}（${current.label}）`} />
       </LayerCard>
 
       <LayerCard id="persona" title={t('prompt.card.persona')} badge={t('prompt.badge.editable')} desc={t('prompt.persona.desc')}>
