@@ -166,6 +166,34 @@ describe('POST /bots', () => {
     expect(bots.get('ops')).toMatchObject({ agentOptions: { provider: 'deepseek', model: 'deepseek-chat' } })
   })
 
+  test('携带 persona/tools 被忽略，不落表', async () => {
+    const { handler, bots } = harness()
+    const res = mockRes()
+    await handler(mockReq('POST', '/dsh-agent-toolkit/api/bots/bots', {
+      id: 'ops', name: '运维', project: 'D:\\work\\ops',
+      persona: '人设', tools: ['bash'],
+      feishu: { appId: 'cli_000000000000000a', appSecret: 'plain-secret' },
+    }), res)
+    expect(res.status).toBe(200)
+    const record = bots.get('ops')!
+    expect(record).not.toHaveProperty('persona')
+    expect(record).not.toHaveProperty('tools')
+  })
+
+  test('POST 携带 agentOptions 且 agentRef 为角色：400', async () => {
+    const { handler, bots, storedSecrets } = harness()
+    const res = mockRes()
+    await handler(mockReq('POST', '/dsh-agent-toolkit/api/bots/bots', {
+      id: 'ops', name: '运维', project: 'D:\\work\\ops', agentRef: 'role-x',
+      agentOptions: { provider: 'p', model: 'm' },
+      feishu: { appId: 'cli_000000000000000a', appSecret: 's' },
+    }), res)
+    expect(res.status).toBe(400)
+    expect(JSON.parse(res.body)).toEqual({ error: 'agentOptions 仅在绑定主 Agent 时可用' })
+    expect(bots.has('ops')).toBe(false)
+    expect(storedSecrets).toEqual([])
+  })
+
   test('畸形 appSecretRef → 400（扫码引用须过 CREDENTIAL_REF_RE，POST 对齐 PUT）', async () => {
     const { handler, storedSecrets } = harness()
     const res = mockRes()
@@ -179,12 +207,15 @@ describe('POST /bots', () => {
 })
 
 describe('PUT /bots', () => {
-  test('更新 persona/工具并 reconcile；密钥引用不变', async () => {
+  test('携带 persona/tools 被忽略，不落表；reconcile 与密钥引用不变', async () => {
     const { handler, bots, reconciled } = harness()
     const res = mockRes()
     await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=reviewer', { persona: '新人设', tools: ['bash'] }), res)
     expect(res.status).toBe(200)
-    expect(bots.get('reviewer')).toMatchObject({ persona: '新人设', tools: ['bash'], feishu: { appSecretRef: 'project_bot_reviewer' } })
+    const record = bots.get('reviewer')!
+    expect(record).not.toHaveProperty('persona')
+    expect(record).not.toHaveProperty('tools')
+    expect(record).toMatchObject({ feishu: { appSecretRef: 'project_bot_reviewer' } })
     expect(reconciled).toEqual(['reviewer'])
   })
 
@@ -193,20 +224,6 @@ describe('PUT /bots', () => {
     const res = mockRes()
     await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=ghost', { name: 'x' }), res)
     expect(res.status).toBe(404)
-  })
-
-  test('null 清除 persona/tools 字段，其余不变', async () => {
-    const { handler, bots } = harness()
-    const add = mockRes()
-    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=reviewer', { persona: '新人设', tools: ['bash'] }), add)
-    expect(add.status).toBe(200)
-    const clear = mockRes()
-    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=reviewer', { persona: null, tools: null }), clear)
-    expect(clear.status).toBe(200)
-    const record = bots.get('reviewer')
-    expect(record).not.toHaveProperty('persona')
-    expect(record).not.toHaveProperty('tools')
-    expect(record).toMatchObject({ id: 'reviewer', name: '评审', feishu: { appSecretRef: 'project_bot_reviewer' } })
   })
 
   test('PUT 刷新 updatedAt（同名更新也刷新；fake 单调递增）', async () => {
@@ -264,6 +281,52 @@ describe('PUT /bots', () => {
     await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=ops', { agentOptions: null }), clear)
     expect(clear.status).toBe(200)
     expect(bots.get('ops')).not.toHaveProperty('agentOptions')
+  })
+
+  test('PUT 切 agentRef 到角色：存量 agentOptions 被丢弃', async () => {
+    const { handler, bots } = harness()
+    const create = mockRes()
+    await handler(mockReq('POST', '/dsh-agent-toolkit/api/bots/bots', {
+      id: 'ops', name: '运维', project: 'D:\\work\\ops',
+      agentOptions: { provider: 'deepseek', model: 'deepseek-chat' },
+      feishu: { appId: 'cli_000000000000000a', appSecret: 'plain-secret' },
+    }), create)
+    expect(create.status).toBe(200)
+    expect(bots.get('ops')).toMatchObject({ agentOptions: { provider: 'deepseek', model: 'deepseek-chat' } })
+
+    const update = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=ops', { agentRef: 'role-x' }), update)
+    expect(update.status).toBe(200)
+    const record = bots.get('ops')!
+    expect(record.agentRef).toBe('role-x')
+    expect(record).not.toHaveProperty('agentOptions')
+  })
+
+  test('PUT 切 agentRef 到角色且携带 agentOptions：400', async () => {
+    const { handler, bots } = harness()
+    const res = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=reviewer', {
+      agentRef: 'role-x', agentOptions: { provider: 'p', model: 'm' },
+    }), res)
+    expect(res.status).toBe(400)
+    expect(JSON.parse(res.body)).toEqual({ error: 'agentOptions 仅在绑定主 Agent 时可用' })
+    expect(bots.get('reviewer')).not.toHaveProperty('agentRef')
+  })
+
+  test('PUT agentRef=null 回 main：允许携带/保留 agentOptions', async () => {
+    const { handler, bots } = harness()
+    const bindRole = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=reviewer', { agentRef: 'role-x' }), bindRole)
+    expect(bindRole.status).toBe(200)
+
+    const back = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/bots/bots?id=reviewer', {
+      agentRef: null, agentOptions: { provider: 'deepseek', model: 'deepseek-chat' },
+    }), back)
+    expect(back.status).toBe(200)
+    const record = bots.get('reviewer')!
+    expect(record).not.toHaveProperty('agentRef')
+    expect(record).toMatchObject({ agentOptions: { provider: 'deepseek', model: 'deepseek-chat' } })
   })
 })
 

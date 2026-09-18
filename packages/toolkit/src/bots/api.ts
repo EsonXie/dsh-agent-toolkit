@@ -34,10 +34,8 @@ const CreateBodySchema = z.object({
   id: z.string().regex(BOT_ID_RE).optional(),
   name: z.string().min(1).max(64),
   project: z.string().min(1),
-  persona: z.string().max(8000).optional(),
   /** 绑定的 Agent（'main' 或注册表角色 id；缺省 = main）。 */
   agentRef: z.string().min(1).optional(),
-  tools: z.array(z.string().min(1)).min(1).optional(),
   agentOptions: z.object({ provider: z.string().min(1).optional(), model: z.string().min(1).optional() }).optional(),
   feishu: z.object({
     appId: z.string().regex(FEISHU_APP_ID_RE),
@@ -51,9 +49,7 @@ const CreateBodySchema = z.object({
 const UpdateBodySchema = z.object({
   name: z.string().min(1).max(64).optional(),
   project: z.string().min(1).optional(),
-  persona: z.string().max(8000).nullable().optional(),
   agentRef: z.string().min(1).nullable().optional(),
-  tools: z.array(z.string().min(1)).min(1).nullable().optional(),
   agentOptions: z.object({ provider: z.string().min(1).optional(), model: z.string().min(1).optional() }).nullable().optional(),
   /** 重绑：明文新密钥（立即入 credentials）或扫码引用（已入库）；null = 解绑渠道（删密钥、保留会话绑定）。 */
   feishu: z.object({
@@ -123,6 +119,11 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         return
       }
       const input = parsed.data
+      const ref = input.agentRef ?? 'main'
+      if (ref !== 'main' && input.agentOptions !== undefined) {
+        json(res, 400, { error: 'agentOptions 仅在绑定主 Agent 时可用' })
+        return
+      }
       const id = input.id ?? generateBotId((candidate) => deps.bots.get(candidate) !== undefined)
       if (deps.bots.get(id) !== undefined) {
         json(res, 409, { error: `bot id "${id}" 已存在` })
@@ -150,9 +151,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         id, name: input.name, channel: 'feishu',
         feishu: { appId: input.feishu.appId, appSecretRef },
         project: input.project,
-        ...(input.persona !== undefined ? { persona: input.persona } : {}),
         ...(input.agentRef !== undefined ? { agentRef: input.agentRef } : {}),
-        ...(input.tools !== undefined ? { tools: input.tools } : {}),
         ...(input.agentOptions !== undefined ? { agentOptions: input.agentOptions } : {}),
         createdAt: deps.now(), updatedAt: deps.now(),
       } satisfies BotRecord)
@@ -180,6 +179,11 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       const project = input.project ?? existing.project
       if (!deps.validateProject(project)) {
         json(res, 400, { error: `项目路径不可用：${project}` })
+        return
+      }
+      const effectiveRef = input.agentRef === null ? 'main' : input.agentRef ?? existing.agentRef ?? 'main'
+      if (effectiveRef !== 'main' && input.agentOptions != null) {
+        json(res, 400, { error: 'agentOptions 仅在绑定主 Agent 时可用' })
         return
       }
       // 重绑路径：appId 先查冲突（未绑定 bot 不占 appId），再做任何副作用。
@@ -217,14 +221,11 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         merged.channel = 'feishu'
         merged.feishu = { appId: input.feishu.appId, appSecretRef }
       }
-      if (input.persona === null) delete merged.persona
-      else if (input.persona !== undefined) merged.persona = input.persona
       if (input.agentRef === null) delete merged.agentRef
       else if (input.agentRef !== undefined) merged.agentRef = input.agentRef
-      if (input.tools === null) delete merged.tools
-      else if (input.tools !== undefined) merged.tools = input.tools
       if (input.agentOptions === null) delete merged.agentOptions
       else if (input.agentOptions !== undefined) merged.agentOptions = input.agentOptions
+      if (effectiveRef !== 'main') delete merged.agentOptions
       const record = BotRecordSchema.parse(merged)
       await deps.bots.put(id, record)
       await deps.runtime.reconcile(id)
