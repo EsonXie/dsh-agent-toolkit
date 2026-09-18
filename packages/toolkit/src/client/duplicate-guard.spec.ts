@@ -3,13 +3,16 @@ import { expect, test, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { apply } from './index.ts'
 
-test('双装：usage 入口被独立包占用时 apply 不向上抛，其余面板照常注册', () => {
+test('双装：usage 入口被独立包占用时 apply 不向上抛，warn 恰好一次，settings.section 照常注册', () => {
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
   const registered: string[] = []
   const ctx = {
     effect: (fn: () => unknown) => { const d = fn(); return () => { if (typeof d === 'function') (d as () => unknown)() } },
-    locale: { register: () => {} },
-    sessions: {},
+    locale: {
+      register: () => () => {},
+      bind: () => (key: string) => key,
+    },
+    sessions: { open: () => {} },
     slots: {
       inject: (_key: string, callback: () => unknown) => { callback(); return () => {} },
       register: (options: { id?: string }) => {
@@ -27,8 +30,8 @@ test('双装：usage 入口被独立包占用时 apply 不向上抛，其余面�
     expect(() => apply(ctx as unknown as Context)).not.toThrow()
     expect(warn).toHaveBeenCalledTimes(1)
     expect(String(warn.mock.calls[0][0])).toContain('token-usage')
-    // 其余面板（agents 侧边栏入口）不受影响，照常注册。
-    expect(registered).toContain('dsh-agent-toolkit:agents')
+    // 其余面板（设置面板 section）不受影响，照常注册。
+    expect(registered).toContain('agent-toolkit')
   } finally {
     warn.mockRestore()
   }

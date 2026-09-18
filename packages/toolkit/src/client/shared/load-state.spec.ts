@@ -1,43 +1,10 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
+import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, expect, test } from 'vitest'
-import { createSidebarEntry } from './entry.tsx'
 import { useLoadState } from './load-state.ts'
 
 afterEach(() => {
   cleanup()
-})
-
-const Entry = createSidebarEntry({
-  id: 'demo-entry',
-  order: 0,
-  icon: <span data-testid="entry-icon">图标</span>,
-  title: 'Demo 用量',
-  renderModal: ({ open, onClose }) => (
-    <div data-testid="modal">
-      <span>{open ? 'open' : 'closed'}</span>
-      {open && <button type="button" onClick={onClose}>关闭</button>}
-    </div>
-  ),
-})
-
-test('点击入口按钮：renderModal 收到 open: true，onClose 复位', () => {
-  render(<Entry wide />)
-  const button = screen.getByRole('button', { name: 'Demo 用量' })
-  expect(button.textContent).toContain('图标')
-  expect(button.textContent).not.toContain('Demo 用量')
-  expect(screen.getByTestId('modal').textContent).toContain('closed')
-  fireEvent.click(button)
-  expect(screen.getByTestId('modal').textContent).toContain('open')
-  fireEvent.click(screen.getByRole('button', { name: '关闭' }))
-  expect(screen.getByTestId('modal').textContent).toContain('closed')
-})
-
-test('wide=false：按钮带 rail class、无文字标签', () => {
-  render(<Entry wide={false} />)
-  const button = screen.getByRole('button', { name: 'Demo 用量' })
-  expect(button.className).toContain('rail')
-  expect(button.textContent).not.toContain('Demo 用量')
 })
 
 test('useLoadState：resolve → ok', async () => {

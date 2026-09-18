@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import type { CommonKeyOf } from '@deepseek-ai/dsh-client-ui-slots'
 import { afterEach, expect, test, vi } from 'vitest'
 import { PromptPage } from './PromptPage.tsx'
 import type { PromptLayersPayload } from './api.ts'
 import { zh, type ToolkitKey } from '../settings/locales.ts'
 
-/** t 桩：zh 真源（本页文案无插值）。 */
-function t(key: ToolkitKey): string { return zh[key] }
+/** t 桩：zh 真源（本页文案无插值）；键域含共享 common 词汇（TranslateNS 并入）。 */
+function t(key: ToolkitKey | CommonKeyOf): string { return zh[key as ToolkitKey] }
 
 const PAYLOAD: PromptLayersPayload = {
   layers: [{ name: 'persona', order: 10, text: 'PERSONA' }],

@@ -1,8 +1,8 @@
-/** dsh-agent-toolkit 浏览器半：委派卡 + Agents/Bots/Usage 四面板入口。 */
+/** dsh-agent-toolkit 浏览器半：委派卡 + 子代理 chip + 设置面板「Agent 工具箱」+ 用量入口。 */
 import type { Context } from '@deepseek-ai/cordis'
 import { setupDelegateClient } from './delegate/index.ts'
 import { setupSubagentModelClient } from './subagent-model/index.ts'
-import { setupAgentsClient } from './agents/index.ts'
+import { setupSettingsClient } from './settings/index.ts'
 import { setupUsageClient } from '@dsh-agent-toolkit/token-usage/client-module'
 
 export const inject = ['sessions', 'slots', 'locale']
@@ -10,7 +10,7 @@ export const inject = ['sessions', 'slots', 'locale']
 export function apply(ctx: Context): void {
   setupDelegateClient(ctx)
   setupSubagentModelClient(ctx)
-  setupAgentsClient(ctx)
+  setupSettingsClient(ctx)
   try {
     setupUsageClient(ctx)
   } catch (error) {

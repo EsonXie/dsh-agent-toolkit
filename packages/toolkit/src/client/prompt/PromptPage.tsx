@@ -4,17 +4,18 @@ import clsx from 'clsx'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useLoadState } from '../shared/load-state.ts'
 import { SaveBar, useToast } from '../shared/feedback.tsx'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { fetchPromptLayers, resetLayers, saveLayers, type NativeProbe, type PromptLayersPayload } from './api.ts'
 import type { LayerConfig, RuleMatch } from '../../prompt/types.ts'
-import type { ToolkitKey } from '../settings/locales.ts'
+import type { NS } from '../settings/locales.ts'
 import css from './prompt.module.css'
 
 /** 原生身份段名（与 dsh system-prompt 宿主一致），identity 卡只读回显用。 */
 const IDENTITY_SECTION = 'harness:identity'
 
 export interface PromptPageProps {
-  /** 键域为 agent-toolkit 词典；Task 12 壳传入 ctx.locale.bind(NS)。 */
-  t: (key: ToolkitKey) => string
+  /** 键域为 agent-toolkit 词典（TranslateNS，含共享 common 词汇）；壳传入 ctx.locale 合成的 t。 */
+  t: PropsLocale<typeof NS>['t']
 }
 
 function sortedLayers(layers: LayerConfig[]): LayerConfig[] {

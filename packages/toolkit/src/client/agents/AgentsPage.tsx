@@ -1,24 +1,27 @@
 /** Agents 设置页：Agent 卡片流（main 置顶只读），卡内挂 Bot 列表；编辑/新建内联展开。 */
 import { useMemo, useState, type ReactNode } from 'react'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { Button, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AgentRecord } from '../../agents/store.ts'
 import { deleteAgent, fetchAgents } from './api.ts'
 import { fetchBots, type BotListItem } from '../bots/api.ts'
 import { BotList } from '../bots/BotList.tsx'
-import { BotForm } from '../bots/BotForm.tsx'
+import { BotForm, type UseWorkspaces } from '../bots/BotForm.tsx'
 import { useLoadState } from '../shared/load-state.ts'
 import { useToast } from '../shared/feedback.tsx'
+import { NS } from '../settings/locales.ts'
 import { AgentEditor } from './AgentEditor.tsx'
 import css from './agents.module.css'
 
-/** 编辑器底部 SaveBar 文案；Task 12 统一收口进 settings 词典。 */
-const SAVE_LABELS = { save: '保存', cancel: '取消', saved: '已保存' }
+export interface AgentsPageProps {
+  /** 键域为 agent-toolkit 词典（TranslateNS，含共享 common 词汇）；壳传入 ctx.locale 合成的 t。 */
+  t: PropsLocale<typeof NS>['t']
+  /** 框架注入的工作区选择器（透传给 BotForm）。 */
+  useWorkspaces: UseWorkspaces
+}
 
-export function AgentsPage(props: {
-  /** 宽松签名；Task 12 接线时收紧为 ToolkitKey。 */
-  t: (key: string) => string
-  useWorkspaces: <S>(selector: (state: { items: readonly unknown[] }) => S) => S
-}): ReactNode {
+export function AgentsPage(props: AgentsPageProps): ReactNode {
+  const { t } = props
   const { showToast, toastNode } = useToast()
   const { state, reload } = useLoadState(
     () => Promise.all([fetchAgents(), fetchBots()]).then(([agents, bots]) => ({ agents, bots })),
@@ -46,19 +49,19 @@ export function AgentsPage(props: {
   function handleSaved(): void {
     setEditingId(null)
     reload()
-    showToast(props.t('feedback.saved'))
+    showToast(t('feedback.saved'))
   }
 
   function handleBotSaved(): void {
     setBotAddingFor(null)
     setBotEditing(null)
     reload()
-    showToast(props.t('feedback.saved'))
+    showToast(t('feedback.saved'))
   }
 
   function handleBotDeleted(): void {
     reload()
-    showToast(props.t('feedback.deleted'))
+    showToast(t('feedback.deleted'))
   }
 
   async function remove(agent: AgentRecord): Promise<void> {
@@ -73,6 +76,7 @@ export function AgentsPage(props: {
       await deleteAgent(agent.id)
       setConfirmDeleteId(null)
       reload()
+      showToast(t('feedback.deleted'))
     } catch (e) {
       // 服务端 409 载荷 { error, bots }；优先 Bot 数量提示，否则回退 error 字段可读文案。
       const message = e instanceof Error ? e.message : String(e)
@@ -87,22 +91,24 @@ export function AgentsPage(props: {
         }
       } catch { /* 非 JSON 错误体：按原文展示 */ }
       setDeleteError(bots === undefined
-        ? `删除失败：${readable}`
-        : `无法删除：名下仍有 ${bots} 个 Bot，请先删除或移出这些 Bot`)
+        ? t('agents.deleteFailed', { message: readable })
+        : t('agents.deleteBlocked', { count: bots }))
     } finally {
       setDeletingId(null)
     }
   }
 
-  if (state.kind === 'loading') return <p>加载中…</p>
+  if (state.kind === 'loading') return <p>{t('agents.loading')}</p>
   if (state.kind === 'error') return <p role="alert">{state.message}</p>
+
+  const labels = { save: t('agents.save'), cancel: t('agents.cancel'), saved: t('feedback.saved') }
 
   const renderEditor = (agent?: AgentRecord): ReactNode => (
     <div className={css.editorWrap}>
       <AgentEditor
         key={agent === undefined ? '__new__' : agent.id}
         agent={agent}
-        labels={SAVE_LABELS}
+        labels={labels}
         onSaved={handleSaved}
         onCancel={() => { setEditingId(null) }}
       />
@@ -134,30 +140,34 @@ export function AgentsPage(props: {
           <div key={agent.id} data-testid="agent-card" className={css.card}>
             <div className={css.cardHead}>
               <span data-testid="agent-card-name" className={css.cardName}>{agent.name}</span>
-              {agent.builtin === true && <Pill className={css.badge}>内置</Pill>}
-              {agent.visibleInTeam === false && <Pill className={css.badge}>团队不可见</Pill>}
+              {agent.builtin === true && <Pill className={css.badge}>{t('agents.builtin')}</Pill>}
+              {agent.visibleInTeam === false && <Pill className={css.badge}>{t('agents.hiddenInTeam')}</Pill>}
             </div>
             {isMain ? (
-              <p className={css.readonlyNote}>使用宿主默认模型与装配</p>
+              <p className={css.readonlyNote}>{t('agents.mainNote')}</p>
             ) : (
               <>
                 <p className={css.summary}>
-                  {agent.model === undefined ? '模型：跟随默认' : `模型：${agent.model.provider}/${agent.model.model}`}
+                  {agent.model === undefined
+                    ? t('agents.modelFollowDefault')
+                    : t('agents.modelValue', { provider: agent.model.provider, model: agent.model.model })}
                   {' · '}
-                  {agent.tools === undefined ? '工具：不限制' : `工具：白名单 ${agent.tools.allow.length} 项`}
+                  {agent.tools === undefined
+                    ? t('agents.toolsUnrestricted')
+                    : t('agents.toolsAllow', { count: agent.tools.allow.length })}
                   {' · '}
-                  {`Bot：${bots.length}`}
+                  {t('agents.botCount', { count: bots.length })}
                 </p>
                 <div className={css.cardActions} data-testid="agent-card-actions">
                   <Button variant="outline" onClick={() => {
                     setEditingId(editingId === agent.id ? null : agent.id)
                     setConfirmDeleteId(null)
-                  }}>编辑</Button>
+                  }}>{t('agents.edit')}</Button>
                   {/* 内置角色服务端恒拒删（registry.remove 抛错 → 409），不渲染必然失败的删除按钮。 */}
                   {agent.builtin !== true && (
                     <Button variant="outline" className={css.dangerButton} disabled={deletingId !== null}
                       onClick={() => { void remove(agent) }}>
-                      {confirmDeleteId === agent.id ? '确认删除？' : '删除'}
+                      {confirmDeleteId === agent.id ? t('agents.confirmDelete') : t('agents.delete')}
                     </Button>
                   )}
                 </div>
@@ -175,7 +185,7 @@ export function AgentsPage(props: {
                 <Button variant="outline" onClick={() => {
                   setBotEditing(null)
                   setBotAddingFor(botAddingFor === agent.id ? null : agent.id)
-                }}>+ 添加 Bot</Button>
+                }}>{t('agents.addBot')}</Button>
               </div>
             </div>
             {editingId === agent.id && renderEditor(agent)}
@@ -183,7 +193,7 @@ export function AgentsPage(props: {
         )
       })}
       <div>
-        <Button variant="primary" onClick={() => { setEditingId('__new__'); setConfirmDeleteId(null) }}>新建角色</Button>
+        <Button variant="primary" onClick={() => { setEditingId('__new__'); setConfirmDeleteId(null) }}>{t('agents.create')}</Button>
       </div>
     </div>
   )

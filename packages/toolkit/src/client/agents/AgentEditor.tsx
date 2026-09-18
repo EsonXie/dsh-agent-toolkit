@@ -12,7 +12,7 @@ const AGENT_ID_RE = /^(?:main|[a-z][a-z0-9-]{0,31})$/
 export interface AgentEditorProps {
   /** undefined = 新建模式（id 可编辑）。 */
   agent?: AgentRecord
-  /** 提供时底部渲染共享 SaveBar（设置页内联编辑）；缺省保留旧 actions 行（AgentsModal）。 */
+  /** 提供时底部渲染共享 SaveBar（设置页内联编辑）；缺省保留旧 actions 行。 */
   labels?: SaveBarLabels
   onSaved(saved: AgentRecord): void
   onDeleted?(id: string): void

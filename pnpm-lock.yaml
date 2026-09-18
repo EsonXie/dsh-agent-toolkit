@@ -81,6 +81,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-renderer':
         specifier: link:../../deepseek-harness/packages/client/ui-renderer
         version: link:../../deepseek-harness/packages/client/ui-renderer
+      '@deepseek-ai/dsh-client-ui-settings':
+        specifier: link:../../deepseek-harness/packages/client/ui-settings
+        version: link:../../deepseek-harness/packages/client/ui-settings
       '@deepseek-ai/dsh-client-ui-sidebar':
         specifier: link:../../deepseek-harness/packages/client/ui-sidebar
         version: link:../../deepseek-harness/packages/client/ui-sidebar
