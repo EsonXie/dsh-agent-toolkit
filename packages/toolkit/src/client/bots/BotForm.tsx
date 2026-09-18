@@ -1,4 +1,4 @@
-/** 机器人创建/编辑表单：两步向导——基本信息 → 飞书渠道绑定。 */
+/** 机器人创建/编辑表单（归属 Agent 卡片）：两步向导——基本信息 → 飞书渠道绑定。 */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { toCanvas } from 'qrcode'
@@ -6,13 +6,17 @@ import {
   Button, Input,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  createBot, fetchAgents, fetchModels, fetchProviders, pollRegisterApp, startRegisterApp, updateBot,
+  createBot, fetchModels, fetchProviders, pollRegisterApp, startRegisterApp, updateBot,
   type BotListItem,
 } from './api.ts'
-import type { UseWorkspaces } from './BotsModal.tsx'
 import css from './bots.module.css'
 
+/** useWorkspaces 的窄化类型（框架注入；selector 读 WorkspaceListState）。 */
+export type UseWorkspaces = <S>(selector: (state: { items: readonly unknown[] }) => S) => S
+
 export interface BotFormProps {
+  /** 归属卡片锁定的 Agent（'main' 或注册表角色 id），表单内无 agent 选择。 */
+  agentRef: string
   bot?: BotListItem
   useWorkspaces: UseWorkspaces
   onSaved(): void
@@ -29,15 +33,15 @@ type ScanState =
 
 const POLL_INTERVAL_MS = 200
 
-export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps): ReactNode {
+export function BotForm({ agentRef, bot, useWorkspaces, onSaved, onCancel }: BotFormProps): ReactNode {
   const workspaces = useWorkspaces((s) => s.items) as { path: string; title: string }[]
   const editing = bot !== undefined
+  /** 仅主 Agent 卡下的 Bot 可自配 provider/模型；注册表角色卡完全继承角色装配。 */
+  const configurable = agentRef === 'main'
 
   const [step, setStep] = useState<1 | 2>(1)
   const [name, setName] = useState(bot?.name ?? '')
   const [project, setProject] = useState(bot?.project ?? workspaces[0]?.path ?? '')
-  const [agentRef, setAgentRef] = useState(bot?.agentRef ?? 'main')
-  const [agents, setAgents] = useState<{ id: string; name: string; description?: string }[]>([])
   const [provider, setProvider] = useState(bot?.agentOptions?.provider ?? '')
   const [model, setModel] = useState(bot?.agentOptions?.model ?? '')
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([])
@@ -53,22 +57,9 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const pollTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
 
-  // agents：缺省选中「主 Agent（main）」；名册不可用（fetch 失败）时下拉只剩 main 项、提交不携带 agentRef（服务端回退 main）。
-  useEffect(() => {
-    let stale = false
-    fetchAgents().then((as) => {
-      if (stale) return
-      setAgents(as)
-      setAgentRef((current) => {
-        if (current === 'main') return current
-        return as.some((a) => a.id === current) ? current : 'main'
-      })
-    }).catch(() => undefined)
-    return () => { stale = true }
-  }, [])
-
   // providers 挂载时取一次：初始选中第一项（编辑模式若 bot 的 provider 在清单内则保留）；models 随 provider 变更重取，失败静默降级为手填。
   useEffect(() => {
+    if (!configurable) return
     let stale = false
     fetchProviders().then((ps) => {
       if (stale) return
@@ -80,9 +71,10 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
       })
     }).catch(() => { if (!stale) setProvidersLoaded(true) })
     return () => { stale = true }
-  }, [editing])
+  }, [editing, configurable])
 
   useEffect(() => {
+    if (!configurable) return
     let stale = false
     if (provider.trim().length === 0) {
       setModels([])
@@ -99,7 +91,7 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
       })
       .catch(() => { if (!stale) setModels([]) })
     return () => { stale = true }
-  }, [provider, editing])
+  }, [provider, editing, configurable])
 
   useEffect(() => () => { if (pollTimer.current !== undefined) clearInterval(pollTimer.current) }, [])
 
@@ -169,7 +161,7 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
     }
     // agentOptions 仅绑 main 可配：必填校验 + 提交；编辑模式绑角色提交 null 清除记录残留。
     let agentOptions: { provider: string; model: string } | null | undefined
-    if (agentRef === 'main') {
+    if (configurable) {
       const providerValue = provider.trim()
       const modelValue = model.trim()
       if (providerValue.length === 0) {
@@ -265,15 +257,7 @@ export function BotForm({ bot, useWorkspaces, onSaved, onCancel }: BotFormProps)
               {workspaces.map((w) => <option key={w.path} value={w.path}>{w.title}（{w.path}）</option>)}
             </select>
           </label>
-          <label className={css.field}>
-            绑定 Agent
-            <select className={css.select} value={agentRef} aria-label="绑定 Agent"
-              onChange={(e) => { setAgentRef(e.target.value) }}>
-              <option value="main">主 Agent（main）</option>
-              {agents.filter((a) => a.id !== 'main').map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          </label>
-          {agentRef === 'main' && (
+          {configurable && (
             <>
               <label className={css.field}>
                 Provider

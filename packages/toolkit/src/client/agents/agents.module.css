@@ -204,29 +204,6 @@
   border-top: 0.5px solid var(--dsw-alias-border-l4);
   padding-top: 8px;
 }
-.botRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  line-height: 20px;
-}
-.botName { font-weight: 500; }
-.botProject {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--dsw-alias-label-tertiary);
-}
-.botStatus {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--dsw-alias-label-secondary);
-}
 .editorWrap {
   border-top: 0.5px solid var(--dsw-alias-border-l4);
   padding-top: 8px;

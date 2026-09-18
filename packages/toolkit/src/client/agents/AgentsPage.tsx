@@ -1,34 +1,15 @@
 /** Agents 设置页：Agent 卡片流（main 置顶只读），卡内挂 Bot 列表；编辑/新建内联展开。 */
 import { useMemo, useState, type ReactNode } from 'react'
-import { Button, Pill, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AgentRecord } from '../../agents/store.ts'
 import { deleteAgent, fetchAgents } from './api.ts'
 import { fetchBots, type BotListItem } from '../bots/api.ts'
+import { BotList } from '../bots/BotList.tsx'
+import { BotForm } from '../bots/BotForm.tsx'
 import { useLoadState } from '../shared/load-state.ts'
 import { useToast } from '../shared/feedback.tsx'
 import { AgentEditor } from './AgentEditor.tsx'
 import css from './agents.module.css'
-
-/** 连接状态 → StateDot 四色语义（与 BotsModal 一致；Task 9 迁入 BotList 后此表随之移动）。 */
-const STATUS_DOT: Record<string, StateDotState> = {
-  connected: 'done',
-  connecting: 'ongoing',
-  reconnecting: 'ongoing',
-  idle: 'warning',
-  failed: 'error',
-  'not-running': 'warning',
-  unbound: 'warning',
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  connected: '已连接',
-  connecting: '连接中',
-  reconnecting: '重连中',
-  idle: '空闲',
-  failed: '连接失败',
-  'not-running': '未运行',
-  unbound: '未绑定',
-}
 
 /** 编辑器底部 SaveBar 文案；Task 12 统一收口进 settings 词典。 */
 const SAVE_LABELS = { save: '保存', cancel: '取消', saved: '已保存' }
@@ -47,6 +28,9 @@ export function AgentsPage(props: {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  /** 新建 Bot 归属的卡片；与 botEditing 互斥。 */
+  const [botAddingFor, setBotAddingFor] = useState<string | null>(null)
+  const [botEditing, setBotEditing] = useState<{ agentId: string; bot: BotListItem } | null>(null)
 
   const botsByAgent = useMemo(() => {
     const map = new Map<string, BotListItem[]>()
@@ -63,6 +47,18 @@ export function AgentsPage(props: {
     setEditingId(null)
     reload()
     showToast(props.t('feedback.saved'))
+  }
+
+  function handleBotSaved(): void {
+    setBotAddingFor(null)
+    setBotEditing(null)
+    reload()
+    showToast(props.t('feedback.saved'))
+  }
+
+  function handleBotDeleted(): void {
+    reload()
+    showToast(props.t('feedback.deleted'))
   }
 
   async function remove(agent: AgentRecord): Promise<void> {
@@ -113,6 +109,19 @@ export function AgentsPage(props: {
     </div>
   )
 
+  const renderBotForm = (agentId: string, bot?: BotListItem): ReactNode => (
+    <div className={css.editorWrap}>
+      <BotForm
+        key={bot === undefined ? `__new__:${agentId}` : bot.id}
+        agentRef={agentId}
+        bot={bot}
+        useWorkspaces={props.useWorkspaces}
+        onSaved={handleBotSaved}
+        onCancel={() => { setBotAddingFor(null); setBotEditing(null) }}
+      />
+    </div>
+  )
+
   return (
     <div className={css.cards}>
       {toastNode}
@@ -139,7 +148,7 @@ export function AgentsPage(props: {
                   {' · '}
                   {`Bot：${bots.length}`}
                 </p>
-                <div className={css.cardActions}>
+                <div className={css.cardActions} data-testid="agent-card-actions">
                   <Button variant="outline" onClick={() => {
                     setEditingId(editingId === agent.id ? null : agent.id)
                     setConfirmDeleteId(null)
@@ -154,20 +163,21 @@ export function AgentsPage(props: {
                 </div>
               </>
             )}
-            {bots.length > 0 && (
-              <div className={css.botList}>
-                {bots.map((bot) => (
-                  <div key={bot.id} className={css.botRow}>
-                    <span className={css.botName}>{bot.name}</span>
-                    <span className={css.botProject}>{bot.project}</span>
-                    <span className={css.botStatus} title={STATUS_LABEL[bot.status] ?? bot.status}>
-                      <StateDot state={STATUS_DOT[bot.status] ?? 'warning'} size={8} />
-                      <span>{STATUS_LABEL[bot.status] ?? bot.status}</span>
-                    </span>
-                  </div>
-                ))}
+            <div className={css.botList}>
+              <BotList
+                bots={bots}
+                onEdit={(bot) => { setBotAddingFor(null); setBotEditing({ agentId: agent.id, bot }) }}
+                onDeleted={handleBotDeleted}
+              />
+              {botEditing !== null && botEditing.agentId === agent.id && renderBotForm(agent.id, botEditing.bot)}
+              {botAddingFor === agent.id && renderBotForm(agent.id)}
+              <div>
+                <Button variant="outline" onClick={() => {
+                  setBotEditing(null)
+                  setBotAddingFor(botAddingFor === agent.id ? null : agent.id)
+                }}>+ 添加 Bot</Button>
               </div>
-            )}
+            </div>
             {editingId === agent.id && renderEditor(agent)}
           </div>
         )

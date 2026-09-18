@@ -66,6 +66,13 @@ function cardOf(name: string): HTMLElement {
   return card as HTMLElement
 }
 
+/** 卡片操作区（编辑/删除）；Bot 行内亦有同名按钮，需按 testid 限定作用域。 */
+function actionsOf(card: HTMLElement): HTMLElement {
+  const actions = card.querySelector('[data-testid="agent-card-actions"]')
+  if (actions === null) throw new Error('agent-card-actions not found')
+  return actions as HTMLElement
+}
+
 test('按创建时间升序渲染卡片，main 置顶', async () => {
   stubFetch(routes())
   render(<AgentsPage t={(k) => k} useWorkspaces={stubUseWorkspaces} />)
@@ -116,8 +123,8 @@ test('非 Bot 类 409：解析 error 字段展示可读文案，不出现裸 JSO
 
   await screen.findByText('AAA')
   const card = cardOf('AAA')
-  fireEvent.click(within(card).getByRole('button', { name: '删除' }))
-  fireEvent.click(within(card).getByRole('button', { name: '确认删除？' }))
+  fireEvent.click(within(actionsOf(card)).getByRole('button', { name: '删除' }))
+  fireEvent.click(within(actionsOf(card)).getByRole('button', { name: '确认删除？' }))
 
   const alert = await screen.findByRole('alert')
   expect(alert.textContent).toContain('内置角色 aaa 不可删除')
@@ -131,9 +138,9 @@ test('删除名下有 Bot 的角色：两段确认后展示 409 错误（含 Bot
 
   await screen.findByText('AAA')
   const card = cardOf('AAA')
-  fireEvent.click(within(card).getByRole('button', { name: '删除' }))
-  expect(within(card).getByRole('button', { name: '确认删除？' })).toBeTruthy()
-  fireEvent.click(within(card).getByRole('button', { name: '确认删除？' }))
+  fireEvent.click(within(actionsOf(card)).getByRole('button', { name: '删除' }))
+  expect(within(actionsOf(card)).getByRole('button', { name: '确认删除？' })).toBeTruthy()
+  fireEvent.click(within(actionsOf(card)).getByRole('button', { name: '确认删除？' }))
 
   const alert = await screen.findByRole('alert')
   expect(alert.textContent).toContain('2')
@@ -145,7 +152,7 @@ test('保存成功：toast 出现且列表重载', async () => {
   render(<AgentsPage t={(k) => k} useWorkspaces={stubUseWorkspaces} />)
 
   await screen.findByText('AAA')
-  fireEvent.click(within(cardOf('AAA')).getByRole('button', { name: '编辑' }))
+  fireEvent.click(within(actionsOf(cardOf('AAA'))).getByRole('button', { name: '编辑' }))
   const nameInput = await screen.findByLabelText('名称')
   fireEvent.change(nameInput, { target: { value: 'AAA 改' } })
   fireEvent.click(screen.getByRole('button', { name: '保存' }))
@@ -155,4 +162,63 @@ test('保存成功：toast 出现且列表重载', async () => {
     const gets = calls.filter((c) => c.url === '/dsh-agent-toolkit/api/agents' && c.method === 'GET')
     expect(gets.length).toBeGreaterThanOrEqual(2)
   })
+})
+
+test('Bot 列表按 agentRef 归入对应卡片，行内含编辑/删除操作', async () => {
+  stubFetch(routes())
+  render(<AgentsPage t={(k) => k} useWorkspaces={stubUseWorkspaces} />)
+
+  await screen.findByText('机器人一')
+  const card = cardOf('AAA')
+  const botRow = within(card).getByText('机器人一').closest('[data-testid="bot-row"]') as HTMLElement
+  expect(botRow).toBeTruthy()
+  expect(within(botRow).getByRole('button', { name: '编辑' })).toBeTruthy()
+  expect(within(botRow).getByRole('button', { name: '删除' })).toBeTruthy()
+})
+
+test('+ 添加 Bot：角色卡内联展开 BotForm，归属锁定该 agent（无绑定 Agent 下拉、无 Provider/模型）', async () => {
+  stubFetch(routes())
+  render(<AgentsPage t={(k) => k} useWorkspaces={stubUseWorkspaces} />)
+
+  await screen.findByText('AAA')
+  fireEvent.click(within(cardOf('AAA')).getByRole('button', { name: '+ 添加 Bot' }))
+
+  // 角色卡：表单渲染但无「绑定 Agent」字段与 Provider/模型
+  expect(await screen.findByLabelText('绑定项目')).toBeTruthy()
+  expect(screen.queryByLabelText('绑定 Agent')).toBeNull()
+  expect(screen.queryByLabelText('Provider')).toBeNull()
+  expect(screen.queryByLabelText('模型')).toBeNull()
+})
+
+test('main 卡内联展开 BotForm 时渲染 Provider/模型（bot 级模型覆盖仅主 Agent 可用）', async () => {
+  stubFetch(routes({
+    '/dsh-agent-toolkit/api/bots/providers': () => ({ body: { providers: [{ id: 'deepseek', name: 'DeepSeek' }] } }),
+    '/dsh-agent-toolkit/api/bots/models?provider=deepseek': () => ({ body: { models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] } }),
+  }))
+  render(<AgentsPage t={(k) => k} useWorkspaces={stubUseWorkspaces} />)
+
+  await screen.findByText('主 Agent')
+  fireEvent.click(within(cardOf('主 Agent')).getByRole('button', { name: '+ 添加 Bot' }))
+
+  expect(await screen.findByLabelText('Provider')).toBeTruthy()
+  expect(screen.getByLabelText('模型')).toBeTruthy()
+})
+
+test('Bot 删除成功：DELETE 后 reload 并 toast', async () => {
+  const calls = stubFetch(routes({
+    '/dsh-agent-toolkit/api/bots/bots': (init) => (init?.method === 'DELETE' ? { body: { ok: true } } : { body: BOTS }),
+  }))
+  render(<AgentsPage t={(k) => k} useWorkspaces={stubUseWorkspaces} />)
+
+  await screen.findByText('机器人一')
+  const card = cardOf('AAA')
+  const botRow = within(card).getByText('机器人一').closest('[data-testid="bot-row"]') as HTMLElement
+  fireEvent.click(within(botRow).getByRole('button', { name: '删除' }))
+  fireEvent.click(within(botRow).getByRole('button', { name: '确认删除？' }))
+
+  await vi.waitFor(() => {
+    expect(calls.some((c) => c.method === 'DELETE' && c.url.includes('id=bot-a'))).toBe(true)
+  })
+  // 删除后 toast（role=alert）出现
+  expect(await screen.findByRole('alert')).toBeTruthy()
 })
