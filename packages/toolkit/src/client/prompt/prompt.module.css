@@ -12,6 +12,9 @@
 }
 .introHead {
   align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: none;
   padding: 0;
   background: transparent;
@@ -54,6 +57,9 @@
   text-align: left;
 }
 .cardHead:hover .cardTitle { color: var(--dsw-alias-brand-primary); }
+/* 折叠箭头：向下=展开，右转 90°=收起。 */
+.chevron { flex: none; color: var(--dsw-alias-label-tertiary); transition: transform .15s ease; }
+.chevronCollapsed { transform: rotate(-90deg); }
 .cardTitle {
   font-size: 16px;
   line-height: 24px;

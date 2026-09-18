@@ -175,6 +175,9 @@
   text-align: left;
 }
 .cardHead:hover .cardName { color: var(--dsw-alias-brand-primary); }
+/* 折叠箭头：向下=展开，右转 90°=收起。 */
+.chevron { flex: none; color: var(--dsw-alias-label-tertiary); transition: transform .15s ease; }
+.chevronCollapsed { transform: rotate(-90deg); }
 .cardName {
   font-size: 16px;
   line-height: 24px;

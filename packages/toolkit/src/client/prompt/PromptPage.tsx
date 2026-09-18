@@ -1,7 +1,7 @@
 /** 分层提示词设置页：顶部四层心智模型说明区 + 纵向四卡（identity/模型层/persona/动态层）+ 底部 SaveBar。 */
 import { useEffect, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useLoadState } from '../shared/load-state.ts'
 import { SaveBar, useToast } from '../shared/feedback.tsx'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
@@ -85,6 +85,7 @@ function LayerCard({ id, title, badge, desc, children }: {
     <section className={css.card} data-testid={`prompt-card-${id}`}>
       <button type="button" className={css.cardHead} data-testid="prompt-card-toggle"
         aria-expanded={open} onClick={() => { setOpen(!open) }}>
+        <IconChevronDownOutline14 className={clsx(css.chevron, !open && css.chevronCollapsed)} />
         <span className={css.cardTitle} data-testid="prompt-card-title">{title}</span>
         <span className={css.badge}>{badge}</span>
       </button>
@@ -185,6 +186,7 @@ export function PromptPage(props: PromptPageProps): ReactNode {
       <section className={css.intro}>
         <button type="button" className={css.introHead} aria-expanded={introOpen}
           onClick={() => { setIntroOpen(!introOpen) }}>
+          <IconChevronDownOutline14 className={clsx(css.chevron, !introOpen && css.chevronCollapsed)} />
           {t('prompt.introTitle')}
         </button>
         {introOpen && <p className={css.introBody}>{t('prompt.intro')}</p>}
