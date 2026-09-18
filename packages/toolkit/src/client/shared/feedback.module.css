@@ -1,0 +1,14 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.spacer {
+  flex: 1;
+}
+.error {
+  color: var(--dsw-alias-state-error-primary);
+}
+.saved {
+  color: var(--dsw-alias-state-success-primary, var(--dsw-alias-label-secondary));
+}
