@@ -78,12 +78,12 @@ function setup(
 }
 
 describe('Router.ensure', () => {
-  test('无绑定：create 新 agent 并写绑定，persona/tools/cwd 透传', async () => {
+  test('无绑定：create 新 agent 并写绑定，cwd 透传，bot 级 persona/tools 不再注入', async () => {
     const { router, bindings, created } = setup()
     const rt = await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
     expect(created).toHaveLength(1)
     expect(created[0].input.cwd).toBe('D:\\work\\demo')
-    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'], sections: [GUIDANCE, SENDER] })
+    expect(created[0].input.hooks).toEqual({ sections: [GUIDANCE, SENDER] })
     expect(bindings.get('reviewer', 'oc_1')).toBe(rt.sessionId)
     expect(rt.reply).toBe(reply)
   })
@@ -214,12 +214,12 @@ test('Router.lookup 按绑定反查 runtime', async () => {
 })
 
 describe('Router.ensure agentRef 绑定', () => {
-  test('agentRef 指向 main：不注册角色 section、不 restrict，模型取宿主默认', async () => {
+  test('agentRef 指向 main：不注册角色 section、不 restrict，模型取宿主默认，bot 残留 persona/tools 被忽略', async () => {
     const { router, created, defaultModel } = setup(undefined, fakeRegistry([MAIN_ROLE]).registry)
     await router.ensure(fakeBot({ agentRef: 'main' }), 'oc_1', reply, 'ou_u1')
     expect(defaultModel).toHaveBeenCalledOnce()
     expect(created[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-v4' })
-    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'], sections: [GUIDANCE, SENDER] })
+    expect(created[0].input.hooks).toEqual({ sections: [GUIDANCE, SENDER] })
   })
 
   test('agentRef 指向角色：注册单 persona section + tools.restrict({ allow }) + agentOptions=role.model', async () => {
@@ -292,13 +292,13 @@ describe('Router.ensure agentRef 绑定', () => {
     })
   })
 
-  test('agentRef 指向不存在角色：warn 并降级 main（默认模型 + hooksOf，不注册 section）', async () => {
+  test('agentRef 指向不存在角色：warn 并降级 main（默认模型，bot 残留 persona/tools 被忽略）', async () => {
     const { router, created, onWarn } = setup(undefined, fakeRegistry([MAIN_ROLE]).registry)
     await router.ensure(fakeBot({ agentRef: 'ghost' }), 'oc_1', reply, 'ou_u1')
     expect(onWarn).toHaveBeenCalledOnce()
     expect(onWarn.mock.calls[0][0]).toContain('ghost')
     expect(created[0].input.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-v4' })
-    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'], sections: [GUIDANCE, SENDER] })
+    expect(created[0].input.hooks).toEqual({ sections: [GUIDANCE, SENDER] })
   })
 })
 
@@ -306,7 +306,7 @@ describe('Router 发起人提示段', () => {
   test('create（主 Agent 形态）：hooks.sections 末尾追加 sender 段', async () => {
     const { router, created } = setup()
     await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
-    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'], sections: [GUIDANCE, SENDER] })
+    expect(created[0].input.hooks).toEqual({ sections: [GUIDANCE, SENDER] })
   })
 
   test('resume 路径同样注入', async () => {
@@ -333,7 +333,7 @@ describe('Router 发起人提示段', () => {
     const { agents, bindings, sessions, workspace, onWarn, defaultModel, created } = setup()
     const router = new Router(agents, bindings, sessions, defaultModel, workspace, onWarn, fakeRegistry().registry, false)
     await router.ensure(fakeBot(), 'oc_1', reply, 'ou_u1')
-    expect(created[0].input.hooks).toEqual({ persona: '你是评审助手', tools: ['bash'], sections: [GUIDANCE] })
+    expect(created[0].input.hooks).toEqual({ sections: [GUIDANCE] })
   })
 
   test('/new 重置后新会话仍注入（发起人取当前消息发送人）', async () => {

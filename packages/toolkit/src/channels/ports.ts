@@ -1,5 +1,4 @@
 /** 核心对宿主 agents 服务 / 绑定表的结构化端口（测试用 fake 注入）。 */
-import type { BotRecord } from '../bots/store.ts'
 import type { Disposer, ReplyHandle, TurnSegment } from './channel.ts'
 
 export interface AgentPort {
@@ -100,12 +99,4 @@ export interface SessionRuntime {
    * ensure 不得复用收尾中的 runtime（其 agent 已 cancel），重绑窗口须 resume + adopt 重建。
    */
   retiring: boolean
-}
-
-/** 从 bot 记录提取创作期注入（主 Agent 绑定形态）。 */
-export function hooksOf(bot: BotRecord): AgentHooks {
-  return {
-    ...(bot.persona !== undefined ? { persona: bot.persona } : {}),
-    ...(bot.tools !== undefined ? { tools: bot.tools } : {}),
-  }
 }

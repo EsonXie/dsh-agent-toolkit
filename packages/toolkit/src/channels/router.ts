@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { AgentRegistry } from '../agents/registry.ts'
 import type { BotRecord } from '../bots/store.ts'
 import type { ReplyHandle } from './channel.ts'
-import { hooksOf, type AgentHooks, type AgentSection, type AgentsPort, type BindingStore, type DefaultModelAccessor, type SessionRuntime, type WorkspacePort } from './ports.ts'
+import type { AgentHooks, AgentSection, AgentsPort, BindingStore, DefaultModelAccessor, SessionRuntime, WorkspacePort } from './ports.ts'
 import { roleAgentOptions, roleHooks } from './role-assembly.ts'
 
 /** 发起人提示段名：bot 会话声明来源渠道与发起人 open_id。 */
@@ -91,7 +91,8 @@ export class Router {
 
   /**
    * 按 bot.agentRef 解析会话组装（agentOptions + 创作期 hooks）：
-   * - 缺省/指向 main → 主 Agent 形态：bot 自带 persona/tools + 模型（自配 agentOptions 优先，缺省回退宿主默认模型）；
+   * - 缺省/指向 main → 主 Agent 形态：仅模型（自配 agentOptions 优先，缺省回退宿主默认模型），
+   *   bot 级 persona/tools 已随设置面板收编移除，装配只含渠道段；
    * - 指向角色 → 角色形态：persona 单 section + tools.restrict + role.model；
    * - 指向不存在角色 → warn 并降级为主 Agent 形态。
    */
@@ -102,7 +103,7 @@ export class Router {
       if (role === undefined && ref !== 'main') {
         this.onWarn(`[project-bot] bot "${bot.id}" 的 agentRef "${ref}" 不存在，降级绑定主 Agent`)
       }
-      return { agentOptions: bot.agentOptions ?? this.defaultModel(), hooks: this.withChannelSections(hooksOf(bot), bot, userId) }
+      return { agentOptions: bot.agentOptions ?? this.defaultModel(), hooks: this.withChannelSections({}, bot, userId) }
     }
     return {
       agentOptions: roleAgentOptions(role, this.defaultModel),
