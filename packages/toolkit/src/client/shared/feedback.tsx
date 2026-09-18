@@ -6,7 +6,10 @@ import css from './feedback.module.css'
 export function useToast(): { toastText: string | null; showToast: (text: string) => void; toastNode: ReactNode } {
   const [toastText, setToastText] = useState<string | null>(null)
   const showToast = useCallback((text: string) => { setToastText(text) }, [])
-  const toastNode = toastText === null ? null : <Toast text={toastText} onDone={() => { setToastText(null) }} />
+  // dismiss 身份稳定：Toast 的 effect 依赖 [holdMs, onDone]，若 onDone 每次渲染换新，
+  // 父组件任何重渲染都会清掉并重设消失计时器，toast 便迟迟不消失。
+  const dismiss = useCallback(() => { setToastText(null) }, [])
+  const toastNode = toastText === null ? null : <Toast text={toastText} onDone={dismiss} />
   return { toastText, showToast, toastNode }
 }
 

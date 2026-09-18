@@ -47,3 +47,27 @@ test('useToast：showToast 后渲染 Toast 文本，onDone 后卸载', () => {
   act(() => { vi.advanceTimersByTime(4000) })
   expect(screen.queryByRole('alert')).toBeNull()
 })
+
+function RerenderableToastHost({ tick }: { tick: number }): ReactNode {
+  const { showToast, toastNode } = useToast()
+  return (
+    <>
+      <span data-testid="tick">{tick}</span>
+      <button type="button" onClick={() => { showToast('已保存') }}>触发</button>
+      {toastNode}
+    </>
+  )
+}
+
+test('useToast：toast 显示期间父组件重渲染不重置消失计时器', () => {
+  vi.useFakeTimers()
+  const { rerender } = render(<RerenderableToastHost tick={0} />)
+  fireEvent.click(screen.getByRole('button', { name: '触发' }))
+  expect(screen.getByRole('alert').textContent).toContain('已保存')
+  // hold 期结束前推进 3000ms，再驱动父组件重渲染：若 onDone 每次换身份，
+  // Toast 的 effect 会清掉旧计时器重设 4000ms，Toast 便不会按原计时消失。
+  act(() => { vi.advanceTimersByTime(3000) })
+  rerender(<RerenderableToastHost tick={1} />)
+  act(() => { vi.advanceTimersByTime(1000) })
+  expect(screen.queryByRole('alert')).toBeNull()
+})
