@@ -85,7 +85,13 @@ export interface BotsDeps {
   bindings: KvTable<string, Binding>
 }
 
-export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps): void {
+/**
+ * 装配 bot 运行时。返回值是卸载排空句柄（等启动链落定 + stopAll 排空在飞会话与出站链）：
+ * 插件入口必须把它作为 project_bot domain 的 `openDomainSafely` beforeClose 传入——cordis
+ * 的 disposer 并发执行（`Fiber._unload` = `Promise.all`），单靠注册顺序无法保证 drain 先于
+ * 关域；只有同一 effect 内串行 await drain 再 close，才能避免 drain 期间的写被 closed 拒绝。
+ */
+export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps): () => Promise<void> {
   const log = { warn: (m: string) => ctx.logger.warn(m), info: (m: string) => ctx.logger.info(m) }
   const channels: ReadonlyMap<string, BotChannel> = new Map([['feishu', feishuChannel]])
   const debugLog = config.debugLog
@@ -278,18 +284,17 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
     return () => dispose()
   })
 
-  // 卸载：排空在飞会话与出站链（stopAll 内含卡片定格 drain）。本 effect 在插件入口
-  // 的 domain close effect 之后注册，cordis 逆序卸载保证 drain 先于关域——close 一旦
-  // 开始就拒绝新入队的写，未落队的采集会被静默丢弃（openDomainSafely beforeClose 原语义）。
-  ctx.effect(() => async () => {
-    await started.catch(() => undefined)
-    await runtime?.stopAll()
-  })
-  // 卸载：释放工具行 standing scope；中断扫码轮询。
+  // 卸载：释放工具行 standing scope；中断扫码轮询。运行时 drain（stopAll）由插件入口经
+  // 返回值作为 project_bot domain 的 beforeClose 串行执行（见函数 JSDoc），不在此注册 effect。
   ctx.effect(() => async () => {
     await toolsScope.dispose()
   })
   ctx.effect(() => async () => {
     registerAppService.dispose()
   })
+
+  return async () => {
+    await started.catch(() => undefined)
+    await runtime?.stopAll()
+  }
 }

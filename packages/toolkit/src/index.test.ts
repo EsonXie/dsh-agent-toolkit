@@ -40,7 +40,7 @@ class FakeTable<V> implements KvTable<string, V> {
 class FakeDomain {
   readonly name: string
   private readonly tables = new Map<string, FakeTable<unknown>>()
-  constructor(spec: DomainSpec) {
+  constructor(spec: DomainSpec, private readonly onClose: (name: string) => void = () => {}) {
     this.name = spec.name
     for (const name of Object.keys(spec.tables)) this.tables.set(name, new FakeTable())
   }
@@ -49,7 +49,7 @@ class FakeDomain {
     if (table === undefined) throw new Error(`no table ${name}`)
     return table as KvTable<string, unknown>
   }
-  async close(): Promise<void> {}
+  async close(): Promise<void> { this.onClose(this.name) }
 }
 
 interface ApplyHarness {
@@ -59,24 +59,26 @@ interface ApplyHarness {
   tools: string[]
   openedDomains: string[]
   registered: { kind: string; path: string }[]
+  effects: (() => unknown)[]
 }
 
-/** 记录 apply 经各模块注册的命令/section/工具、打开的存储域与 webServer 路由。 */
-function makeCtx(): ApplyHarness {
+/** 记录 apply 经各模块注册的命令/section/工具、打开的存储域、webServer 路由与 effect 注册。 */
+function makeCtx(onDomainClose: (name: string) => void = () => {}): ApplyHarness {
   const commands: string[] = []
   const sections: string[] = []
   const tools: string[] = []
   const openedDomains: string[] = []
   const registered: { kind: string; path: string }[] = []
+  const effects: (() => unknown)[] = []
   const ctx = {
     logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
     storageDomain: {
       open: (spec: DomainSpec) => {
         openedDomains.push(spec.name)
-        return Promise.resolve(new FakeDomain(spec))
+        return Promise.resolve(new FakeDomain(spec, onDomainClose))
       },
     },
-    effect: () => {},
+    effect: (fn: () => unknown) => { effects.push(fn) },
     on: vi.fn(() => () => {}),
     systemPrompt: {
       section: (s: { name: string }) => {
@@ -117,7 +119,15 @@ function makeCtx(): ApplyHarness {
       })
     },
   } as unknown as Context
-  return { ctx, commands, sections, tools, openedDomains, registered }
+  return { ctx, commands, sections, tools, openedDomains, registered, effects }
+}
+
+/** 卸载：cordis 的 disposer 并发执行（Promise.all），逐 effect 调用其 disposer。 */
+async function disposeAll(effects: (() => unknown)[]): Promise<void> {
+  await Promise.all(effects.map(async (fn) => {
+    const disposer = fn()
+    if (typeof disposer === 'function') await disposer()
+  }))
 }
 
 let tempHome: string
@@ -289,5 +299,25 @@ describe('apply 模块接线与开关', () => {
     const h = makeCtx()
     await expect(apply(h.ctx, Config({ layers: [], rules: [] }))).rejects.toThrow(/at least one layer/)
     expect(h.openedDomains).toEqual([])
+  })
+
+  test('卸载：project_bot 关域前先排空 bots（drain 先于 close，不能并发）', async () => {
+    // cordis 的 disposer 并发执行（Promise.all），注册顺序/逆序都不提供串行保证；
+    // 必须由 openDomainSafely 的单个 effect 串行 await drain 后再 close。
+    const order: string[] = []
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const h = makeCtx((name) => { order.push(`close:${name}`) })
+    vi.mocked(setupBots).mockImplementationOnce(() => async () => { await gate; order.push('drain') })
+    await apply(h.ctx, Config({ feishu: { debugLog: false } }))
+    const done = disposeAll(h.effects)
+    await Promise.resolve()
+    // drain 未落定前 project_bot 不得关闭（close 一旦开始就拒绝新入队的写）。
+    expect(order).not.toContain('close:project_bot')
+    release()
+    await done
+    // 其他域并发关闭不受影响，但 project_bot 必须排在 drain 之后。
+    expect(order.indexOf('drain')).toBeGreaterThanOrEqual(0)
+    expect(order.indexOf('drain')).toBeLessThan(order.indexOf('close:project_bot'))
   })
 })

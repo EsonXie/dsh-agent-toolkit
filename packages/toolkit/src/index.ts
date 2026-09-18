@@ -185,9 +185,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   setupDelegateApi(ctx, { active: activeRoutes, routes: routesTable })
   // project_bot domain 上移至插件入口：agents API（删除守卫的 Bot 计数）与 setupBots
   // （运行时表句柄）共用同一份句柄；域不随 modules.feishu 门控（存储是插件级共享关注点，
-  // feishu 开关只控制 bot 运行时/UI 装配）。卸载顺序：bots 模块后注册的 drain effect
-  // 先于本域 close effect 执行，保证在飞会话与出站链排空后才关域。
-  const botsDomain = await openDomainSafely(ctx, projectBotDomain, warn)
+  // feishu 开关只控制 bot 运行时/UI 装配）。
+  // 卸载串行化：cordis 的 disposer 并发执行（Fiber._unload = Promise.all），注册顺序不提供
+  // 时序保证；故经 beforeClose 在同一 effect 内先 await bots 运行时 drain（stopAll 排空在飞
+  // 会话与出站链）再 close 域——close 一旦开始就拒绝新入队的写（drain 期间的写会被静默丢弃）。
+  // setupBots 在下方条件分支才调用，其 drain 句柄写入 botDrain 供 beforeClose 惰性读取。
+  let botDrain: (() => Promise<void>) | undefined
+  const botsDomain = await openDomainSafely(ctx, projectBotDomain, warn, async () => {
+    await botDrain?.()
+  })
   const botsTable = botsDomain.table('bots') as KvTable<string, BotRecord>
   const bindingsTable = botsDomain.table('bindings') as KvTable<string, Binding>
   const countBotsForAgent = (agentId: string): number =>
@@ -220,7 +226,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   // cron_* 工具注册门控排除集：仅 schedule 执行会话登记（bot 聊天会话与 web 主会话对齐，可建定时任务）。
   const cronExcludedSessions = new Set<string>()
-  if (config.modules.feishu) setupBots(ctx, config.feishu, {
+  if (config.modules.feishu) botDrain = setupBots(ctx, config.feishu, {
     registry,
     presetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.id : undefined,
     bots: botsTable,
