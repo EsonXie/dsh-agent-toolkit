@@ -18,7 +18,7 @@ describe('projectBotDomain', () => {
   test('域名、版本与表清单', () => {
     expect(projectBotDomain.name).toBe('project_bot')
     expect(projectBotDomain.version).toBe(1)
-    expect(Object.keys(projectBotDomain.tables).sort()).toEqual(['bindings', 'bots'])
+    expect(Object.keys(projectBotDomain.tables).sort()).toEqual(['bindings', 'bots', 'meta'])
   })
 })
 

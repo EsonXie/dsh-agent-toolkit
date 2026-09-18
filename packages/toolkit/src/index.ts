@@ -19,6 +19,7 @@ import { setupAgentsApi } from './agents/api.ts'
 import { setupCreateAgentCommand } from './agents/create-command.ts'
 import { setupBots, type BotsModuleConfig } from './bots/index.ts'
 import { projectBotDomain, type Binding, type BotRecord } from './bots/store.ts'
+import { migrateBotsIntoAgents } from './bots/merge-migration.ts'
 import { setupAgentTeamPreset, type AgentTeamPresetConfig } from './agents/team-preset.ts'
 import { setupSchedule, type ScheduleModuleConfig } from './schedule/index.ts'
 import { setupUsage } from '@dsh-agent-toolkit/token-usage'
@@ -196,6 +197,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   const botsTable = botsDomain.table('bots') as KvTable<string, BotRecord>
   const bindingsTable = botsDomain.table('bindings') as KvTable<string, Binding>
+  const botsMetaTable = botsDomain.table('meta') as KvTable<string, { value: string }>
+  // 一次性迁移：剥离 bot 级 persona/tools（并入 Agent 配置），非 main 绑定剥离 agentOptions。
+  await migrateBotsIntoAgents({ bots: botsTable, meta: botsMetaTable }, warn)
   const countBotsForAgent = (agentId: string): number =>
     [...botsTable.keys()].filter((id) => (botsTable.get(id)?.agentRef ?? 'main') === agentId).length
   // agents/providers/tools RPC 为核心恒启用（Agents 面板总是挂载，端点缺失即「加载失败」），

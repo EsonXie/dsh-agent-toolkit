@@ -23,11 +23,11 @@ export const BotRecordSchema = z.object({
   feishu: FeishuConfigSchema.optional(),
   /** 绑定项目（agent 的 cwd，绝对路径）。一 bot 一项目。 */
   project: z.string().min(1),
-  /** 透传到 agent 创作期的 persona 提示段。 */
+  /** @deprecated 仅迁移输入（2026-09-17 合并迁移后删除）：透传到 agent 创作期的 persona 提示段。 */
   persona: z.string().max(8000).optional(),
   /** 绑定的 Agent（'main' 或注册表角色 id，缺省 = 'main'）。 */
   agentRef: z.string().min(1).optional(),
-  /** 可用工具白名单（缺省 = 不限制）；空数组无意义，直接拒绝。 */
+  /** @deprecated 仅迁移输入（2026-09-17 合并迁移后删除）：可用工具白名单（缺省 = 不限制）；空数组无意义，直接拒绝。 */
   tools: z.array(z.string().min(1)).min(1).optional(),
   agentOptions: z.object({
     provider: z.string().min(1).optional(),
@@ -51,6 +51,8 @@ export const projectBotDomain = defineDomain({
   tables: {
     bots: domainTable<string, BotRecord>(BotRecordSchema),
     bindings: domainTable<string, Binding>(BindingSchema),
+    // meta 表存一次性标记（bots_agent_merge_migrated），沿用 agents 域 meta 模式。
+    meta: domainTable<string, { value: string }>(z.object({ value: z.string() })),
   },
 })
 
