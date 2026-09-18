@@ -234,11 +234,12 @@ describe('apply 模块接线与开关', () => {
     expect(h.openedDomains).not.toContain('token_usage')
   })
 
-  test('modules.feishu=false：不开 project_bot 域', async () => {
+  test('modules.feishu=false：project_bot 域仍开（agents API 删除守卫恒需 Bot 计数），仅 bots 运行时/路由不下达', async () => {
     const h = makeCtx()
     await apply(h.ctx, Config({ modules: { feishu: false } }))
     expect(h.openedDomains).toContain('token_usage')
-    expect(h.openedDomains).not.toContain('project_bot')
+    expect(h.openedDomains).toContain('project_bot')
+    expect(vi.mocked(setupBots)).not.toHaveBeenCalled()
   })
 
   test('modules.feishu=false：agents/providers/tools RPC 仍注册（核心恒启用），bots 路由不注册', async () => {
@@ -264,9 +265,9 @@ describe('apply 模块接线与开关', () => {
     const h = makeCtx()
     await apply(h.ctx, Config({ feishu: { debugLog: false } }))
     const botsDeps = vi.mocked(setupBots).mock.calls[0]![2] as unknown as Record<string, unknown>
-    // bot 聊天会话不登记排除集：deps 键面收窄为 registry/presetId；回退重新加回任何会话排除
-    // 字段（如 ownedSessions）并传入都会在此失败。
-    expect(Object.keys(botsDeps).sort()).toEqual(['presetId', 'registry'])
+    // bot 聊天会话不登记排除集：deps 键面为 registry/presetId + 插件入口打开的 bots/bindings 表句柄；
+    // 回退重新加回任何会话排除字段（如 ownedSessions）并传入都会在此失败。
+    expect(Object.keys(botsDeps).sort()).toEqual(['bindings', 'bots', 'presetId', 'registry'])
     // schedule 执行会话仍登记：门控排除集以 Set 形式下达。
     const scheduleDeps = vi.mocked(setupSchedule).mock.calls[0]![2]
     expect(scheduleDeps.cronExcludedSessions).toBeInstanceOf(Set)

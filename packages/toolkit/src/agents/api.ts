@@ -19,6 +19,10 @@ export interface AgentsApiDeps {
   listProviders(): ProviderOption[]
   /** 失败由调用方（路由）兜底为空数组，不抛错。 */
   listModels(provider: string): Promise<ModelOption[]>
+  /** 名下 Bot 数量（删除守卫：>0 时 409）；由插件入口按 project_bot 表统计。 */
+  countBotsForAgent(agentId: string): number
+  /** 服务端时间戳来源（createdAt/updatedAt 回填）。 */
+  now(): number
 }
 
 export function createAgentsApiHandler(deps: AgentsApiDeps): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
@@ -64,14 +68,19 @@ export function createAgentsApiHandler(deps: AgentsApiDeps): (req: IncomingMessa
         const body = await readJsonBody(req, res)
         if (body === undefined) return
         // builtin 是服务端保留字段：剥离客户端携带值（防经 PUT 自创不可删记录），
-        // id 以资源路径为准（覆盖 body.id），保证一致性。
+        // id 以资源路径为准（覆盖 body.id），保证一致性。时间戳同为服务端管理字段：
+        // 剥离客户端携带值，由服务端回填（新建取 now()，更新保留原 createdAt、刷新 updatedAt）。
         const bodyRecord: Record<string, unknown> = { ...(body as Record<string, unknown>) }
         delete bodyRecord.builtin
+        delete bodyRecord.createdAt
+        delete bodyRecord.updatedAt
         const candidate: Record<string, unknown> = { ...bodyRecord, id }
         // 服务端保留字段回填：builtin 由既有记录决定（客户端不携带），否则 registry 的
         // "内置标记不可修改" 守卫会让所有内置角色/主 Agent 的配置编辑必然 409。
         const existing = deps.registry.get(id)
         if (existing?.builtin === true) candidate.builtin = true
+        candidate.createdAt = existing?.createdAt ?? deps.now()
+        candidate.updatedAt = deps.now()
         const parsed = AgentRecordSchema.safeParse(candidate)
         if (!parsed.success) {
           json(res, 400, { error: parsed.error.issues[0]?.message ?? 'invalid agent record' })
@@ -90,6 +99,12 @@ export function createAgentsApiHandler(deps: AgentsApiDeps): (req: IncomingMessa
       if (method === 'DELETE') {
         if (deps.registry.get(id) === undefined) {
           json(res, 404, { error: `agent "${id}" 不存在` })
+          return
+        }
+        // 名下有 Bot 的角色禁止删除：Bot 的 agentRef 会悬垂，先要求删除/移出这些 Bot。
+        const botCount = deps.countBotsForAgent(id)
+        if (botCount > 0) {
+          json(res, 409, { error: `角色 "${id}" 仍有 ${botCount} 个 Bot 绑定，请先删除这些 Bot`, bots: botCount })
           return
         }
         try {

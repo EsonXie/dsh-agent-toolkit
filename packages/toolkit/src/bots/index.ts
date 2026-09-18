@@ -2,6 +2,7 @@
 import { existsSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
+import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
@@ -20,7 +21,6 @@ import type {} from '@deepseek-ai/dsh-user-questions'
 // type-only：激活 permissionPresets 服务在 Context 上的声明合并（ctx.get 可选服务读取）。
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import type { AgentRegistry } from '../agents/registry.ts'
-import { openDomainSafely } from '../shared/storage.ts'
 import { registerOptionalRoutes } from '../shared/webserver.ts'
 import { createAgentsPort } from '../channels/agents-port.ts'
 import type { BotChannel, ChannelTunables } from '../channels/channel.ts'
@@ -38,7 +38,7 @@ import { createQuestionAnswerer } from '../channels/questions/answerer.ts'
 import { createPresetApplier } from './permission-preset.ts'
 import { createApiHandler } from './api.ts'
 import { RegisterAppService } from './register-app.ts'
-import { projectBotDomain, type Binding, type BotRecord } from './store.ts'
+import type { Binding, BotRecord } from './store.ts'
 
 /** project-bot Config 的 14 个全局可调参数：9 个字段名不变（schemastery 定义与默认值源：archive/2026-08-26-merged-plugins/project-bot/src/index.ts:38-45，由 Task 15 平移进 suite Config）；docMaxBytes 与 debugLog/debugLogDir/debugLogRetentionDays 为 Task 5 新增（非 archive 平移）。 */
 export interface BotsModuleConfig {
@@ -74,11 +74,15 @@ export interface BotsModuleConfig {
   debugLogRetentionDays: number
 }
 
-/** setupBots 的宿主接线依赖（registry 供运行时委派/API 消费；prompt 无消费方，Task 13 定案不装配 persona）。 */
+/** setupBots 的宿主接线依赖（registry 供运行时委派/API 消费；bots/bindings 为插件入口打开的 project_bot 表句柄）。 */
 export interface BotsDeps {
   registry: AgentRegistry
   /** bot 会话挂载的 preset id（agent-team；agentTeamPreset 开启时下达；undefined = 直接 toolsScope）。 */
   presetId?: string
+  /** project_bot.bots 表句柄（domain 由插件入口打开，模块不再自开）。 */
+  bots: KvTable<string, BotRecord>
+  /** project_bot.bindings 表句柄（domain 由插件入口打开，模块不再自开）。 */
+  bindings: KvTable<string, Binding>
 }
 
 export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps): void {
@@ -165,26 +169,11 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
       sessionTitle: ctx.get('sessionTitle', false) as CatalogSessionTitle | undefined,
     }))
 
-  // 存储域：open 失败挂 rejection handler 防次生崩溃，调用方仍感知失败（token-usage 同款）。
-  // 卸载顺序由 openDomainSafely 的 beforeClose 保证：先等启动链落定、排空在飞会话与出站链
-  // （stopAll 内含卡片定格 drain），再关存储域——close 一旦开始就拒绝新入队的写。
-  let botsTable: import('@deepseek-ai/dsh-storage-domain').KvTable<string, BotRecord> | undefined
-  let bindingsTable: import('@deepseek-ai/dsh-storage-domain').KvTable<string, Binding> | undefined
+  // project_bot 存储域由插件入口打开（domain 句柄经 deps 下达），本模块不再自开；
+  // 卸载时先等启动链落定、排空在飞会话与出站链（stopAll 内含卡片定格 drain），
+  // 再让插件入口的 openDomainSafely 关域——close 一旦开始就拒绝新入队的写。
   let runtime: BotRuntime | undefined
   let started: Promise<void> = Promise.resolve()
-  const domainReady = openDomainSafely(
-    ctx,
-    projectBotDomain,
-    (msg) => log.warn(msg),
-    async () => {
-      await started.catch(() => undefined)
-      await runtime?.stopAll()
-    },
-  ).then((domain) => {
-    botsTable = domain.table('bots') as import('@deepseek-ai/dsh-storage-domain').KvTable<string, BotRecord>
-    bindingsTable = domain.table('bindings') as import('@deepseek-ai/dsh-storage-domain').KvTable<string, Binding>
-    return domain
-  })
 
   const registerAppService = new RegisterAppService({
     registerApp: (options) => import('@larksuiteoapi/node-sdk').then((lark) => lark.registerApp(options)),
@@ -192,10 +181,10 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
     timeoutMs: config.registerAppTimeoutMs,
   })
 
-  started = domainReady.then(() => {
+  started = Promise.resolve().then(() => {
     runtime = new BotRuntime({
-      bots: botsTable!,
-      bindings: bindingsTable!,
+      bots: deps.bots,
+      bindings: deps.bindings,
       agents: agentsPort,
       registry: deps.registry,
       defaultModel: () => {
@@ -260,7 +249,7 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
     const botsHandler: (req: IncomingMessage, res: ServerResponse) => Promise<void> = async (req, res) => {
       if (runtime === undefined) throw new Error('runtime unavailable')
       await createApiHandler({
-        bots: botsTable!,
+        bots: deps.bots,
         runtime,
         registerApp: registerAppService,
         listTools: () => ctx.tools.schemas().map((s) => s.name),
@@ -289,8 +278,14 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
     return () => dispose()
   })
 
-  // 卸载：释放工具行 standing scope；中断扫码轮询；runtime drain（stopAll）与关存储域的
-  // 顺序由 openDomainSafely 的 beforeClose 保证。
+  // 卸载：排空在飞会话与出站链（stopAll 内含卡片定格 drain）。本 effect 在插件入口
+  // 的 domain close effect 之后注册，cordis 逆序卸载保证 drain 先于关域——close 一旦
+  // 开始就拒绝新入队的写，未落队的采集会被静默丢弃（openDomainSafely beforeClose 原语义）。
+  ctx.effect(() => async () => {
+    await started.catch(() => undefined)
+    await runtime?.stopAll()
+  })
+  // 卸载：释放工具行 standing scope；中断扫码轮询。
   ctx.effect(() => async () => {
     await toolsScope.dispose()
   })

@@ -18,6 +18,7 @@ import { setupDelegateApi } from './delegate/api.ts'
 import { setupAgentsApi } from './agents/api.ts'
 import { setupCreateAgentCommand } from './agents/create-command.ts'
 import { setupBots, type BotsModuleConfig } from './bots/index.ts'
+import { projectBotDomain, type Binding, type BotRecord } from './bots/store.ts'
 import { setupAgentTeamPreset, type AgentTeamPresetConfig } from './agents/team-preset.ts'
 import { setupSchedule, type ScheduleModuleConfig } from './schedule/index.ts'
 import { setupUsage } from '@dsh-agent-toolkit/token-usage'
@@ -182,6 +183,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     },
   })
   setupDelegateApi(ctx, { active: activeRoutes, routes: routesTable })
+  // project_bot domain 上移至插件入口：agents API（删除守卫的 Bot 计数）与 setupBots
+  // （运行时表句柄）共用同一份句柄；域不随 modules.feishu 门控（存储是插件级共享关注点，
+  // feishu 开关只控制 bot 运行时/UI 装配）。卸载顺序：bots 模块后注册的 drain effect
+  // 先于本域 close effect 执行，保证在飞会话与出站链排空后才关域。
+  const botsDomain = await openDomainSafely(ctx, projectBotDomain, warn)
+  const botsTable = botsDomain.table('bots') as KvTable<string, BotRecord>
+  const bindingsTable = botsDomain.table('bindings') as KvTable<string, Binding>
+  const countBotsForAgent = (agentId: string): number =>
+    [...botsTable.keys()].filter((id) => (botsTable.get(id)?.agentRef ?? 'main') === agentId).length
   // agents/providers/tools RPC 为核心恒启用（Agents 面板总是挂载，端点缺失即「加载失败」），
   // 不随 modules.feishu 门控；仅 bots 分支受 feishu 开关控制。
   setupAgentsApi(ctx, {
@@ -190,6 +200,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     listPresetTools: toolCatalog.listPresetTools,
     listProviders: () => ctx.llm.listProviders().map(({ id, name }) => ({ id, name })),
     listModels: (provider) => ctx.llm.listModels(provider).then((models) => models.map(({ id, name }) => ({ id, name }))),
+    countBotsForAgent,
+    now: () => Date.now(),
   })
   // /create-agent 命令恒启用（引导主 Agent 访谈并复用面板 API 落库，不新增工具/API）。
   setupCreateAgentCommand(ctx, { registry, listTools: toolCatalog.listGlobalTools, listPresetTools: toolCatalog.listPresetTools })
@@ -208,7 +220,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   // cron_* 工具注册门控排除集：仅 schedule 执行会话登记（bot 聊天会话与 web 主会话对齐，可建定时任务）。
   const cronExcludedSessions = new Set<string>()
-  if (config.modules.feishu) setupBots(ctx, config.feishu, { registry, presetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.id : undefined })
+  if (config.modules.feishu) setupBots(ctx, config.feishu, {
+    registry,
+    presetId: config.agentTeamPreset.enabled ? config.agentTeamPreset.id : undefined,
+    bots: botsTable,
+    bindings: bindingsTable,
+  })
   if (config.modules.usage) setupUsage(ctx, { timezone: config.timezone }, name)
   // schedule 恒启用，不随 modules 门控（任务可独立于飞书/用量使用）。
   setupSchedule(ctx, config.schedule, {

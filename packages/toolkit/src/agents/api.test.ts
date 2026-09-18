@@ -76,6 +76,8 @@ function harness(overrides: Partial<AgentsApiDeps> = {}) {
     listPresetTools: async () => ['pwsh', 'read', 'todo_write', 'web_search'],
     listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
     listModels: async (provider) => [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }],
+    countBotsForAgent: () => 0,
+    now: () => 5000,
     ...overrides,
   }
   return { deps, store, handler: createAgentsApiHandler(deps) }
@@ -202,6 +204,27 @@ describe('PUT /agents/:id', () => {
     expect(res.status).toBe(409)
     expect(store.get('main')).toMatchObject({ name: '主 Agent' })
   })
+
+  test('PUT 新建：服务端写 createdAt/updatedAt，客户端携带值被剥离', async () => {
+    const { handler, store } = harness()
+    const res = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/agents/a1', { id: 'a1', name: 'A', createdAt: 1, builtin: true }), res)
+    expect(res.status).toBe(200)
+    const saved = store.get('a1')
+    expect(saved?.createdAt).toBe(5000)
+    expect(saved?.updatedAt).toBe(5000)
+    expect(saved?.builtin).toBeUndefined()
+  })
+
+  test('PUT 更新：保留原 createdAt，刷新 updatedAt', async () => {
+    const { handler, store } = harness()
+    store.set('a1', { id: 'a1', name: 'A', createdAt: 100 })
+    const res = mockRes()
+    await handler(mockReq('PUT', '/dsh-agent-toolkit/api/agents/a1', { id: 'a1', name: 'A2' }), res)
+    expect(res.status).toBe(200)
+    expect(store.get('a1')?.createdAt).toBe(100)
+    expect(store.get('a1')?.updatedAt).toBe(5000)
+  })
 })
 
 describe('DELETE /agents/:id', () => {
@@ -229,6 +252,15 @@ describe('DELETE /agents/:id', () => {
     const builtinRes = mockRes()
     await handler(mockReq('DELETE', '/dsh-agent-toolkit/api/agents/explorer'), builtinRes)
     expect(builtinRes.status).toBe(409)
+  })
+
+  test('名下有 Bot：409 且带数量', async () => {
+    const { handler, store } = harness({ countBotsForAgent: () => 2 })
+    const res = mockRes()
+    await handler(mockReq('DELETE', '/dsh-agent-toolkit/api/agents/scout'), res)
+    expect(res.status).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ bots: 2 })
+    expect(store.has('scout')).toBe(true)
   })
 })
 
