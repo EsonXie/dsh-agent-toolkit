@@ -78,17 +78,20 @@ export function AgentsPage(props: {
       setConfirmDeleteId(null)
       reload()
     } catch (e) {
-      // 服务端 409 载荷 { error, bots }；解析出 Bot 数量给出可操作提示。
+      // 服务端 409 载荷 { error, bots }；优先 Bot 数量提示，否则回退 error 字段可读文案。
       const message = e instanceof Error ? e.message : String(e)
       let bots: number | undefined
+      let readable = message
       try {
         const parsed: unknown = JSON.parse(message)
-        if (typeof parsed === 'object' && parsed !== null && 'bots' in parsed && typeof (parsed as { bots?: unknown }).bots === 'number') {
-          bots = (parsed as { bots: number }).bots
+        if (typeof parsed === 'object' && parsed !== null) {
+          const record = parsed as { bots?: unknown; error?: unknown }
+          if (typeof record.bots === 'number') bots = record.bots
+          if (typeof record.error === 'string' && record.error.length > 0) readable = record.error
         }
       } catch { /* 非 JSON 错误体：按原文展示 */ }
       setDeleteError(bots === undefined
-        ? `删除失败：${message}`
+        ? `删除失败：${readable}`
         : `无法删除：名下仍有 ${bots} 个 Bot，请先删除或移出这些 Bot`)
     } finally {
       setDeletingId(null)
@@ -141,10 +144,13 @@ export function AgentsPage(props: {
                     setEditingId(editingId === agent.id ? null : agent.id)
                     setConfirmDeleteId(null)
                   }}>编辑</Button>
-                  <Button variant="outline" className={css.dangerButton} disabled={deletingId !== null}
-                    onClick={() => { void remove(agent) }}>
-                    {confirmDeleteId === agent.id ? '确认删除？' : '删除'}
-                  </Button>
+                  {/* 内置角色服务端恒拒删（registry.remove 抛错 → 409），不渲染必然失败的删除按钮。 */}
+                  {agent.builtin !== true && (
+                    <Button variant="outline" className={css.dangerButton} disabled={deletingId !== null}
+                      onClick={() => { void remove(agent) }}>
+                      {confirmDeleteId === agent.id ? '确认删除？' : '删除'}
+                    </Button>
+                  )}
                 </div>
               </>
             )}

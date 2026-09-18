@@ -95,6 +95,36 @@ test('内置卡带「内置」徽标，普通卡不带', async () => {
   expect(within(cardOf('AAA')).queryByText('内置')).toBeNull()
 })
 
+test('内置非 main 卡无删除按钮（服务端恒拒删），但保留编辑按钮', async () => {
+  stubFetch(routes())
+  render(<AgentsPage t={(k) => k} useWorkspaces={stubUseWorkspaces} />)
+
+  await screen.findByText('Explorer')
+  const card = cardOf('Explorer')
+  expect(within(card).queryByRole('button', { name: '删除' })).toBeNull()
+  expect(within(card).queryByRole('button', { name: '确认删除？' })).toBeNull()
+  expect(within(card).getByRole('button', { name: '编辑' })).toBeTruthy()
+})
+
+test('非 Bot 类 409：解析 error 字段展示可读文案，不出现裸 JSON', async () => {
+  stubFetch(routes({
+    '/dsh-agent-toolkit/api/agents/': (init) => (init?.method === 'DELETE'
+      ? { status: 409, body: { error: '内置角色 aaa 不可删除' } }
+      : { body: { ok: true } }),
+  }))
+  render(<AgentsPage t={(k) => k} useWorkspaces={stubUseWorkspaces} />)
+
+  await screen.findByText('AAA')
+  const card = cardOf('AAA')
+  fireEvent.click(within(card).getByRole('button', { name: '删除' }))
+  fireEvent.click(within(card).getByRole('button', { name: '确认删除？' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert.textContent).toContain('内置角色 aaa 不可删除')
+  expect(alert.textContent).not.toContain('{')
+  expect(alert.textContent).not.toContain('"error"')
+})
+
 test('删除名下有 Bot 的角色：两段确认后展示 409 错误（含 Bot 数量），列表不变', async () => {
   stubFetch(routes())
   render(<AgentsPage t={(k) => k} useWorkspaces={stubUseWorkspaces} />)
