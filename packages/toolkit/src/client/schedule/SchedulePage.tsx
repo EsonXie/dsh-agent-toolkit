@@ -158,7 +158,6 @@ export function SchedulePage(props: SchedulePageProps): ReactNode {
               <div key={task.id} className={css.taskBlock}>
                 <div className={css.row}>
                   <Switch
-                    className={css.enabled}
                     checked={task.enabled}
                     label={task.name}
                     onChange={() => { void toggleEnabled(task) }}

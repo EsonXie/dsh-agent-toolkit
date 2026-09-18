@@ -59,6 +59,33 @@ test('列表渲染：名称/调度摘要/目标/下次触发/上次运行徽标'
   expect(screen.getByText('成功')).toBeDefined()
 })
 
+test('人类可读调度描述：每天/每工作日/每周/每小时/自定义/一次性/固定间隔', async () => {
+  const make = (id: string, name: string, schedule: unknown) => ({
+    ...TASK, id, name, schedule, lastRun: undefined,
+  })
+  stubFetch({
+    '/dsh-agent-toolkit/api/cron/tasks': () => ({
+      tasks: [
+        make('daily', '每天', { kind: 'cron', expr: '0 9 * * *' }),
+        make('weekdays', '工作日', { kind: 'cron', expr: '30 8 * * 1-5' }),
+        make('weekly', '每周', { kind: 'cron', expr: '0 7 * * 3' }),
+        make('hourly', '每小时', { kind: 'cron', expr: '15 * * * *' }),
+        make('custom', '自定义', { kind: 'cron', expr: '*/5 * * * *' }),
+        make('at', '单次', { kind: 'at', at: '2026-09-20T01:00:00.000Z' }),
+        make('every', '间隔', { kind: 'every', seconds: 3600 }),
+      ],
+    }),
+  })
+  renderPage()
+  expect(await screen.findByText('每天 09:00')).toBeDefined()
+  expect(screen.getByText('每工作日 08:30')).toBeDefined()
+  expect(screen.getByText('每周三 07:00')).toBeDefined()
+  expect(screen.getByText('每小时第 15 分')).toBeDefined()
+  expect(screen.getByText('自定义 */5 * * * *')).toBeDefined()
+  expect(screen.getByText(/^一次性 /)).toBeDefined()
+  expect(screen.getByText('每 3600 秒')).toBeDefined()
+})
+
 test('enabled 行内开关：PUT enabled=false 并 toast', async () => {
   const calls = stubFetch({
     '/dsh-agent-toolkit/api/cron/tasks/task-1': () => ({ task: TASK }),

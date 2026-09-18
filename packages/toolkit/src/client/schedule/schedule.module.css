@@ -23,13 +23,6 @@
   margin-bottom: 4px;
 }
 .row:hover { background: var(--dsw-alias-interactive-bg-hover); }
-.enabled {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  accent-color: var(--dsw-alias-brand-primary);
-  cursor: pointer;
-}
 .main {
   flex: 1;
   min-width: 0;
