@@ -131,3 +131,15 @@ test('自定义起止日期倒置时不发请求并提示', async () => {
   expect(await screen.findByText(/起始日期不能晚于截止日期/)).toBeTruthy()
   expect(vi.mocked(fetch).mock.calls.length).toBe(calls)
 })
+
+test('切回预设后清除自定义区间错误提示', async () => {
+  render(<UsageModal open onClose={() => {}} initialDate={TODAY} />)
+  await screen.findByText('按模型')
+  const [fromInput, toInput] = screen.getAllByLabelText(/起始日期|截止日期/)
+  fireEvent.change(fromInput, { target: { value: '2026-08-18' } })
+  fireEvent.change(toInput, { target: { value: '2026-08-01' } })
+  expect(await screen.findByText(/起始日期不能晚于截止日期/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '近 7 天' }))
+  expect(screen.queryByText(/起始日期不能晚于截止日期/)).toBeNull()
+  expect(await screen.findByText('范围总量', { exact: false })).toBeTruthy()
+})

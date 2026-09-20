@@ -142,8 +142,8 @@ function UsageModalBody({ initialDate }: { initialDate: string | null }): ReactN
                 setCustom((c) => ({ from: c?.from ?? to, to }))
               }} />
           </div>
-          {customInvalid && <p className={css.rangeError}>起始日期不能晚于截止日期，且跨度不超过 366 天</p>}
-          {range.state.kind === 'loading' && !customInvalid && <p>加载中…</p>}
+          {preset === 'custom' && customInvalid && <p className={css.rangeError}>起始日期不能晚于截止日期，且跨度不超过 366 天</p>}
+          {range.state.kind === 'loading' && !(preset === 'custom' && customInvalid) && <p>加载中…</p>}
           {range.state.kind === 'error' && <p>加载失败，请重试</p>}
           {payload !== undefined && (
             <>
