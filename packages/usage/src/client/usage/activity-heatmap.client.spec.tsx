@@ -14,7 +14,7 @@ import { ActivityHeatmap } from './ActivityHeatmap.tsx'
 
 // 2026-08-18 是周二：末列含 4 个未来格（周三~周六）。
 const TODAY = '2026-08-18'
-const DAYS = Array.from({ length: 91 }, (_, i) => ({ date: shiftDate(TODAY, i - 90), billed: 0, calls: 0 }))
+const DAYS = Array.from({ length: 91 }, (_, i) => ({ date: shiftDate(TODAY, i - 90), billed: 0, calls: 0, fresh: 0, cached: 0 }))
 
 afterEach(cleanup)
 

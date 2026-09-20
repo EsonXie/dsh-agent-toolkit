@@ -11,7 +11,7 @@ import { openDomainSafely } from '../shared/storage.ts'
 import { BACKFILL_DONE_KEY, backfillMissingDays, refreshUsageRange } from './backfill.ts'
 import { registerOptionalRoutes } from '../shared/webserver.ts'
 import { addSample, dayParts, emptyDaily, sampleFromEvent } from './aggregate.ts'
-import { parseDaysParam, rangeSummaries } from './heatmap.ts'
+import { aggregateRange, datesBetween, parseDaysParam, parseRangeParams, rangeSummaries } from './heatmap.ts'
 import { renderDay, renderWeek } from './render.ts'
 import { tokenUsageDomain, type DailyRecord } from './store.ts'
 
@@ -228,15 +228,28 @@ export function setupUsage(ctx: Context, config: { timezone: string }, owner: st
             res.writeHead(405).end()
             return
           }
-          const days = parseDaysParam(new URL(req.url ?? '', 'http://127.0.0.1').searchParams.get('days'))
-          if (days === null) {
-            res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'bad days, want integer 1..366' }))
+          const params = new URL(req.url ?? '', 'http://127.0.0.1').searchParams
+          const today = dayParts(Date.now(), config.timezone).date
+          const range = parseRangeParams({ days: params.get('days'), from: params.get('from'), to: params.get('to') }, today)
+          if (range === null) {
+            res.writeHead(400, { 'content-type': 'application/json' })
+              .end(JSON.stringify({ error: 'bad range, want days=1..366 or from/to=YYYY-MM-DD within 366 days' }))
             return
           }
           const table = await domainReady.then(() => daily!)
-          const today = dayParts(Date.now(), config.timezone).date
+          const records = datesBetween(range.from, range.to)
+            .map((d) => table.get(d))
+            .filter((r): r is DailyRecord => r !== undefined)
+          const single = range.from === range.to
           res.writeHead(200, { 'content-type': 'application/json' })
-            .end(JSON.stringify({ today, days: rangeSummaries((d) => table.get(d), today, days) }))
+            .end(JSON.stringify({
+              today,
+              from: range.from,
+              to: range.to,
+              days: rangeSummaries((d) => table.get(d), range.from, range.to),
+              aggregate: aggregateRange(records),
+              ...(single ? { hours: (table.get(range.from) ?? emptyDaily(range.from)).hours } : {}),
+            }))
         },
       })
 
