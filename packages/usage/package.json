@@ -51,6 +51,7 @@
     "@deepseek-ai/dsh-api-session-controller": "link:../../deepseek-harness/packages/api/session-controller",
     "@deepseek-ai/dsh-api-workspace-controller": "link:../../deepseek-harness/packages/api/workspace-controller",
     "@deepseek-ai/dsh-client-locale": "link:../../deepseek-harness/packages/client/locale",
+    "@deepseek-ai/dsh-client-ui-conversation": "link:../../deepseek-harness/packages/client/ui-conversation",
     "@deepseek-ai/dsh-client-ui-primitives": "link:../../deepseek-harness/packages/client/ui-primitives",
     "@deepseek-ai/dsh-client-ui-renderer": "link:../../deepseek-harness/packages/client/ui-renderer",
     "@deepseek-ai/dsh-client-ui-sidebar": "link:../../deepseek-harness/packages/client/ui-sidebar",

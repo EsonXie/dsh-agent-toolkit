@@ -19,7 +19,7 @@ test('双装：usage 入口被独立包占用时 apply 不向上抛，warn 恰�
         if (options.id === 'dsh-agent-toolkit:usage') {
           // 模拟独立包 @dsh-agent-toolkit/token-usage 已注册同一入口 id：ui-slots
           // register 的 list 分支同步抛错，toolkit 的 apply 应捕获并 warn，不拖垮本包浏览器半。
-          throw new Error('list slot "sidebar.footer.action" already has an entry with id "dsh-agent-toolkit:usage"')
+          throw new Error('list slot "conversation.session.header.utilities" already has an entry with id "dsh-agent-toolkit:usage"')
         }
         registered.push(options.id ?? '(no-id)')
         return () => {}

@@ -229,6 +229,9 @@ importers:
       '@deepseek-ai/dsh-client-locale':
         specifier: link:../../deepseek-harness/packages/client/locale
         version: link:../../deepseek-harness/packages/client/locale
+      '@deepseek-ai/dsh-client-ui-conversation':
+        specifier: link:../../deepseek-harness/packages/client/ui-conversation
+        version: link:../../deepseek-harness/packages/client/ui-conversation
       '@deepseek-ai/dsh-client-ui-primitives':
         specifier: link:../../deepseek-harness/packages/client/ui-primitives
         version: link:../../deepseek-harness/packages/client/ui-primitives

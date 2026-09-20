@@ -12,7 +12,7 @@ test('双装：第二次 apply 命中重复入口，不向上抛、warn 降级',
         calls += 1
         if (calls > 1) {
           // 与真实宿主一致：后到实例在 slots 重复 id 处同步抛错（ui-slots register 的 list 分支）。
-          throw new Error('list slot "sidebar.footer.action" already has an entry with id "dsh-agent-toolkit:usage"')
+          throw new Error('list slot "conversation.session.header.utilities" already has an entry with id "dsh-agent-toolkit:usage"')
         }
         callback()
         return () => {}

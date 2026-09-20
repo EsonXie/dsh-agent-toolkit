@@ -1,21 +1,22 @@
-/** usage 侧边栏底栏入口：createSidebarEntry 工厂产物（宽栏窄栏统一仅图标 + Tooltip），点击打开 Token 用量模态框。 */
-import type { ReactNode } from 'react'
+/** usage 会话标题栏入口：utilities 区图标按钮（Tooltip「Token 用量」），点击打开用量模态框。 */
+import { useState, type ReactNode } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-// 触发 ui-sidebar 对 SlotMap 的声明合并（sidebar.footer.action 键与 owner props）。
-import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
-import { IconDataOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { createSidebarEntry } from '../shared/entry.tsx'
+// 触发 ui-conversation 对 SlotMap 的声明合并（conversation.session.header.utilities 键）。
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { IconDataOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { UsageModal } from './UsageModal.tsx'
+import css from './entry.module.css'
 
-const SidebarEntry = createSidebarEntry({
-  id: 'dsh-agent-toolkit:usage',
-  order: 0,
-  icon: <IconDataOutline16 size={18} />,
-  title: 'Token 用量',
-  renderModal: (p) => <UsageModal {...p} />,
-})
-
-/** 槽注册要求完整 composed props（含运行时 share useSessions/useWorkspaces）；实现只消费 wide。 */
-export function UsageEntry(props: PropsRuntime<'sidebar.footer.action'>): ReactNode {
-  return <SidebarEntry wide={props.wide} />
+export function UsageEntry(_props: PropsRuntime<'conversation.session.header.utilities'>): ReactNode {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <Tooltip label="Token 用量" delayMs={500}>
+        <button type="button" className={css.trigger} aria-label="Token 用量" onClick={() => { setOpen(true) }}>
+          <IconDataOutline16 size={18} />
+        </button>
+      </Tooltip>
+      <UsageModal open={open} onClose={() => { setOpen(false) }} />
+    </>
+  )
 }
