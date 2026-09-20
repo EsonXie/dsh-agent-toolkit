@@ -1,11 +1,13 @@
 /** dsh-agent-toolkit 纯函数：range 端点参数与摘要、13 周热力图网格、缓存/新增拆分。无运行时依赖，两半共用。 */
-import { billedOf, shiftDate } from './aggregate.ts'
+import { billedOf, emptyBucket, shiftDate } from './aggregate.ts'
 import type { Bucket, DailyRecord } from './store.ts'
 
 /** range 端点与热力图共用的每日紧凑摘要。 */
-export interface HeatmapDay { date: string; billed: number; calls: number }
+export interface HeatmapDay { date: string; billed: number; calls: number; fresh: number; cached: number }
 
 const DAY_MS = 86_400_000
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const MAX_SPAN = 366
 
 /** 解析 range 端点 days 参数：null → 默认 91；1..366 合法；其余返回 null（非法）。 */
 export function parseDaysParam(raw: string | null): number | null {
@@ -15,15 +17,80 @@ export function parseDaysParam(raw: string | null): number | null {
   return n >= 1 && n <= 366 ? n : null
 }
 
-/** 以 today 为终点向前取 days 天的紧凑摘要（缺失日记 0），日期升序。 */
-export function rangeSummaries(get: (date: string) => DailyRecord | undefined, today: string, days: number): HeatmapDay[] {
-  return Array.from({ length: days }, (_, i) => {
-    const date = shiftDate(today, i - (days - 1))
+/** from/to（YYYY-MM-DD，含端点）的跨度天数。 */
+function spanDays(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / DAY_MS) + 1
+}
+
+/** 解析 range 端点参数：days（相对 today 向前）或 from/to 成对出现，互斥；非法返回 null。 */
+export function parseRangeParams(
+  params: { days: string | null; from: string | null; to: string | null },
+  today: string,
+): { from: string; to: string } | null {
+  const { days, from, to } = params
+  if (days !== null) {
+    if (from !== null || to !== null) return null
+    const n = parseDaysParam(days)
+    return n === null ? null : { from: shiftDate(today, -(n - 1)), to: today }
+  }
+  if (from === null && to === null) return { from: shiftDate(today, -90), to: today }
+  if (from === null || to === null) return null
+  if (!DATE_RE.test(from) || !DATE_RE.test(to)) return null
+  if (from > to || spanDays(from, to) > MAX_SPAN) return null
+  return { from, to }
+}
+
+/** 升序日期串列表（含端点）；调用方保证 from <= to。 */
+export function datesBetween(from: string, to: string): string[] {
+  const n = spanDays(from, to)
+  return Array.from({ length: n }, (_, i) => shiftDate(from, i))
+}
+
+/** 区间每日紧凑摘要（缺失日记 0），日期升序。 */
+export function rangeSummaries(get: (date: string) => DailyRecord | undefined, from: string, to: string): HeatmapDay[] {
+  return datesBetween(from, to).map((date) => {
     const rec = get(date)
-    return rec === undefined
-      ? { date, billed: 0, calls: 0 }
-      : { date, billed: billedOf(rec.totals), calls: rec.totals.calls }
+    if (rec === undefined) return { date, billed: 0, calls: 0, fresh: 0, cached: 0 }
+    const { fresh, cached } = cacheSplit(rec.totals)
+    return { date, billed: billedOf(rec.totals), calls: rec.totals.calls, fresh, cached }
   })
+}
+
+/** 跨日聚合块：totals 含 estimatedCalls；byModel/byProject/compaction 与 DailyRecord 同构。 */
+export interface RangeAggregate {
+  totals: Bucket & { estimatedCalls: number }
+  byModel: Record<string, Bucket>
+  byProject: Record<string, Bucket>
+  compaction: Bucket
+}
+
+function addBucket(a: Bucket, b: Bucket): Bucket {
+  return {
+    input: a.input + b.input, output: a.output + b.output,
+    cacheRead: a.cacheRead + b.cacheRead, cacheWrite: a.cacheWrite + b.cacheWrite,
+    calls: a.calls + b.calls, estimated: a.estimated + b.estimated,
+  }
+}
+
+function mergeBuckets(into: Record<string, Bucket>, from: Record<string, Bucket>): Record<string, Bucket> {
+  const out = { ...into }
+  for (const [key, b] of Object.entries(from)) out[key] = addBucket(out[key] ?? emptyBucket(), b)
+  return out
+}
+
+/** 聚合多日记账（调用方只传存在的记录；缺日天然跳过）。 */
+export function aggregateRange(records: DailyRecord[]): RangeAggregate {
+  let totals: Bucket & { estimatedCalls: number } = { ...emptyBucket(), estimatedCalls: 0 }
+  let byModel: Record<string, Bucket> = {}
+  let byProject: Record<string, Bucket> = {}
+  let compaction = emptyBucket()
+  for (const rec of records) {
+    totals = { ...addBucket(totals, rec.totals), estimatedCalls: totals.estimatedCalls + rec.totals.estimatedCalls }
+    byModel = mergeBuckets(byModel, rec.byModel)
+    byProject = mergeBuckets(byProject, rec.byProject)
+    compaction = addBucket(compaction, rec.compaction)
+  }
+  return { totals, byModel, byProject, compaction }
 }
 
 export type HeatmapLevel = 0 | 1 | 2 | 3 | 4
