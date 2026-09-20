@@ -8,9 +8,11 @@ import css from './ActivityHeatmap.module.css'
 export interface ActivityHeatmapProps {
   today: string
   days: HeatmapDay[]
+  /** 点击某天：跳转趋势 tab 并定位该单日。 */
+  onSelectDay: (date: string) => void
 }
 
-export function ActivityHeatmap({ today, days }: ActivityHeatmapProps): ReactNode {
+export function ActivityHeatmap({ today, days, onSelectDay }: ActivityHeatmapProps): ReactNode {
   const columns = heatmapGrid(today, days)
   return (
     <div className={theme.chartTheme}>
@@ -29,6 +31,7 @@ export function ActivityHeatmap({ today, days }: ActivityHeatmapProps): ReactNod
                 className={css[`level${cell.level}`]}
                 aria-disabled={cell.future || undefined}
                 title={cell.future ? undefined : `${cell.date}  ${formatTokens(cell.day?.billed ?? 0)} · ${cell.day?.calls ?? 0} 次`}
+                onClick={cell.future ? undefined : () => { onSelectDay(cell.date) }}
               />
             ))}
           </div>

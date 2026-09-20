@@ -1,35 +1,44 @@
-/** Token 用量模态框：活动热力图（近 13 周）与单日详情双 tab，tab 完全独立切换。 */
+/** Token 用量模态框：活动热力图（近 13 周）与趋势范围查询双 tab；趋势 tab 单日按小时、多日按天。 */
 import { useState, type ReactNode } from 'react'
 import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import { billedOf, formatTokens, shiftDate } from '../../usage/aggregate.ts'
-import { cacheHitRate, type HeatmapDay } from '../../usage/heatmap.ts'
-import type { Bucket, DailyRecord } from '../../usage/store.ts'
+import { billedOf, formatTokens } from '../../usage/aggregate.ts'
+import { cacheHitRate, type HeatmapDay, type RangeAggregate } from '../../usage/heatmap.ts'
+import type { Bucket } from '../../usage/store.ts'
 import { useLoadState } from '../shared/load-state.ts'
 import { ActivityHeatmap } from './ActivityHeatmap.tsx'
 import { DailyBarChart } from './DailyBarChart.tsx'
+import { RangeBarChart } from './RangeBarChart.tsx'
 import css from './UsageModal.module.css'
 
 export interface UsageModalProps {
   open: boolean
   onClose: () => void
-  /** 初始日期 YYYY-MM-DD；非 null = 默认打开单日 tab 并定位到该日；缺省/null = 默认活动 tab。 */
+  /** 初始日期 YYYY-MM-DD；非 null = 默认打开趋势 tab 并定位到该单日；缺省/null = 默认活动 tab。 */
   initialDate?: string | null
 }
 
-type Tab = 'activity' | 'day'
+type Tab = 'activity' | 'trend'
+type Preset = 7 | 30 | 90
 
-interface RangePayload { today: string; days: HeatmapDay[] }
-interface DayPayload { today: string; record: DailyRecord }
+interface HeatmapPayload { today: string; days: HeatmapDay[] }
+interface RangePayload {
+  today: string
+  from: string
+  to: string
+  days: HeatmapDay[]
+  aggregate: RangeAggregate
+  /** 仅 from === to 时携带：24 小时桶。 */
+  hours?: Bucket[]
+}
 
-/** fetch JSON：非 2xx 与网络错误都抛错（useLoadState 转 error 态）。 */
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return await res.json() as T
 }
 
-/** 永不落定的占位 promise：dayDate 未定时跳过拉取（保持 loading，dayDate 落定后 deps 变化重拉）。 */
 const PENDING = new Promise<never>(() => {})
+const DAY_MS = 86_400_000
 
 function Breakdown({ title, rows }: { title: string; rows: [string, Bucket][] }) {
   if (rows.length === 0) return null
@@ -48,8 +57,6 @@ function Breakdown({ title, rows }: { title: string; rows: [string, Bucket][] })
 }
 
 export function UsageModal({ open, onClose, initialDate }: UsageModalProps): ReactNode {
-  // 数据拉取只在打开时发生（关着就 unmount，与归档的 `if (!open) return` 守卫等价）。
-  // 打开时 body 全新挂载，tab/date 状态天然以 initialDate 初始化，无需复位 effect。
   return (
     <Modal open={open} onClose={onClose} title="Token 用量" closeLabel="关闭" className={css.dialog}>
       {open && <UsageModalBody initialDate={initialDate ?? null} />}
@@ -58,24 +65,37 @@ export function UsageModal({ open, onClose, initialDate }: UsageModalProps): Rea
 }
 
 function UsageModalBody({ initialDate }: { initialDate: string | null }): ReactNode {
-  const [tab, setTab] = useState<Tab>(initialDate === null ? 'activity' : 'day')
-  /** 单日 tab 的日期；null = 未定（跟随 today）。 */
-  const [date, setDate] = useState<string | null>(initialDate)
-  /** 打开即取 91 天范围数据；缓存在 state，tab 来回切换不重取。 */
-  const range = useLoadState<RangePayload>(
-    () => fetchJson<RangePayload>('/dsh-agent-toolkit/api/usage/range?days=91'),
-    [])
-  const today = range.state.kind === 'ok' ? range.state.data.today : undefined
-  /** 单日 tab 当前日期：pager 选过的日期优先，否则 today（等 range payload 到达）。 */
-  const dayDate = date ?? today
-  /** date 未定时（等 today）不拉取：挂 PENDING 保持 loading，dayDate 落定后 deps 变化重拉。 */
-  const day = useLoadState<DayPayload>(() => {
-    if (dayDate === undefined) return PENDING
-    return fetchJson<DayPayload>(`/dsh-agent-toolkit/api/usage/daily?date=${dayDate}`)
-  }, [dayDate])
+  const [tab, setTab] = useState<Tab>(initialDate === null ? 'activity' : 'trend')
+  const [preset, setPreset] = useState<Preset | 'custom'>(initialDate === null ? 30 : 'custom')
+  const [custom, setCustom] = useState<{ from: string; to: string } | null>(
+    initialDate === null ? null : { from: initialDate, to: initialDate })
 
-  const record = dayDate !== undefined && day.state.kind === 'ok' ? day.state.data.record : undefined
-  const hit = record === undefined ? null : cacheHitRate(record.totals)
+  const heatmap = useLoadState<HeatmapPayload>(
+    () => fetchJson<HeatmapPayload>('/dsh-agent-toolkit/api/usage/range?days=91'),
+    [])
+
+  /** 自定义区间非法（倒置/超 366 天）时不发请求，内联提示。 */
+  const customInvalid = custom !== null
+    && (custom.from > custom.to
+      || (Date.parse(`${custom.to}T12:00:00Z`) - Date.parse(`${custom.from}T12:00:00Z`)) / DAY_MS + 1 > 366)
+  const query = preset === 'custom'
+    ? (custom === null || customInvalid ? null : `from=${custom.from}&to=${custom.to}`)
+    : `days=${preset}`
+  const range = useLoadState<RangePayload>(() => {
+    if (query === null) return PENDING
+    return fetchJson<RangePayload>(`/dsh-agent-toolkit/api/usage/range?${query}`)
+  }, [query])
+
+  const payload = range.state.kind === 'ok' ? range.state.data : undefined
+  const singleDay = payload !== undefined && payload.from === payload.to && payload.hours !== undefined
+  const hit = payload === undefined ? null : cacheHitRate(payload.aggregate.totals)
+
+  /** 热力图点击某天：跳趋势 tab 并定位该单日。 */
+  const selectDay = (date: string) => {
+    setPreset('custom')
+    setCustom({ from: date, to: date })
+    setTab('trend')
+  }
 
   return (
     <>
@@ -83,46 +103,61 @@ function UsageModalBody({ initialDate }: { initialDate: string | null }): ReactN
         <button type="button" role="tab" aria-selected={tab === 'activity'}
           className={tab === 'activity' ? `${css.tab} ${css.tabActive}` : css.tab}
           onClick={() => { setTab('activity') }}>活动</button>
-        <button type="button" role="tab" aria-selected={tab === 'day'}
-          className={tab === 'day' ? `${css.tab} ${css.tabActive}` : css.tab}
-          onClick={() => { setTab('day') }}>单日</button>
+        <button type="button" role="tab" aria-selected={tab === 'trend'}
+          className={tab === 'trend' ? `${css.tab} ${css.tabActive}` : css.tab}
+          onClick={() => { setTab('trend') }}>趋势</button>
       </div>
       {tab === 'activity' ? (
         <>
-          {range.state.kind === 'loading' && <p>加载中…</p>}
-          {range.state.kind === 'error' && <p>加载失败，请重试</p>}
-          {range.state.kind === 'ok' && (
+          {heatmap.state.kind === 'loading' && <p>加载中…</p>}
+          {heatmap.state.kind === 'error' && <p>加载失败，请重试</p>}
+          {heatmap.state.kind === 'ok' && (
             <>
               <h3 className={css.sectionTitle}>近 13 周活动</h3>
-              <ActivityHeatmap today={range.state.data.today} days={range.state.data.days} />
+              <ActivityHeatmap today={heatmap.state.data.today} days={heatmap.state.data.days} onSelectDay={selectDay} />
             </>
           )}
         </>
       ) : (
         <>
-          {dayDate !== undefined && (
-            <div className={css.pager}>
-              <button type="button" className={css.pagerButton} aria-label="前一天" onClick={() => { setDate(shiftDate(dayDate, -1)) }}>←</button>
-              <span className={css.dateLabel}>{dayDate}</span>
-              <button type="button" className={css.pagerButton} aria-label="后一天" disabled={today === undefined || shiftDate(dayDate, 1) > today}
-                onClick={() => { setDate(shiftDate(dayDate, 1)) }}>→</button>
-            </div>
-          )}
-          {day.state.kind === 'loading' && <p>加载中…</p>}
-          {day.state.kind === 'error' && <p>加载失败，请重试</p>}
-          {record !== undefined && (
+          <div className={css.rangeBar}>
+            {([7, 30, 90] as const).map((n) => (
+              <button key={n} type="button"
+                className={preset === n ? `${css.preset} ${css.presetActive}` : css.preset}
+                onClick={() => { setPreset(n) }}>近 {n} 天</button>
+            ))}
+            <input type="date" aria-label="起始日期" className={css.dateInput}
+              value={preset === 'custom' ? custom?.from ?? '' : ''}
+              onChange={(e) => {
+                const from = e.target.value
+                setPreset('custom')
+                setCustom((c) => ({ from, to: c?.to ?? from }))
+              }} />
+            <span className={css.rangeSep}>至</span>
+            <input type="date" aria-label="截止日期" className={css.dateInput}
+              value={preset === 'custom' ? custom?.to ?? '' : ''}
+              onChange={(e) => {
+                const to = e.target.value
+                setPreset('custom')
+                setCustom((c) => ({ from: c?.from ?? to, to }))
+              }} />
+          </div>
+          {customInvalid && <p className={css.rangeError}>起始日期不能晚于截止日期，且跨度不超过 366 天</p>}
+          {range.state.kind === 'loading' && !customInvalid && <p>加载中…</p>}
+          {range.state.kind === 'error' && <p>加载失败，请重试</p>}
+          {payload !== undefined && (
             <>
-              <DailyBarChart record={record} />
+              {singleDay ? <DailyBarChart hours={payload.hours!} /> : <RangeBarChart days={payload.days} />}
               <p className={css.total}>
-                当日总量 {formatTokens(billedOf(record.totals))} · {record.totals.calls} 次调用
-                {record.totals.estimated > 0 && `（含估算 ${formatTokens(record.totals.estimated)}）`}
+                {singleDay ? '当日总量' : '范围总量'} {formatTokens(billedOf(payload.aggregate.totals))} · {payload.aggregate.totals.calls} 次调用
+                {payload.aggregate.totals.estimated > 0 && `（含估算 ${formatTokens(payload.aggregate.totals.estimated)}）`}
                 {hit !== null && `（缓存命中率 ${Math.round(hit * 100)}%）`}
-                {record.totals.calls === 0 && ' · 当日无用量'}
+                {payload.aggregate.totals.calls === 0 && ' · 无用量'}
               </p>
-              <Breakdown title="按模型" rows={Object.entries(record.byModel).sort((a, b) => billedOf(b[1]) - billedOf(a[1]))} />
-              <Breakdown title="按项目" rows={Object.entries(record.byProject).sort((a, b) => billedOf(b[1]) - billedOf(a[1]))} />
-              {record.compaction.calls > 0 && (
-                <p className={css.compaction}>上下文压缩 {formatTokens(billedOf(record.compaction))} · {record.compaction.calls} 次</p>
+              <Breakdown title="按模型" rows={Object.entries(payload.aggregate.byModel).sort((a, b) => billedOf(b[1]) - billedOf(a[1]))} />
+              <Breakdown title="按项目" rows={Object.entries(payload.aggregate.byProject).sort((a, b) => billedOf(b[1]) - billedOf(a[1]))} />
+              {payload.aggregate.compaction.calls > 0 && (
+                <p className={css.compaction}>上下文压缩 {formatTokens(billedOf(payload.aggregate.compaction))} · {payload.aggregate.compaction.calls} 次</p>
               )}
             </>
           )}

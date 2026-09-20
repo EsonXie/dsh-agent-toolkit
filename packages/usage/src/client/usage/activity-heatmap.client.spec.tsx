@@ -19,7 +19,7 @@ const DAYS = Array.from({ length: 91 }, (_, i) => ({ date: shiftDate(TODAY, i - 
 afterEach(cleanup)
 
 test('渲染 91 格纯展示格子，未来格带 aria-disabled', () => {
-  const { container } = render(<ActivityHeatmap today={TODAY} days={DAYS} />)
+  const { container } = render(<ActivityHeatmap today={TODAY} days={DAYS} onSelectDay={() => {}} />)
   const cells = container.querySelectorAll('.week > div')
   expect(cells).toHaveLength(91)
   expect(container.querySelectorAll('[aria-disabled="true"]')).toHaveLength(4)
@@ -30,7 +30,7 @@ test('渲染 91 格纯展示格子，未来格带 aria-disabled', () => {
 })
 
 test('跨月列渲染月份标签', () => {
-  const { container } = render(<ActivityHeatmap today={TODAY} days={DAYS} />)
+  const { container } = render(<ActivityHeatmap today={TODAY} days={DAYS} onSelectDay={() => {}} />)
   // 2026-05-24 ~ 2026-08-22 跨 5/6/7/8 四个月，至少出现 6/7/8 三个标签
   const labels = Array.from(container.querySelectorAll('span')).map((s) => s.textContent)
   expect(labels).toContain('6月')

@@ -20,11 +20,20 @@ const RUNTIME = {
 
 const RANGE_PAYLOAD = {
   today: TODAY,
+  from: shiftDate(TODAY, -90),
+  to: TODAY,
   days: Array.from({ length: 91 }, (_, i) => ({
     date: shiftDate(TODAY, i - 90),
     billed: 0,
     calls: 0,
+    fresh: 0,
+    cached: 0,
   })),
+  aggregate: {
+    totals: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, estimated: 0, calls: 0, estimatedCalls: 0 },
+    byModel: {}, byProject: {},
+    compaction: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, estimated: 0, calls: 0 },
+  },
 }
 
 const DAY_PAYLOAD = {
