@@ -8,14 +8,14 @@
 | 并行委派 | 主 Agent 的 `team_delegate` 工具 + 委派卡 | [delegation.md](delegation.md) |
 | 飞书 bots | 设置面板 → 「Agent 工具箱」→ Agents（并入各 Agent 卡片） | [feishu-bots.md](feishu-bots.md) |
 | 定时任务 | 设置面板 → 「Agent 工具箱」→ 定时任务 | [cron-tasks.md](cron-tasks.md) |
-| Token 用量 | 侧边栏底栏「Token 用量」+ `/token-usage` 命令 | [token-usage.md](token-usage.md) |
+| Token 用量 | 会话标题栏右上角「Token 用量」+ `/token-usage` 命令 | [token-usage.md](token-usage.md) |
 | 分层提示词 | 设置面板 → 「Agent 工具箱」→ 分层提示词 | [prompt-layers.md](prompt-layers.md) |
 | Agent 团队模式 | 模式选择器选用「Agent 团队」 | [agent-team-preset.md](agent-team-preset.md) |
 | 配置参考 | `cordis.yml` | [config-reference.md](config-reference.md) |
 
-> 2026-09-17 设置面板收编：原侧边栏底栏的 Agents / 消息机器人 / 定时任务 / 分层提示词四个弹窗已统一迁入宿主**设置面板 → 「Agent 工具箱」**（页内三 tab：Agents（含 Bots）/定时任务/分层提示词）；仅 Token 用量底栏入口保留。
+> 2026-09-17 设置面板收编：原侧边栏底栏的 Agents / 消息机器人 / 定时任务 / 分层提示词四个弹窗已统一迁入宿主**设置面板 → 「Agent 工具箱」**（页内三 tab：Agents（含 Bots）/定时任务/分层提示词）；Token 用量入口已迁至会话标题栏右上角（2026-09-20）。
 >
-> 界面截图存于 `images/`。以下截图**待补拍**（设置面板收编后界面已变）：Agents 卡片流、设置面板三 tab、飞书 Bot 内联表单、定时任务行式列表、分层提示词四层卡；委派卡待真实委派后补拍；Token 用量截图沿用。
+> 界面截图存于 `images/`。以下截图**待补拍**（界面已变）：Agents 卡片流、设置面板三 tab、飞书 Bot 内联表单、定时任务行式列表、分层提示词四层卡、Token 用量新入口与趋势 tab；委派卡待真实委派后补拍。
 
 ## 安装与激活
 

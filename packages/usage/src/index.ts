@@ -1,4 +1,4 @@
-/** @dsh-agent-toolkit/token-usage 插件入口：per-day token 用量统计（/token-usage 命令 + JSON API + 侧边栏面板）。 */
+/** @dsh-agent-toolkit/token-usage 插件入口：per-day token 用量统计（/token-usage 命令 + JSON API + 会话标题栏面板）。 */
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only 激活对应包对 cordis Context 的声明合并（inject 的 service 属性）。
 import type {} from '@deepseek-ai/dsh-token-meter'

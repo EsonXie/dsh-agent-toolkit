@@ -28,7 +28,7 @@
 - 单插件入口：`packages/toolkit/src/index.ts` 命名导出 `name`/`inject`/`Config`/`apply`；`inject` 是 merged 模块直接消费的硬依赖服务全集（含 storageDomain/tokenMeter/credentials/agents 等 10 项）。
 - 浏览器半 `packages/toolkit/src/client/index.ts` 同样必须命名导出服务名数组 `inject`（现为 `['sessions', 'slots', 'locale']`）：browser kernel 按插件模块自身导出的 inject 门控 `ctx.<service>` 访问，package.json 的 `dsh.client.inject`（包名数组）只是信息性 boot-graph 边，不参与门控。
 - 共享层约定：`src/shared/` 的 `openDomainSafely`（安全打开存储域 + 卸载时关闭）/`registerOptionalRoutes`（webServer 可选服务下注册路由，headless/CLI 惰性不抛错）；`src/shared/http.ts`（json/readJsonBody 响应助手，agents/prompt 两个 API 共用）；`src/client/shared/` 的 `useLoadState`（loading/error/ok 状态机）与 `feedback.tsx`（`useToast` + `SaveBar` 保存反馈共享件，Agents/Schedule/Prompt 三页共用）；`createSidebarEntry` 工厂已随 2026-09-17 设置面板收编删除（四个底栏弹窗改为 `src/client/settings/` 单 `settings.section` 壳 + 页内三 tab）。
-- 浏览器半 UI 入口：四个底栏弹窗（Agents/Prompt/Bots/Schedule）已收编为宿主设置面板 section「Agent 工具箱」（id `agent-toolkit`, order 25，`src/client/settings/index.ts` 注册 + `ToolkitSection.tsx` 三 tab 壳），usage（token 用量）底栏入口保留不动；新增 chrome 文案走 NS `agent-toolkit`（zh 真源 + en 镜像），`agent-schedule` 词典注册点移至 `src/client/settings/index.ts`。
+- 浏览器半 UI 入口：四个底栏弹窗（Agents/Prompt/Bots/Schedule）已收编为宿主设置面板 section「Agent 工具箱」（id `agent-toolkit`, order 25，`src/client/settings/index.ts` 注册 + `ToolkitSection.tsx` 三 tab 壳），usage（token 用量）入口在会话标题栏右上角 utilities 区；新增 chrome 文案走 NS `agent-toolkit`（zh 真源 + en 镜像），`agent-schedule` 词典注册点移至 `src/client/settings/index.ts`。
 - toolkit 的 src 运行时值导入 `@deepseek-ai/dsh-storage-domain`，但不进 dependencies/peerDependencies：它由宿主 dsh base 隐式提供（devDependencies link 到 deepseek-harness 源码），加依赖会导致 pnpm 装副本、storage domain 双实例注册分裂。
 - 从一开始就遵守的约定：可调参数进 Config schema（不硬编码）；工具 `execute` 返回规范 JSON 值、args 只读且已校验；策略/权限逻辑放 `tools/*` 事件钩子，不内建进工具。
 

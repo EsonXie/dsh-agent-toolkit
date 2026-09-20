@@ -1,6 +1,6 @@
 # Token 用量
 
-按日/按小时采集所有会话的 token 消耗，提供 web 面板（活动热力图 + 单日图表）和 `/token-usage` 命令两种查看方式。
+按日/按小时采集所有会话的 token 消耗，提供 web 面板（活动热力图 + 趋势范围查询）和 `/token-usage` 命令两种查看方式。
 
 ## 独立安装
 
@@ -25,21 +25,21 @@ dsh plugin --profile <profile 名> add @dsh-agent-toolkit/token-usage
 
 ## Web 面板
 
-点击侧边栏底栏的「Token 用量」，模态框分两个 tab：
+点击**会话标题栏右上角** utilities 区的「Token 用量」图标，模态框分两个 tab：
 
-**活动 tab**：近 13 周活动热力图（7 行 × 13 列，GitHub 风格）。格子颜色深浅表示当日计费总量档位（0-4 共 5 档），悬停显示当日具体用量。
+**活动 tab**：近 13 周活动热力图（7 行 × 13 列，GitHub 风格）。格子颜色深浅表示当日计费总量档位（0-4 共 5 档），悬停显示当日具体用量（日期 + 总量 + 调用次数），点击某天跳转到趋势 tab 并定位该单日。
 
 ![活动 tab：近 13 周活动热力图](images/usage-modal.png)
 
-**单日 tab**：
+**趋势 tab**：范围查询，提供「近 7 / 30 / 90 天」预设与自定义起止日期（`YYYY-MM-DD`，跨度不超过 366 天；起始晚于截止时内联提示且不发请求）。
 
-- 24 小时堆叠柱状图：下半「新增」（input+output+estimated），上半「缓存」（cacheRead+cacheWrite）
-- 当日汇总：计费总量、调用次数、估算标注、缓存命中率
-- 细分：按模型、按项目两个维度
-- 上下文压缩单列展示
-- 顶部日期 pager 可前后翻页
+- 单日（起止同一天）：24 小时堆叠柱状图——下半「新增」（input+output+estimated），上半「缓存」（cacheRead+cacheWrite）
+- 多日：按天堆叠柱状图
+- 范围汇总：范围总量、调用次数、估算标注、缓存命中率
+- 聚合明细：按模型、按项目两个维度；上下文压缩单列展示（有压缩时）
+- 热力图点击某天即切到本 tab 的单日视图
 
-![单日 tab：24 小时堆叠柱状图 + 当日汇总 + 按模型/按项目细分](images/usage-daily.png)
+![趋势 tab：范围柱状图 + 汇总 + 按模型/按项目细分](images/usage-daily.png)
 
 ## 命令行
 
@@ -61,7 +61,7 @@ dsh plugin --profile <profile 名> add @dsh-agent-toolkit/token-usage
 | 路由 | 参数 | 返回 |
 |---|---|---|
 | `/dsh-agent-toolkit/api/usage/daily` | `date=YYYY-MM-DD`（可空，缺省今日） | `{today, record}`：单日完整记录 |
-| `/dsh-agent-toolkit/api/usage/range` | `days=N`（1..366，缺省 91） | `{today, days}`：近 N 天摘要（热力图数据源） |
+| `/dsh-agent-toolkit/api/usage/range` | `days=N`（1..366，缺省 91）或成对的 `from=`/`to=`（跨度 ≤366 天） | `{today, from, to, days, aggregate}`：范围摘要（热力图/趋势数据源）；`from === to` 时附 24 小时桶 `hours` |
 
 ## 存储与可靠性
 
