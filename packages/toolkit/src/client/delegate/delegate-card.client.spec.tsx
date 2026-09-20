@@ -3,6 +3,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, test } from 'vitest'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
+// 类型增强：ui-sidebar/client 传递引入 ui-layout/client 对 GlobalStandardProps 的声明合并
+// （usePanelInfo 等全局座位）。本 spec 构造宿主完整 slot props，需自行引入，不再依赖 usage 包传递。
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { DelegateCard } from './delegate-card.tsx'
 import { zh } from './locales.ts'
