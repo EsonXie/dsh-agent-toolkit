@@ -23,7 +23,7 @@
 ### 1. 入口迁移：sidebar.footer.action → conversation.session.header.utilities
 
 - 删除 `entry.tsx` 中对 `createSidebarEntry` 的使用与 `sidebar.footer.action` 注册；`src/client/shared/entry.tsx` 工厂若再无消费方则一并删除（实现时确认 toolkit 是否复用——toolkit 的设置面板收编后其 `createSidebarEntry` 已删除，usage 内的是独立副本）。
-- 新增 `conversation.session.header.utilities` 注册：`ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'dsh-agent-toolkit:usage', order: <实现时定> }, UsageHeaderEntry))`。
+- 新增 `conversation.session.header.utilities` 注册：`ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'dsh-agent-toolkit:usage', order: 100 }, UsageHeaderEntry))`。
 - `UsageHeaderEntry` 组件：图标按钮（沿用 `IconDataOutline16` + `Tooltip`「Token 用量」），点击打开 `UsageModal`。utilities 是 session scope 的 additive list slot，owner props 为空 marker，组件不消费会话状态，无需新增 inject 依赖；浏览器半 `inject` 仍为 `['slots']`。
 - 类型可见性：`import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'` 触发 SlotMap 声明合并。
 - 双装守卫：现依赖 sidebar 入口 id 冲突抛错（`src/client/index.ts` 的 try/catch）。迁移后由 utilities 注册 id `dsh-agent-toolkit:usage` 冲突触发同一 catch，注释与文案同步更新。
@@ -39,7 +39,7 @@
 
 ### 3. 「单日」tab 升级为范围查询 tab
 
-模态框保持两 tab：「活动」「查询」（原「单日」改名，实现时定最终文案）。
+模态框保持两 tab：「活动」「查询」（原「单日」改名「查询」）。
 
 - 顶部范围选择器：
   - 预设档位：近 7 天 / 近 30 天 / 近 90 天。
