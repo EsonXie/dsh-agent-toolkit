@@ -33,7 +33,7 @@ dsh plugin --profile <profile 名> add @dsh-agent-toolkit/token-usage
 
 **趋势 tab**：范围查询，提供「近 7 / 30 / 90 天」预设与自定义起止日期（`YYYY-MM-DD`，跨度不超过 366 天；起始晚于截止时内联提示且不发请求）。
 
-- 单日（起止同一天）：24 小时堆叠柱状图——下半「新增」（input+output+estimated），上半「缓存」（cacheRead+cacheWrite）
+- 单日（起止同一天）：24 小时堆叠柱状图——下半「新增」（input+output+cacheWrite+estimated），上半「缓存」（cacheRead）
 - 多日：按天堆叠柱状图
 - 范围汇总：范围总量、调用次数、估算标注、缓存命中率
 - 聚合明细：按模型、按项目两个维度；上下文压缩单列展示（有压缩时）
