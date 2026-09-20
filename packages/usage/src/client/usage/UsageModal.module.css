@@ -2,8 +2,11 @@
    range selector, totals, breakdowns). Charts ship their own styles in chart.module.css. */
 /* Wide dialog: Modal's own .dialog caps at 380px with overflow:hidden, which
    clips the charts and rows. The doubled class beats it regardless of
-   stylesheet order (same pattern as DirectoryBrowser's 680px dialog). */
-.dialog.dialog { width: min(720px, 100%); }
+   stylesheet order (same pattern as DirectoryBrowser's 680px dialog).
+   固定宽高：切 tab / 预设时内容高度变化不再引起弹窗跳动，内容区内部滚动。 */
+.dialog.dialog { width: min(720px, 100%); height: min(680px, calc(100vh - 48px)); }
+/* 滚动区：Modal 的 contentClassName 钩子，吃满弹窗剩余高度并内部滚动。 */
+.content { flex: 1; min-height: 0; overflow-y: auto; }
 /* tab 栏：分段控件观感（shadcn Tabs 风格），背景容器 + 激活项浮层底色。 */
 .tabs {
   display: inline-flex;

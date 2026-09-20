@@ -18,7 +18,7 @@ export interface UsageModalProps {
 }
 
 type Tab = 'activity' | 'trend'
-type Preset = 7 | 30 | 90
+type Preset = 'today' | 7 | 30 | 90
 
 interface HeatmapPayload { today: string; days: HeatmapDay[] }
 interface RangePayload {
@@ -58,7 +58,7 @@ function Breakdown({ title, rows }: { title: string; rows: [string, Bucket][] })
 
 export function UsageModal({ open, onClose, initialDate }: UsageModalProps): ReactNode {
   return (
-    <Modal open={open} onClose={onClose} title="Token 用量" closeLabel="关闭" className={css.dialog}>
+    <Modal open={open} onClose={onClose} title="Token 用量" closeLabel="关闭" className={css.dialog} contentClassName={css.content}>
       {open && <UsageModalBody initialDate={initialDate ?? null} />}
     </Modal>
   )
@@ -66,7 +66,7 @@ export function UsageModal({ open, onClose, initialDate }: UsageModalProps): Rea
 
 function UsageModalBody({ initialDate }: { initialDate: string | null }): ReactNode {
   const [tab, setTab] = useState<Tab>(initialDate === null ? 'activity' : 'trend')
-  const [preset, setPreset] = useState<Preset | 'custom'>(initialDate === null ? 30 : 'custom')
+  const [preset, setPreset] = useState<Preset | 'custom'>(initialDate === null ? 'today' : 'custom')
   const [custom, setCustom] = useState<{ from: string; to: string } | null>(
     initialDate === null ? null : { from: initialDate, to: initialDate })
 
@@ -81,7 +81,7 @@ function UsageModalBody({ initialDate }: { initialDate: string | null }): ReactN
       || (Date.parse(`${custom.to}T12:00:00Z`) - Date.parse(`${custom.from}T12:00:00Z`)) / DAY_MS + 1 > 366)
   const query = preset === 'custom'
     ? (custom === null || customInvalid ? null : `from=${custom.from}&to=${custom.to}`)
-    : `days=${preset}`
+    : preset === 'today' ? 'days=1' : `days=${preset}`
   const range = useLoadState<RangePayload>(() => {
     if (query === null) return PENDING
     return fetchJson<RangePayload>(`/dsh-agent-toolkit/api/usage/range?${query}`)
@@ -122,6 +122,9 @@ function UsageModalBody({ initialDate }: { initialDate: string | null }): ReactN
       ) : (
         <>
           <div className={css.rangeBar}>
+            <button type="button"
+              className={preset === 'today' ? `${css.preset} ${css.presetActive}` : css.preset}
+              onClick={() => { setPreset('today'); setCustom(null) }}>今天</button>
             {([7, 30, 90] as const).map((n) => (
               <button key={n} type="button"
                 className={preset === n ? `${css.preset} ${css.presetActive}` : css.preset}

@@ -31,7 +31,7 @@ dsh plugin --profile <profile 名> add @dsh-agent-toolkit/token-usage
 
 ![活动 tab：近 13 周活动热力图](images/usage-modal.png)
 
-**趋势 tab**：范围查询，提供「近 7 / 30 / 90 天」预设与自定义起止日期（`YYYY-MM-DD`，跨度不超过 366 天；起始晚于截止时内联提示且不发请求）。
+**趋势 tab**：范围查询，默认「今天」（单日视图），另有「近 7 / 30 / 90 天」预设与自定义起止日期（`YYYY-MM-DD`，跨度不超过 366 天；起始晚于截止时内联提示且不发请求）。
 
 - 单日（起止同一天）：24 小时堆叠柱状图——下半「新增」（input+output+cacheWrite+estimated），上半「缓存」（cacheRead）
 - 多日：按天堆叠柱状图

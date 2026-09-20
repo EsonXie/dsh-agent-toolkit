@@ -73,6 +73,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     const payload = url.includes('days=91') ? HEATMAP_PAYLOAD
+      : url.includes('days=1') ? SINGLE_DAY_PAYLOAD
       : url.includes(`from=${TODAY}&to=${TODAY}`) ? SINGLE_DAY_PAYLOAD
       : MULTI_DAY_PAYLOAD
     return new Response(JSON.stringify(payload), {
@@ -99,12 +100,24 @@ test('initialDate 非 null 时打开趋势 tab 且按单日拉取（from=to）',
   expect(vi.mocked(fetch)).toHaveBeenCalledWith(`/dsh-agent-toolkit/api/usage/range?from=${TODAY}&to=${TODAY}`)
 })
 
-test('切到趋势 tab 默认近 30 天（days=30），渲染按天柱状图', async () => {
+test('切到趋势 tab 默认「今天」（days=1），渲染单日视图', async () => {
   render(<UsageModal open onClose={() => {}} initialDate={null} />)
   await screen.findByText('近 13 周活动')
   fireEvent.click(screen.getByRole('tab', { name: '趋势' }))
-  expect(await screen.findByText('范围总量', { exact: false })).toBeTruthy()
-  expect(vi.mocked(fetch)).toHaveBeenCalledWith('/dsh-agent-toolkit/api/usage/range?days=30')
+  expect(await screen.findByText(/当日总量/)).toBeTruthy()
+  expect(vi.mocked(fetch)).toHaveBeenCalledWith('/dsh-agent-toolkit/api/usage/range?days=1')
+})
+
+test('点「今天」预设按单日拉取（days=1），显示当日总量', async () => {
+  render(<UsageModal open onClose={() => {}} initialDate={null} />)
+  await screen.findByText('近 13 周活动')
+  fireEvent.click(screen.getByRole('tab', { name: '趋势' }))
+  await screen.findByText(/当日总量/)
+  fireEvent.click(screen.getByRole('button', { name: '近 7 天' }))
+  await screen.findByText('范围总量', { exact: false })
+  fireEvent.click(screen.getByRole('button', { name: '今天' }))
+  expect(vi.mocked(fetch)).toHaveBeenCalledWith('/dsh-agent-toolkit/api/usage/range?days=1')
+  expect(await screen.findByText(/当日总量/)).toBeTruthy()
 })
 
 test('单日范围显示「当日总量」与缓存命中率（56000/(14000+56000)=80%）', async () => {
@@ -117,8 +130,9 @@ test('多日范围显示聚合 breakdown（按模型/按项目）', async () => 
   render(<UsageModal open onClose={() => {}} initialDate={null} />)
   await screen.findByText('近 13 周活动')
   fireEvent.click(screen.getByRole('tab', { name: '趋势' }))
-  expect(await screen.findByText('按模型')).toBeTruthy()
-  expect(screen.getByText('按项目')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '近 30 天' }))
+  expect(await screen.findByText('按项目')).toBeTruthy()
+  expect(screen.getByText('按模型')).toBeTruthy()
 })
 
 test('自定义起止日期倒置时不发请求并提示', async () => {
