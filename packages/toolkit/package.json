@@ -1,6 +1,6 @@
 {
   "name": "dsh-agent-toolkit",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "DeepSeek Harness plugin: agent registry with layered prompts, parallel delegation, Feishu bots and token usage",
   "license": "MIT",
   "keywords": ["deepseek-harness", "dsh", "dsh-plugin", "agent-team", "feishu", "token-usage"],
