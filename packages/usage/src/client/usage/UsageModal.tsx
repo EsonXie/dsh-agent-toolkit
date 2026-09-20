@@ -74,9 +74,10 @@ function UsageModalBody({ initialDate }: { initialDate: string | null }): ReactN
     () => fetchJson<HeatmapPayload>('/dsh-agent-toolkit/api/usage/range?days=91'),
     [])
 
-  /** 自定义区间非法（倒置/超 366 天）时不发请求，内联提示。 */
+  /** 自定义区间非法（缺值/倒置/超 366 天）时不发请求，内联提示。 */
   const customInvalid = custom !== null
-    && (custom.from > custom.to
+    && (custom.from === '' || custom.to === ''
+      || custom.from > custom.to
       || (Date.parse(`${custom.to}T12:00:00Z`) - Date.parse(`${custom.from}T12:00:00Z`)) / DAY_MS + 1 > 366)
   const query = preset === 'custom'
     ? (custom === null || customInvalid ? null : `from=${custom.from}&to=${custom.to}`)
@@ -124,7 +125,7 @@ function UsageModalBody({ initialDate }: { initialDate: string | null }): ReactN
             {([7, 30, 90] as const).map((n) => (
               <button key={n} type="button"
                 className={preset === n ? `${css.preset} ${css.presetActive}` : css.preset}
-                onClick={() => { setPreset(n) }}>近 {n} 天</button>
+                onClick={() => { setPreset(n); setCustom(null) }}>近 {n} 天</button>
             ))}
             <input type="date" aria-label="起始日期" className={css.dateInput}
               value={preset === 'custom' ? custom?.from ?? '' : ''}
@@ -142,7 +143,7 @@ function UsageModalBody({ initialDate }: { initialDate: string | null }): ReactN
                 setCustom((c) => ({ from: c?.from ?? to, to }))
               }} />
           </div>
-          {preset === 'custom' && customInvalid && <p className={css.rangeError}>起始日期不能晚于截止日期，且跨度不超过 366 天</p>}
+          {preset === 'custom' && customInvalid && <p className={css.rangeError}>请填写起止日期，且起始日期不能晚于截止日期、跨度不超过 366 天</p>}
           {range.state.kind === 'loading' && !(preset === 'custom' && customInvalid) && <p>加载中…</p>}
           {range.state.kind === 'error' && <p>加载失败，请重试</p>}
           {payload !== undefined && (

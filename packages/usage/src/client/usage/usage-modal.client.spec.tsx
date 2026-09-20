@@ -132,6 +132,38 @@ test('自定义起止日期倒置时不发请求并提示', async () => {
   expect(vi.mocked(fetch).mock.calls.length).toBe(calls)
 })
 
+test('点击热力图某天跳趋势 tab 并按该单日拉取（from=to）', async () => {
+  render(<UsageModal open onClose={() => {}} initialDate={null} />)
+  await screen.findByText('近 13 周活动')
+  const cell = document.querySelector(`[data-date="${TODAY}"]`)
+  expect(cell).toBeTruthy()
+  fireEvent.click(cell as Element)
+  expect(await screen.findByText('按模型')).toBeTruthy()
+  expect(screen.getByRole('tab', { name: '趋势' }).getAttribute('aria-selected')).toBe('true')
+  expect(vi.mocked(fetch)).toHaveBeenCalledWith(`/dsh-agent-toolkit/api/usage/range?from=${TODAY}&to=${TODAY}`)
+})
+
+test('点预设后清除自定义区间，后续编辑起始日期不再用 stale 截止值', async () => {
+  render(<UsageModal open onClose={() => {}} initialDate={TODAY} />)
+  await screen.findByText('按模型')
+  const [fromInput, toInput] = screen.getAllByLabelText(/起始日期|截止日期/)
+  fireEvent.click(screen.getByRole('button', { name: '近 7 天' }))
+  await screen.findByText('范围总量', { exact: false })
+  fireEvent.change(fromInput, { target: { value: '2026-08-10' } })
+  expect((fromInput as HTMLInputElement).value).toBe('2026-08-10')
+  expect((toInput as HTMLInputElement).value).toBe('2026-08-10')
+})
+
+test('清空日期输入视为非法：不发请求并内联提示', async () => {
+  render(<UsageModal open onClose={() => {}} initialDate={TODAY} />)
+  await screen.findByText('按模型')
+  const calls = vi.mocked(fetch).mock.calls.length
+  const [fromInput] = screen.getAllByLabelText(/起始日期|截止日期/)
+  fireEvent.change(fromInput, { target: { value: '' } })
+  expect(await screen.findByText(/请填写起止日期/)).toBeTruthy()
+  expect(vi.mocked(fetch).mock.calls.length).toBe(calls)
+})
+
 test('切回预设后清除自定义区间错误提示', async () => {
   render(<UsageModal open onClose={() => {}} initialDate={TODAY} />)
   await screen.findByText('按模型')

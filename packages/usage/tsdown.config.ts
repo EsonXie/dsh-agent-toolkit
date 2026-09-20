@@ -21,7 +21,7 @@ const nodeConfig = {
   sourcemap: true,
   clean: false,
   deps: {
-    neverBundle: [/^@deepseek-ai\//, 'clsx', 'zod'],
+    neverBundle: [/^@deepseek-ai\//, 'zod'],
   },
 } satisfies UserConfig
 

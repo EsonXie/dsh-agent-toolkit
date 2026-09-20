@@ -39,7 +39,6 @@
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1",
-    "clsx": "^2.0.0",
     "recharts": "^3.10.1",
     "zod": "^4.4.3"
   },
