@@ -1,21 +1,20 @@
-/** 单日 24 小时堆叠柱状图：下段「新增」+ 上段「缓存」，shadcn 风格（极简轴、圆角柱、自定义 tooltip）。 */
+/** 日期范围按天堆叠柱状图：每天一根柱，下段「新增」+ 上段「缓存」，X 轴 MM-DD 稀疏刻度。 */
 import type { ReactNode } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { formatTokens } from '../../usage/aggregate.ts'
-import { cacheSplit } from '../../usage/heatmap.ts'
-import type { Bucket } from '../../usage/store.ts'
+import type { HeatmapDay } from '../../usage/heatmap.ts'
 import css from './chart.module.css'
 
-interface HourRow { hour: number; fresh: number; cached: number; calls: number }
+interface DayRow { date: string; label: string; fresh: number; cached: number; calls: number }
 
-interface ChartTooltipProps { active?: boolean; label?: number; payload?: { payload: HourRow }[] }
+interface ChartTooltipProps { active?: boolean; payload?: { payload: DayRow }[] }
 
-function ChartTooltip({ active, label, payload }: ChartTooltipProps): ReactNode {
+function ChartTooltip({ active, payload }: ChartTooltipProps): ReactNode {
   if (!active || payload === undefined || payload.length === 0) return null
   const row = payload[0].payload
   return (
     <div className={css.tooltip}>
-      <div className={css.tooltipTitle}>{label}:00</div>
+      <div className={css.tooltipTitle}>{row.date}</div>
       <div>新增 {formatTokens(row.fresh)}</div>
       <div>缓存 {formatTokens(row.cached)}</div>
       <div className={css.tooltipTotal}>合计 {formatTokens(row.fresh + row.cached)} · {row.calls} 次</div>
@@ -23,19 +22,21 @@ function ChartTooltip({ active, label, payload }: ChartTooltipProps): ReactNode 
   )
 }
 
-export function DailyBarChart({ hours }: { hours: Bucket[] }): ReactNode {
-  const data: HourRow[] = hours.map((b, hour) => ({ hour, ...cacheSplit(b), calls: b.calls }))
+export function RangeBarChart({ days }: { days: HeatmapDay[] }): ReactNode {
+  const data: DayRow[] = days.map((d) => ({
+    date: d.date, label: d.date.slice(5), fresh: d.fresh, cached: d.cached, calls: d.calls,
+  }))
   return (
     <div className={css.chartTheme}>
       <ResponsiveContainer width="100%" height={160}>
         <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }} barCategoryGap="20%">
           <CartesianGrid vertical={false} stroke="var(--chart-label)" strokeOpacity={0.2} strokeDasharray="3 3" />
           <XAxis
-            dataKey="hour"
+            dataKey="label"
             tickLine={false}
             axisLine={false}
-            ticks={[0, 6, 12, 18]}
-            tickFormatter={(h: number) => `${h}:00`}
+            interval="preserveStartEnd"
+            minTickGap={24}
             fontSize={11}
             stroke="var(--chart-label)"
           />
