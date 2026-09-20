@@ -251,7 +251,7 @@ export class Inbound {
     const current = this.deps.router.boundSessionId(bot.id, msg.chatId)
     this.lastLists.set(`${bot.id}:${msg.chatId}`, entries.map((e) => e.sessionId))
     const lines = entries.map((e, i) =>
-      `${i + 1}. ${e.sessionId === current ? '✓ ' : ''}${e.title ?? '(无标题)'}（${e.sessionId.slice(0, 8)}）`)
+      `${i + 1}. ${e.sessionId === current ? '✓ ' : ''}${e.title}（${e.sessionId.slice(0, 8)}）`)
     await msg.reply.notice(`会话列表（/switch <序号|id前缀> 切换）：\n${lines.join('\n')}`)
   }
 

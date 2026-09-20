@@ -63,10 +63,10 @@ export interface BindingStore {
   deleteBot(botId: string): Promise<void>
 }
 
-/** /sessions 候选会话项（title 取不到时缺省，渲染层显示 (无标题)）。 */
+/** /sessions 候选会话项（title = 展示标题，与 web displayTitle 同义：durable title → cwd 末段 → session id）。 */
 export interface SessionCatalogEntry {
   sessionId: string
-  title?: string
+  title: string
 }
 
 /** 候选会话目录端口：列出 bot 项目 workspace 下的可切换会话（真实适配器在 session-catalog.ts）。 */

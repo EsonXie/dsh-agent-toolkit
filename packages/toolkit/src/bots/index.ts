@@ -28,7 +28,7 @@ import { createFeishuDebugLogger, DEFAULT_DEBUG_LOG_DIR } from '../channels/feis
 import { feishuChannel } from '../channels/feishu/index.ts'
 import type { AttachmentsPort } from '../channels/inbound.ts'
 import type { SessionCatalogPort } from '../channels/ports.ts'
-import { createSessionCatalog, type CatalogSessionTitle, type CatalogSessions, type CatalogWorkspaceRegistry } from '../channels/session-catalog.ts'
+import { createSessionCatalog, type CatalogSessionProjectionCache, type CatalogSessionProjections, type CatalogSessionQuery, type CatalogSessionTitle, type CatalogSessions, type CatalogWorkspaceRegistry } from '../channels/session-catalog.ts'
 import type { WorkspacePort } from '../channels/ports.ts'
 import { BotRuntime } from '../channels/runtime.ts'
 import { createScopeJoiner, type ScopeJoiner } from '../channels/scope-joiner.ts'
@@ -167,12 +167,17 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
     }
   }
 
-  // 候选会话目录（/sessions、/switch）：三服务均为可选，取用与 list 时惰性解析（attachments 同款）。
+  // 候选会话目录（/sessions、/switch）：六服务均为可选，取用与 list 时惰性解析（attachments 同款）。
+  // 标题与 web 端同源：live 走 sessionProjections 投影，冷会话走 sessionQuery header +
+  // sessionProjectionCache 持久化投影（不 resume 会话），统一 displayTitle 回退链。
   const catalogOf = (): SessionCatalogPort | undefined =>
     createSessionCatalog(() => ({
       workspaceRegistry: ctx.get('workspaceRegistry', false) as CatalogWorkspaceRegistry | undefined,
       sessions: ctx.get('sessions', false) as CatalogSessions | undefined,
+      sessionProjections: ctx.get('sessionProjections', false) as CatalogSessionProjections | undefined,
       sessionTitle: ctx.get('sessionTitle', false) as CatalogSessionTitle | undefined,
+      sessionQuery: ctx.get('sessionQuery', false) as CatalogSessionQuery | undefined,
+      sessionProjectionCache: ctx.get('sessionProjectionCache', false) as CatalogSessionProjectionCache | undefined,
     }))
 
   // project_bot 存储域由插件入口打开（domain 句柄经 deps 下达），本模块不再自开；

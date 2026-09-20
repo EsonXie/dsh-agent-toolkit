@@ -459,7 +459,7 @@ test('/new 指令：reset 路径同样携带 userId', async () => {
 
 const CATALOG_ENTRIES = [
   { sessionId: 'aaaa1111-0000-0000-0000-000000000000', title: '修复登录闪退' },
-  { sessionId: 'bbbb2222-0000-0000-0000-000000000000' },
+  { sessionId: 'bbbb2222-0000-0000-0000-000000000000', title: 'bbbb2222-0000-0000-0000-000000000000' },
 ]
 
 function catalogHarness(entries = CATALOG_ENTRIES) {
@@ -477,7 +477,7 @@ test('/help：列出全部指令', async () => {
 
 test('/sessions：列表含标题、id 前缀与当前绑定 ✓ 标记', async () => {
   // catalog 内容可变：先建会话拿到真实绑定 id，再让列表包含它
-  let entries: { sessionId: string; title?: string }[] = [...CATALOG_ENTRIES]
+  let entries: { sessionId: string; title: string }[] = [...CATALOG_ENTRIES]
   const { rec, inbound, router, msg } = harness({ catalog: () => ({ list: async () => entries }) })
   inbound.onMessage(msg('先建会话'))
   await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
@@ -488,14 +488,11 @@ test('/sessions：列表含标题、id 前缀与当前绑定 ✓ 标记', async 
   const list = rec.notices.find((n) => n.includes('会话列表'))!
   expect(list).toContain('1. 修复登录闪退（aaaa1111）')
   expect(list).toContain(`2. ✓ 当前这个（${current.slice(0, 8)}）`)
-  expect(list).toContain(`3. (无标题)（bbbb2222）`)
+  // catalog 契约：title 为展示标题（web displayTitle 同义），无标题会话由适配器回退为 id
+  expect(list).toContain(`3. bbbb2222-0000-0000-0000-000000000000（bbbb2222）`)
 })
 
-test('/sessions：无标题会话显示 (无标题)，catalog 缺席降级文案', async () => {
-  const { rec, inbound, msg } = catalogHarness([{ sessionId: 'cccc3333-0000-0000-0000-000000000000' }])
-  inbound.onMessage(msg('/sessions'))
-  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('(无标题)') && n.includes('cccc3333'))).toBe(true) })
-
+test('/sessions：catalog 缺席降级文案', async () => {
   const degraded = harness() // 不传 catalog
   degraded.inbound.onMessage(degraded.msg('/sessions'))
   await vi.waitFor(() => { expect(degraded.rec.notices).toContain('会话切换在当前环境不可用') })
@@ -542,7 +539,7 @@ test('/switch 边界：无参 / 序号无缓存 / 已是当前 / 前缀零命中
   inbound.onMessage(msg('/switch 9'))   // 从未 /sessions：无缓存
   await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('序号无效'))).toBe(true) })
 
-  const h2entries: { sessionId: string; title?: string }[] = []
+  const h2entries: { sessionId: string; title: string }[] = []
   const h2 = harness({ catalog: () => ({ list: async () => h2entries }) })
   h2.inbound.onMessage(h2.msg('建会话'))
   await vi.waitFor(() => { expect(h2.rec.followups).toHaveLength(1) })
@@ -555,8 +552,8 @@ test('/switch 边界：无参 / 序号无缓存 / 已是当前 / 前缀零命中
   await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('没有 id 前缀为'))).toBe(true) })
 
   const dup = harness({ catalog: () => ({ list: async () => [
-    { sessionId: 'aaaa1111-0000-0000-0000-000000000000' },
-    { sessionId: 'aaaa9999-0000-0000-0000-000000000000' },
+    { sessionId: 'aaaa1111-0000-0000-0000-000000000000', title: '甲' },
+    { sessionId: 'aaaa9999-0000-0000-0000-000000000000', title: '乙' },
   ] }) })
   dup.inbound.onMessage(dup.msg('/switch aaaa'))
   await vi.waitFor(() => { expect(dup.rec.notices.some((n) => n.includes('命中多个会话'))).toBe(true) })
