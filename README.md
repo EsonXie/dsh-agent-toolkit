@@ -6,7 +6,11 @@
 - **分层提示词** —— 语义化提示词分层 + 按模型匹配的覆盖/追加规则，内置模型层随模型家族自动切换。
 - **并行委派** —— `team_delegate` 工具从名册启动一次性子 Agent，web UI 渲染实时委派卡。
 - **飞书 bots** —— 项目绑定飞书自建应用，扫码一键创建应用，在飞书里以流式卡片与 Agent 对话。
-- **Token 用量** —— 按日/按小时计量，13 周活动热力图 + 单日堆叠图 + `/token-usage` 命令。
+- **Token 用量** —— 按日/按小时计量，13 周活动热力图（点击跳单日）+ 趋势范围查询（单日按小时/多日按天堆叠图）+ `/token-usage` 命令。
+
+![Agent 注册表卡片流（设置面板 → Agent 工具箱）](docs/usage/images/agents-cards.png)
+
+![Token 用量：13 周活动热力图](docs/usage/images/usage-modal.png)
 
 ## 快速开始
 
