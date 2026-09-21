@@ -1,11 +1,3 @@
-# dsh-agent-toolkit 商店总览文案
-
-> 用于各插件商店/市场的详情页简介。中文在前，英文在后；图片均为 GitHub 托管绝对 URL，可直接粘贴。
-
----
-
-## 中文版
-
 ### dsh-agent-toolkit
 
 **一句话简介**：把 DeepSeek Harness 变成一个多 Agent 工作台——可视化 Agent 注册表、分层提示词、并行委派、飞书机器人、定时任务与 token 用量统计，合进一个插件。
