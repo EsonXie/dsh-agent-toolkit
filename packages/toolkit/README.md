@@ -54,7 +54,7 @@ dsh plugin --profile <profile 名> add dsh-agent-toolkit
 
 宿主**设置面板 → 「Agent 工具箱」→ Agents** tab（页内三 tab：Agents / 定时任务 / 分层提示词）创建/编辑/删除角色。页面为卡片流，按创建时间升序，`main` 置顶只读，编辑/新建内联展开；飞书 Bot 列表也并入各 Agent 卡片。每个角色有 id、名称、描述、persona 提示词、可选模型覆盖、可选工具白名单（团队 preset 工具 + 全局工具，仅白名单语义）。首次激活时把 `$DSH_HOME/agent-team/roles/*.yml` 一次性导入。
 
-> 截图待补拍（设置面板收编后界面已变）。
+![Agents 页卡片流：main 恒置顶，卡片内联 Bot 列表](https://raw.githubusercontent.com/EsonXie/dsh-agent-toolkit/master/docs/usage/images/agents-cards.png)
 
 ### 分层提示词
 
@@ -68,11 +68,11 @@ dsh plugin --profile <profile 名> add dsh-agent-toolkit
 
 在**设置面板 → 「Agent 工具箱」→ Agents** 的各 Agent 卡片下方管理该 Agent 名下的 Bot（归属锁定，不可改绑）。两步创建：绑定项目（归属 `main` 时另配 Provider/模型；归角色则继承角色装配），再绑定飞书应用——扫码一键创建（OAuth 2.0 Device Authorization Grant，密钥只入 credentials 不落表）或手动填 App ID / App Secret。群聊需 @机器人；运维指令 `/new`、`/stop`、`/status`。
 
-> 截图待补拍（Bot 列表已并入 Agents 卡片）。
+![Bot 两步创建向导：第 2 步扫码一键创建飞书应用](https://raw.githubusercontent.com/EsonXie/dsh-agent-toolkit/master/docs/usage/images/bots-form-feishu.png)
 
 ### Token 用量
 
-侧边栏底栏「Token 用量」：13 周活动热力图 + 单日堆叠图（按模型/按项目/压缩单列）；或在任意会话运行 `/token-usage [YYYY-MM-DD]`。
+会话标题栏右上角「Token 用量」：13 周活动热力图（点击跳单日）+ 趋势范围查询（单日按小时/多日按天堆叠图，按模型/按项目/压缩聚合）；或在任意会话运行 `/token-usage [YYYY-MM-DD]`。
 
 ![Token 用量面板](https://raw.githubusercontent.com/EsonXie/dsh-agent-toolkit/master/docs/usage/images/usage-modal.png)
 

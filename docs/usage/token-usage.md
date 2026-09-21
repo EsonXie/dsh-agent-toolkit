@@ -25,7 +25,9 @@ dsh plugin --profile <profile 名> add @dsh-agent-toolkit/token-usage
 
 ## Web 面板
 
-点击**会话标题栏右上角** utilities 区的「Token 用量」图标，模态框分两个 tab：
+点击**会话标题栏右上角** utilities 区的「Token 用量」图标（仪表盘图标，悬停出 Tooltip），模态框分两个 tab：
+
+![会话标题栏右上角的「Token 用量」入口（悬停显示 Tooltip）](images/usage-entry.png)
 
 **活动 tab**：近 13 周活动热力图（7 行 × 13 列，GitHub 风格）。格子颜色深浅表示当日计费总量档位（0-4 共 5 档），悬停显示当日具体用量（日期 + 总量 + 调用次数），点击某天跳转到趋势 tab 并定位该单日。
 
@@ -39,7 +41,7 @@ dsh plugin --profile <profile 名> add @dsh-agent-toolkit/token-usage
 - 聚合明细：按模型、按项目两个维度；上下文压缩单列展示（有压缩时）
 - 热力图点击某天即切到本 tab 的单日视图
 
-![趋势 tab：范围柱状图 + 汇总 + 按模型/按项目细分](images/usage-daily.png)
+![趋势 tab：范围柱状图 + 汇总 + 按模型/按项目细分](images/usage-trend.png)
 
 ## 命令行
 

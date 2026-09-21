@@ -13,7 +13,7 @@ DeepSeek Harness plugin: per-day token usage statistics — 13-week heatmap, sta
 
 ![Token 用量面板：13 周活动热力图](https://raw.githubusercontent.com/EsonXie/dsh-agent-toolkit/master/docs/usage/images/usage-modal.png)
 
-![单日堆叠图](https://raw.githubusercontent.com/EsonXie/dsh-agent-toolkit/master/docs/usage/images/usage-daily.png)
+![趋势 tab：范围堆叠柱状图 + 汇总 + 按模型/按项目细分](https://raw.githubusercontent.com/EsonXie/dsh-agent-toolkit/master/docs/usage/images/usage-trend.png)
 
 ## 安装
 
