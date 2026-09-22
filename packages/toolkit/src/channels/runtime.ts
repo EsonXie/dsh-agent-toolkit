@@ -62,7 +62,7 @@ export class BotRuntime {
       docMaxBytes: deps.docMaxBytes,
       ...(deps.attachments !== undefined ? { attachments: deps.attachments } : {}),
       ...(deps.catalog !== undefined ? { catalog: deps.catalog } : {}),
-      consumeAnswer: (botId, chatId, userId, text) => this.questions.tryConsumeText(botId, chatId, userId, text),
+      consumeAnswer: (botId, chatId, threadId, userId, text) => this.questions.tryConsumeText(botId, chatId, threadId, userId, text),
       onError: (m) => deps.log.warn(m),
     })
     this.outbound = new Outbound(this.sessions, (m) => deps.log.warn(m), deps.maxErrorDetailChars, (rt) => this.inbound.drain(rt.botId, rt.chatId, rt.threadId), deps.debugLog)

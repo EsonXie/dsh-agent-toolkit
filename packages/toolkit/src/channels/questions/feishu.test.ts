@@ -189,6 +189,13 @@ test('presenter：present = createCard + sendCardMessage；finalize = replaceCar
   expect(logs).toEqual([])
 })
 
+test('prompt 带 replyToMessageId：sendCardMessage 收到第三参（话题内发卡）', async () => {
+  const { api, sendCardMessage } = fakeApi()
+  const presenter = new FeishuQuestionPresenter(api, 20_000, () => undefined)
+  await presenter.present({ ...promptOf([CHOICE]), replyToMessageId: 'om_turn1' })
+  expect(sendCardMessage).toHaveBeenCalledWith('oc_chat1', 'card_1', 'om_turn1')
+})
+
 test('finalize 失败被吞（仅告警），不向调用方抛', async () => {
   const { api, replaceCard } = fakeApi()
   replaceCard.mockRejectedValue(new Error('replace boom'))

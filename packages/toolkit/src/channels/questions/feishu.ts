@@ -135,7 +135,10 @@ export class FeishuQuestionPresenter implements QuestionPresenter {
 
   async present(prompt: QuestionPrompt): Promise<QuestionPresentation> {
     const cardId = await withRetry(() => this.api.createCard(buildQuestionCardJson(prompt, this.maxBytes)))
-    await withRetry(() => this.api.sendCardMessage(prompt.chatId, cardId))
+    // replyToMessageId 存在时以第三参锚定触发消息（话题内发卡）；缺席时不传，调用形态不变。
+    await withRetry(() => prompt.replyToMessageId !== undefined
+      ? this.api.sendCardMessage(prompt.chatId, cardId, prompt.replyToMessageId)
+      : this.api.sendCardMessage(prompt.chatId, cardId))
     return {
       finalize: async (p, v, status) => {
         try {

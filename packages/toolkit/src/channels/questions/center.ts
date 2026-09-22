@@ -38,6 +38,8 @@ export interface QuestionPrompt {
   chatId: string
   botName: string
   questions: readonly QuestionItemLike[]
+  /** 话题锚点：发卡时回复到触发本 turn 的入站消息；replyAnchor 缺席则不带此键。 */
+  replyToMessageId?: string
 }
 
 /** 一次已展示的问答卡：finalize 定格为只读终态（form 卡无中间态，整卡重放会抹掉用户填写态，故无 refresh）。 */
@@ -177,7 +179,11 @@ export class QuestionCenter {
       return undefined
     }
     const key = this.newId()
-    const prompt: QuestionPrompt = { key, chatId: rt.chatId, botName: channel.botName, questions: req.questions }
+    const prompt: QuestionPrompt = {
+      key, chatId: rt.chatId, botName: channel.botName, questions: req.questions,
+      // 话题锚点：rt.replyAnchor 由入站在 dispatch 时写入；缺席时不带键，行为零变化。
+      ...(rt.replyAnchor !== undefined ? { replyToMessageId: rt.replyAnchor } : {}),
+    }
     const answers: AnswerMap = new Map()
     let presentation: QuestionPresentation
     try {
@@ -226,12 +232,13 @@ export class QuestionCenter {
     return { toast: '已提交作答' }
   }
 
-  /** 开放题文本应答：该 chat 最早未完结且含未答开放题的 key 消费此文本（仅发起人）。 */
-  tryConsumeText(botId: string, chatId: string, userId: string, text: string): boolean {
+  /** 开放题文本应答：该 chat 最早未完结且含未答开放题的 key 消费此文本（仅发起人）。
+   *  话题隔离：rt.threadId 须与入站 threadId 一致（同 chat 的不同话题 / 非话题互不串答）。 */
+  tryConsumeText(botId: string, chatId: string, threadId: string | undefined, userId: string, text: string): boolean {
     for (const [key, entry] of this.pending) {
       if (entry.prompt.chatId !== chatId) continue
       const rt = this.sessions.get(entry.sessionId)
-      if (rt === undefined || rt.botId !== botId || rt.initiatorOpenId !== userId) continue
+      if (rt === undefined || rt.botId !== botId || rt.threadId !== threadId || rt.initiatorOpenId !== userId) continue
       const open = entry.prompt.questions.find((q) => q.options === undefined && !entry.answers.has(q.id))
       if (open === undefined) continue
       entry.answers.set(open.id, { selected: [], custom: text })

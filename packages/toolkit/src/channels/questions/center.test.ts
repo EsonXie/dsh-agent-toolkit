@@ -121,7 +121,7 @@ test('发卡期间 abort → reject UserQuestionError ASK_ABORTED、定格 cance
   expect(presented).toHaveLength(1)
   await vi.waitFor(() => { expect(finalized.map((f) => f.status)).toEqual(['cancelled']) })
   // pending 已摘除：迟到的开放题答案不再被消费
-  expect(center.tryConsumeText('reviewer', CHAT, INITIATOR, '迟到答案')).toBe(false)
+  expect(center.tryConsumeText('reviewer', CHAT, undefined, INITIATOR, '迟到答案')).toBe(false)
 })
 
 test('发卡失败 → undefined + warn（调用方回退其他应答通道）', async () => {
@@ -197,7 +197,7 @@ test('submit 与文本拦截合并：开放题先被 inbound 文本作答，subm
   ]))
   await vi.waitFor(() => { expect(presented).toHaveLength(1) })
   const key = presented[0]!.prompt.key
-  expect(center.tryConsumeText('reviewer', CHAT, INITIATOR, '文本作答')).toBe(true)
+  expect(center.tryConsumeText('reviewer', CHAT, undefined, INITIATOR, '文本作答')).toBe(true)
   expect(center.handleCardAction({
     chatId: CHAT, operatorOpenId: INITIATOR,
     value: { kind: 'question', key, submit: true },
@@ -343,27 +343,27 @@ test('value 畸形（无 key / kind 非 question）→ undefined 静默忽略', 
 test('tryConsumeText：开放题归属该 chat 最早 pending key，仅发起人，答完即 settle', async () => {
   const { sessions, presented, center, reply } = harness()
   // 无 pending → false
-  expect(center.tryConsumeText('reviewer', CHAT, INITIATOR, 'hi')).toBe(false)
+  expect(center.tryConsumeText('reviewer', CHAT, undefined, INITIATOR, 'hi')).toBe(false)
   // 该 chat 只有带选项的 pending（无开放题）→ false
   sessions.set('s_pick', fakeRt('s_pick', reply))
   const pick = center.handleRequest(ask('s_pick', [item('q_pick', { options: [{ label: '甲' }] })]))
   const pickTracker = track(pick)
   await vi.waitFor(() => { expect(presented).toHaveLength(1) })
-  expect(center.tryConsumeText('reviewer', CHAT, INITIATOR, '选项题不吃文本')).toBe(false)
+  expect(center.tryConsumeText('reviewer', CHAT, undefined, INITIATOR, '选项题不吃文本')).toBe(false)
   // 两个含开放题的 pending（同 chat）：文本归属最早 key
   sessions.set('s_open1', fakeRt('s_open1', reply))
   sessions.set('s_open2', fakeRt('s_open2', reply))
   const first = center.handleRequest(ask('s_open1', [item('q_open1')]))
   const second = center.handleRequest(ask('s_open2', [item('q_open2')]))
   await vi.waitFor(() => { expect(presented).toHaveLength(3) })
-  expect(center.tryConsumeText('reviewer', CHAT, 'ou_other', '文本')).toBe(false)
+  expect(center.tryConsumeText('reviewer', CHAT, undefined, 'ou_other', '文本')).toBe(false)
   expect(pickTracker.done).toBe(false)
-  expect(center.tryConsumeText('reviewer', CHAT, INITIATOR, '第一个答案')).toBe(true)
+  expect(center.tryConsumeText('reviewer', CHAT, undefined, INITIATOR, '第一个答案')).toBe(true)
   await expect(first).resolves.toEqual({ answers: [{ id: 'q_open1', selected: [], custom: '第一个答案' }] })
-  expect(center.tryConsumeText('reviewer', CHAT, INITIATOR, '第二个答案')).toBe(true)
+  expect(center.tryConsumeText('reviewer', CHAT, undefined, INITIATOR, '第二个答案')).toBe(true)
   await expect(second).resolves.toEqual({ answers: [{ id: 'q_open2', selected: [], custom: '第二个答案' }] })
   // 全部收齐后（剩余 options-only pending 无开放题）→ false
-  expect(center.tryConsumeText('reviewer', CHAT, INITIATOR, '再来')).toBe(false)
+  expect(center.tryConsumeText('reviewer', CHAT, undefined, INITIATOR, '再来')).toBe(false)
 })
 
 test('dispose → 全部 pending 以 ASK_CANCELLED reject，卡片 finalize cancelled', async () => {
@@ -421,4 +421,33 @@ test('debugLog：发卡成功 → question-presented（key/sessionId/chatId/qCou
   ])
   center.dispose()
   await expect(pending).rejects.toMatchObject({ code: 'ASK_CANCELLED' })
+})
+
+test('rt 带 replyAnchor → present 的 prompt 带 replyToMessageId（话题锚点）', async () => {
+  const { sessions, presented, center, reply } = harness()
+  sessions.set('s1', { ...fakeRt('s1', reply), replyAnchor: 'om_turn1' })
+  const pending = center.handleRequest(ask('s1', [item('q1', { options: [{ label: '红' }] })]))
+  track(pending)
+  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  expect(presented[0]!.prompt).toMatchObject({ replyToMessageId: 'om_turn1' })
+  center.dispose()
+  await expect(pending).rejects.toMatchObject({ code: 'ASK_CANCELLED' })
+})
+
+test('tryConsumeText 话题隔离：threadId 不匹配不消费（两 rt 同 chatId 不同 threadId）', async () => {
+  const { sessions, presented, center, reply } = harness()
+  sessions.set('s_a', { ...fakeRt('s_a', reply), threadId: 'omt_a' })
+  sessions.set('s_b', { ...fakeRt('s_b', reply), threadId: 'omt_b' })
+  const pendingA = center.handleRequest(ask('s_a', [item('q_a')]))
+  const trackerA = track(pendingA)
+  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  // omt_b 话题的文本不消费挂在 omt_a 话题会话上的 pending 问答
+  expect(center.tryConsumeText('reviewer', CHAT, 'omt_b', INITIATOR, '别的话题文本')).toBe(false)
+  // 非话题文本（threadId undefined）同样不消费话题会话上的 pending
+  expect(center.tryConsumeText('reviewer', CHAT, undefined, INITIATOR, '非话题文本')).toBe(false)
+  await Promise.resolve()
+  expect(trackerA.done).toBe(false)
+  // 本话题（omt_a）的文本正常消费
+  expect(center.tryConsumeText('reviewer', CHAT, 'omt_a', INITIATOR, '本话题答案')).toBe(true)
+  await expect(pendingA).resolves.toEqual({ answers: [{ id: 'q_a', selected: [], custom: '本话题答案' }] })
 })
