@@ -65,7 +65,7 @@ export class BotRuntime {
       consumeAnswer: (botId, chatId, userId, text) => this.questions.tryConsumeText(botId, chatId, userId, text),
       onError: (m) => deps.log.warn(m),
     })
-    this.outbound = new Outbound(this.sessions, (m) => deps.log.warn(m), deps.maxErrorDetailChars, (rt) => this.inbound.drain(rt.botId, rt.chatId), deps.debugLog)
+    this.outbound = new Outbound(this.sessions, (m) => deps.log.warn(m), deps.maxErrorDetailChars, (rt) => this.inbound.drain(rt.botId, rt.chatId, rt.threadId), deps.debugLog)
     this.approval = new ApprovalCenter(
       this.sessions,
       (botId) => {

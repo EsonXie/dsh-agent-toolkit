@@ -9,7 +9,7 @@ import { Outbound } from './outbound.ts'
 import type { AgentPort, AgentsPort, BindingStore, SessionCatalogPort, SessionRuntime } from './ports.ts'
 import { Router } from './router.ts'
 import type { AgentRegistry } from '../agents/registry.ts'
-import type { BotRecord } from '../bots/store.ts'
+import { bindingKey, type BotRecord } from '../bots/store.ts'
 
 const BOT: BotRecord = {
   id: 'reviewer', name: '评审', channel: 'feishu',
@@ -53,9 +53,9 @@ function harness(opts: {
   }
   const map = new Map<string, string>()
   const bindings: BindingStore = {
-    get: (b, c) => map.get(`${b}:${c}`),
-    set: async (b, c, s) => { map.set(`${b}:${c}`, s) },
-    delete: async (b, c) => { map.delete(`${b}:${c}`) },
+    get: (b, c, t) => map.get(bindingKey(b, c, t)),
+    set: async (b, c, t, s) => { map.set(bindingKey(b, c, t), s) },
+    delete: async (b, c, t) => { map.delete(bindingKey(b, c, t)) },
     deleteBot: async () => undefined,
   }
   const sessions = new Map<string, SessionRuntime>()
@@ -82,6 +82,7 @@ function harness(opts: {
   function msg(text: string, chatId = 'oc_1', loadImages?: InboundMessage['loadImages'], reply?: ReplyHandle, ackProcessing?: InboundMessage['ackProcessing']): InboundMessage {
     return {
     botId: BOT.id, chatId, userId: 'ou_u1', messageId: `om_${Math.random()}`,
+    chatType: 'p2p',
     text,
     ...(loadImages !== undefined ? { loadImages } : {}),
     reply: reply ?? fakeReply(rec),
@@ -271,6 +272,59 @@ test('撤回排队消息：撤销并提示；撤回正在执行/不存在的消�
   inbound.drain('reviewer', 'oc_1')
   await new Promise((r) => setTimeout(r, 20))
   expect(rec.followups).toHaveLength(1)
+})
+
+describe('话题键控（threadId）', () => {
+  test('话题 A 执行中，话题 B 消息走独立会话、不进 A 的队列', async () => {
+    const { rec, inbound, router, msg } = harness()
+    const topicMsg = (text: string, threadId: string): InboundMessage => ({ ...msg(text), chatType: 'group', threadId })
+    // 两话题先后各发一条：应各建各的 session（绑定键不同）
+    inbound.onMessage(topicMsg('任务A', 'omt_a'))
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+    inbound.onMessage(topicMsg('任务B', 'omt_b'))
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(2) })
+    const rtA = router.lookup(BOT.id, 'oc_1', 'omt_a')
+    const rtB = router.lookup(BOT.id, 'oc_1', 'omt_b')
+    expect(rtA).toBeDefined()
+    expect(rtB).toBeDefined()
+    expect(rtA!.sessionId).not.toBe(rtB!.sessionId)
+    // B 直接执行（独立会话空闲），无排队提示、不进 A 的队列
+    expect(rec.notices.some((n) => n.includes('已排队'))).toBe(false)
+  })
+
+  test('撤回撤销排队按 messageId 匹配（撤回事件不带 threadId 也能命中话题队列）', async () => {
+    const { rec, inbound, router, msg } = harness()
+    const topicMsg = (text: string, threadId: string): InboundMessage => ({ ...msg(text), chatType: 'group', threadId })
+    // 占住话题 A 的槽后排队一条，再撤回排队消息
+    inbound.onMessage(topicMsg('任务A1', 'omt_a'))
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+    // A 执行中（in-flight fake 挂起），第二条进队列
+    const queued = topicMsg('任务A2', 'omt_a')
+    inbound.onMessage(queued)
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('已排队'))).toBe(true) })
+    inbound.revokeQueued(BOT.id, 'oc_1', queued.messageId)
+    await vi.waitFor(() => { expect(rec.notices).toContain('已撤销排队消息：任务A2') })
+    // 队列已空：释放槽位排水不再执行任何消息
+    const rt = router.lookup(BOT.id, 'oc_1', 'omt_a')!
+    rt.inflight = undefined
+    inbound.drain(BOT.id, 'oc_1', 'omt_a')
+    await new Promise((r) => setTimeout(r, 20))
+    expect(rec.followups).toHaveLength(1)
+  })
+
+  test('话题队列排水：drain 带 threadId 命中话题绑定 rt，排队消息进话题会话执行', async () => {
+    const { rec, inbound, router, msg } = harness()
+    const topicMsg = (text: string, threadId: string): InboundMessage => ({ ...msg(text), chatType: 'group', threadId })
+    inbound.onMessage(topicMsg('任务A1', 'omt_a'))
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+    inbound.onMessage(topicMsg('任务A2', 'omt_a'))
+    await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('已排队'))).toBe(true) })
+    const rt = router.lookup(BOT.id, 'oc_1', 'omt_a')!
+    rt.inflight = undefined
+    inbound.drain(BOT.id, 'oc_1', 'omt_a')
+    await vi.waitFor(() => { expect(rec.followups).toHaveLength(2) })
+    expect(rec.followups[1].text).toBe('任务A2')
+  })
 })
 
 test('/new：重置会话并确认', async () => {
@@ -586,7 +640,7 @@ describe('开放题文本拦截（consumeAnswer）', () => {
     const ensureSpy = vi.spyOn(router, 'ensure')
     inbound.onMessage(msg('这就是我的答案'))
     await vi.waitFor(() => { expect(calls).toHaveLength(1) })
-    expect(calls[0]).toEqual(['reviewer', 'oc_1', 'ou_u1', '这就是我的答案'])
+    expect(calls[0]).toEqual(['reviewer', 'oc_1', undefined, 'ou_u1', '这就是我的答案'])
     expect(ensureSpy).not.toHaveBeenCalled()
     expect(sessions.size).toBe(0)
     expect(rec.followups).toHaveLength(0)

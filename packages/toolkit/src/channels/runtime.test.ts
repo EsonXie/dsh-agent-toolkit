@@ -177,7 +177,7 @@ test('injectSender: false：入站建会话 hooks 只含 guidance 段、不含 s
   } as unknown as RuntimeDeps['agents']
   const { runtime } = harness({ injectSender: false, agents })
   runtime.inbound.onMessage({
-    botId: 'reviewer', chatId: 'oc_1', userId: 'ou_u1', messageId: 'om_1', text: '你好',
+    botId: 'reviewer', chatId: 'oc_1', userId: 'ou_u1', messageId: 'om_1', text: '你好', chatType: 'p2p',
     reply: { beginTurn: async () => undefined, update: async () => undefined, finalize: async () => undefined, notice: async () => undefined },
     ackProcessing: async () => () => undefined,
   })
@@ -241,7 +241,7 @@ test('unbindBot 重绑窗口：旧 rt 收尾期间的消息不复用已取消 ag
   await runtime.reconcile('reviewer')       // 重绑：渠道重启
 
   runtime.inbound.onMessage({
-    botId: 'reviewer', chatId: 'oc_1', userId: 'ou_new', messageId: 'om_2', text: '重绑后消息',
+    botId: 'reviewer', chatId: 'oc_1', userId: 'ou_new', messageId: 'om_2', text: '重绑后消息', chatType: 'p2p',
     reply: { beginTurn: async () => undefined, update: async () => undefined, finalize: async () => undefined, notice: async () => undefined },
     ackProcessing: async () => () => undefined,
   })
@@ -301,7 +301,7 @@ function approvalHarness() {
 test('审批集成：渠道 approval presenter 发卡，io.onCardAction 路由回 center resolve', async () => {
   const { runtime, fakeReply, presented, ioOf } = approvalHarness()
   await runtime.startAll()
-  const rt = await runtime.router.ensure(BOT, 'oc_chat1', fakeReply, 'ou_initiator')
+  const rt = await runtime.router.ensure(BOT, 'oc_chat1', undefined, fakeReply, 'ou_initiator', 'p2p')
   const pending = runtime.approval.handleRequest({ agent: { session: { id: rt.sessionId } }, toolName: 'write' })
   await vi.waitFor(() => { expect(presented).toHaveLength(1) })
   // 经渠道 io 回调（与真实 card.action.trigger 同路径）
@@ -313,7 +313,7 @@ test('审批集成：渠道 approval presenter 发卡，io.onCardAction 路由�
 test('stopAll 兜底 dispose：挂起审批 settle cancelled', async () => {
   const { runtime, fakeReply, presented } = approvalHarness()
   await runtime.startAll()
-  const rt = await runtime.router.ensure(BOT, 'oc_chat1', fakeReply, 'ou_initiator')
+  const rt = await runtime.router.ensure(BOT, 'oc_chat1', undefined, fakeReply, 'ou_initiator', 'p2p')
   const pending = runtime.approval.handleRequest({ agent: { session: { id: rt.sessionId } }, toolName: 'write' })
   await vi.waitFor(() => { expect(presented).toHaveLength(1) })
   await runtime.stopAll()
@@ -381,7 +381,7 @@ test('onCardAction 按 value.kind 路由：question → QuestionCenter，无 kin
 test('问答集成：渠道 questions presenter 发卡，io.onCardAction(kind:question) 路由回 center resolve', async () => {
   const { runtime, fakeReply, presented, ioOf } = questionHarness()
   await runtime.startAll()
-  const rt = await runtime.router.ensure(BOT, 'oc_chat1', fakeReply, 'ou_initiator')
+  const rt = await runtime.router.ensure(BOT, 'oc_chat1', undefined, fakeReply, 'ou_initiator', 'p2p')
   const pending = runtime.questions.handleRequest({
     agent: { session: { id: rt.sessionId } },
     questions: [{ id: 'q1', question: '继续吗？', options: [{ label: '继续' }, { label: '停止' }] }],
@@ -399,7 +399,7 @@ test('问答集成：渠道 questions presenter 发卡，io.onCardAction(kind:qu
 test('问答集成：发起人下一条纯文本经 inbound 拦截直接作答，不触发新 turn', async () => {
   const { runtime, fakeReply, presented } = questionHarness()
   await runtime.startAll()
-  const rt = await runtime.router.ensure(BOT, 'oc_chat1', fakeReply, 'ou_initiator')
+  const rt = await runtime.router.ensure(BOT, 'oc_chat1', undefined, fakeReply, 'ou_initiator', 'p2p')
   const pending = runtime.questions.handleRequest({
     agent: { session: { id: rt.sessionId } },
     questions: [{ id: 'q1', question: '你的想法？' }],
@@ -407,7 +407,7 @@ test('问答集成：发起人下一条纯文本经 inbound 拦截直接作答�
   await vi.waitFor(() => { expect(presented).toHaveLength(1) })
   const ensureSpy = vi.spyOn(runtime.router, 'ensure')
   runtime.inbound.onMessage({
-    botId: 'reviewer', chatId: 'oc_chat1', userId: 'ou_initiator', messageId: 'om_ans', text: '我的想法是这样',
+    botId: 'reviewer', chatId: 'oc_chat1', userId: 'ou_initiator', messageId: 'om_ans', text: '我的想法是这样', chatType: 'p2p',
     reply: fakeReply, ackProcessing: async () => () => undefined,
   })
   await expect(pending).resolves.toEqual({ answers: [{ id: 'q1', selected: [], custom: '我的想法是这样' }] })
@@ -417,7 +417,7 @@ test('问答集成：发起人下一条纯文本经 inbound 拦截直接作答�
 test('stopAll 兜底 dispose：挂起问答 settle cancelled 且 questions.dispose 被调用', async () => {
   const { runtime, fakeReply, presented } = questionHarness()
   await runtime.startAll()
-  const rt = await runtime.router.ensure(BOT, 'oc_chat1', fakeReply, 'ou_initiator')
+  const rt = await runtime.router.ensure(BOT, 'oc_chat1', undefined, fakeReply, 'ou_initiator', 'p2p')
   const pending = runtime.questions.handleRequest({
     agent: { session: { id: rt.sessionId } },
     questions: [{ id: 'q1', question: '继续吗？' }],

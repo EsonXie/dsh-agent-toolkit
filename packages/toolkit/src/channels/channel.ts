@@ -37,6 +37,10 @@ export interface InboundImage {
 export interface InboundMessage {
   botId: string
   chatId: string
+  /** 会话形态：p2p 单聊 / group 群聊（话题群以 threadId 判别，chatType 恒为 group）。 */
+  chatType: 'p2p' | 'group'
+  /** 话题群话题 ID；非话题缺席。 */
+  threadId?: string
   userId: string
   messageId: string
   text: string

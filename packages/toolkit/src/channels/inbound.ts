@@ -7,7 +7,7 @@ import { parseDirective } from './directive.ts'
 import { docRejectText, readDocFile, resolveDocPath } from './doc-command.ts'
 import { formatLsText, listProjectDir, lsRejectText, searchProjectTree } from './ls-command.ts'
 import { truncateDetail } from './outbound.ts'
-import type { Router } from './router.ts'
+import type { ChatKind, Router } from './router.ts'
 import type { SessionCatalogEntry, SessionCatalogPort, SessionRuntime } from './ports.ts'
 
 /** 图片附件库端口（宿主 ctx.attachments 的窄化；缺席时图片降级为提示）。 */
@@ -26,9 +26,15 @@ export interface InboundDeps {
   /** 可选：候选会话目录的惰性取用器（attachments 同款"消息时解析"）；缺席 = /sessions、/switch 降级文案。 */
   catalog?: () => SessionCatalogPort | undefined
   /** 可选：开放题文本作答消费器（发起人纯文本作为 pending 问答答案）；返回 true = 已消费、不触发新 turn。 */
-  consumeAnswer?: (botId: string, chatId: string, userId: string, text: string) => boolean
+  consumeAnswer?: (botId: string, chatId: string, threadId: string | undefined, userId: string, text: string) => boolean
   onError(message: string): void
 }
+
+/** 入站队列/列表缓存键（尾空串 = 非话题旧形态；话题键同空间不碰撞）。 */
+const routeKey = (botId: string, chatId: string, threadId?: string): string => `${botId}:${chatId}:${threadId ?? ''}`
+
+/** 会话形态判别：话题消息恒为 topic，非话题按消息自身 chatType。 */
+const chatKindOf = (msg: InboundMessage): ChatKind => (msg.threadId !== undefined ? 'topic' : msg.chatType)
 
 /** /help 输出文本。 */
 const HELP_TEXT = [
@@ -47,10 +53,10 @@ const HELP_TEXT = [
 export class Inbound {
   constructor(private readonly deps: InboundDeps) {}
 
-  /** 最近一次 /sessions 输出（per chat 序号缓存；进程重启即失效）。 */
+  /** 最近一次 /sessions 输出（per chat/话题 序号缓存；进程重启即失效）。 */
   private readonly lastLists = new Map<string, readonly string[]>()
 
-  /** 排队消息（per chat；任务执行中收到的消息在此排队，turn 落定后按序排水）。 */
+  /** 排队消息（per chat/话题；任务执行中收到的消息在此排队，turn 落定后按序排水）。 */
   private readonly queues = new Map<string, InboundMessage[]>()
 
   onMessage(msg: InboundMessage): void {
@@ -68,19 +74,19 @@ export class Inbound {
 
     const directive = parseDirective(msg.text)
     if (directive?.name === 'new') {
-      await this.deps.router.reset(bot, msg.chatId, msg.reply, msg.userId)
+      await this.deps.router.reset(bot, msg.chatId, msg.threadId, msg.reply, msg.userId, chatKindOf(msg))
       await msg.reply.notice('已开启新会话')
-      // 队列是 chat 级：/new 不换队列；旧 rt 无 turn/end（空闲时 /new）时由此兜底排水。
-      this.drain(bot.id, msg.chatId)
+      // 队列按话题键控：/new 不换队列（原地排水本话题）；旧 rt 无 turn/end（空闲时 /new）时由此兜底排水。
+      this.drain(bot.id, msg.chatId, msg.threadId)
       return
     }
     if (directive?.name === 'stop') {
-      const rt = this.deps.router.lookup(bot.id, msg.chatId)
+      const rt = this.deps.router.lookup(bot.id, msg.chatId, msg.threadId)
       if (rt?.inflight !== undefined) {
         rt.agent.cancel()
         await msg.reply.notice('已请求停止当前任务')
       } else {
-        const count = this.queues.get(`${bot.id}:${msg.chatId}`)?.length ?? 0
+        const count = this.queues.get(routeKey(bot.id, msg.chatId, msg.threadId))?.length ?? 0
         await msg.reply.notice(count > 0
           ? `当前没有进行中的任务（${count} 条排队中，撤回原消息可取消）`
           : '当前没有进行中的任务')
@@ -88,7 +94,7 @@ export class Inbound {
       return
     }
     if (directive?.name === 'status') {
-      const rt = this.deps.router.lookup(bot.id, msg.chatId)
+      const rt = this.deps.router.lookup(bot.id, msg.chatId, msg.threadId)
       if (rt === undefined) {
         await msg.reply.notice(`项目：${bot.project}\n会话：未创建（发送消息即创建）`)
         return
@@ -98,7 +104,7 @@ export class Inbound {
         `会话：${rt.sessionId}`,
         `状态：${rt.inflight !== undefined ? '处理中' : '空闲'}`,
       ]
-      const queue = this.queues.get(`${bot.id}:${msg.chatId}`) ?? []
+      const queue = this.queues.get(routeKey(bot.id, msg.chatId, msg.threadId)) ?? []
       if (queue.length > 0) {
         lines.push(`排队（${queue.length}）：`)
         queue.forEach((m, i) => lines.push(`${i + 1}. ${queuedPreview(m)}`))
@@ -130,13 +136,13 @@ export class Inbound {
     // 开放题作答拦截：该 chat 有 pending 问答且为发起人纯文本 → 作为答案消费，
     // 不进队列、不触发新 turn（拦截点必须在排队逻辑之前）。
     if (msg.loadImages === undefined && msg.text.length > 0
-      && this.deps.consumeAnswer?.(msg.botId, msg.chatId, msg.userId, msg.text) === true) {
+      && this.deps.consumeAnswer?.(msg.botId, msg.chatId, msg.threadId, msg.userId, msg.text) === true) {
       return
     }
 
-    const rt = await this.deps.router.ensure(bot, msg.chatId, msg.reply, msg.userId)
+    const rt = await this.deps.router.ensure(bot, msg.chatId, msg.threadId, msg.reply, msg.userId, chatKindOf(msg))
     if (rt.inflight !== undefined) {
-      const key = `${bot.id}:${msg.chatId}`
+      const key = routeKey(bot.id, msg.chatId, msg.threadId)
       const queue = this.queues.get(key) ?? []
       queue.push(msg)
       this.queues.set(key, queue)
@@ -152,6 +158,8 @@ export class Inbound {
     // reply 句柄只在准入通过后刷新——忙时/排队消息不抢走运行中 turn 的出站。
     rt.inflight = { ack: undefined }
     rt.reply = msg.reply
+    // 话题锚点：审批/问答卡回复定位到本 turn 的触发消息（话题内发卡）。
+    rt.replyAnchor = msg.messageId
     rt.inflight.ack = (await msg.ackProcessing().catch(() => undefined)) ?? undefined
     // source kind 用 'user'（与 ACP 同款）：dsh sessionTitle 服务只接纳 user 消息生成会话标题。
     // 图片：in-flight 窗口内懒下载（不占飞书 WS 3 秒窗口）→ 落附件库 → image 内容块。
@@ -186,22 +194,22 @@ export class Inbound {
       // 占槽期间可能已有新消息入队：回滚释放后继续排水，不滞留。
       // 排水先于 ack：占槽转移须与释放同同步段完成（inflight 空 ⇒ 队列空 不变量），
       // 否则 await ack 让出事件循环期间新到消息会插队到更早的排队消息之前。
-      this.drain(rt.botId, rt.chatId)
+      this.drain(rt.botId, rt.chatId, rt.threadId)
       await ack?.()
       throw error
     }
   }
 
   /**
-   * 幂等排水：当前绑定 rt 空闲且该 chat 队列非空时 shift 队首立即执行。
+   * 幂等排水：当前绑定 rt 空闲且该 chat（话题则该话题）队列非空时 shift 队首立即执行。
    * 触发点：Outbound onTurnIdle（turn/end、agent/error 释放槽位）、/new、/switch、followup 回滚。
    * 不变量：inflight 空 ⇒ 队列空——占槽转移与释放在同一同步段，无并发窗口。
    */
-  drain(botId: string, chatId: string): void {
-    const key = `${botId}:${chatId}`
+  drain(botId: string, chatId: string, threadId?: string): void {
+    const key = routeKey(botId, chatId, threadId)
     const queue = this.queues.get(key)
     if (queue === undefined || queue.length === 0) return
-    const rt = this.deps.router.lookup(botId, chatId)
+    const rt = this.deps.router.lookup(botId, chatId, threadId)
     if (rt === undefined || rt.retiring || rt.inflight !== undefined) return
     const msg = queue.shift()!
     if (queue.length === 0) this.queues.delete(key)
@@ -225,16 +233,21 @@ export class Inbound {
     }
   }
 
-  /** 撤回原消息 = 撤销排队条目；已执行/不存在/正在执行的静默忽略（幂等，重推安全）。 */
+  /**
+   * 撤回原消息 = 撤销排队条目；已执行/不存在/正在执行的静默忽略（幂等，重推安全）。
+   * 撤回事件不带 threadId：按 `bot:chat:` 前缀扫全部队列（含各话题与非话题）按 messageId 匹配。
+   */
   revokeQueued(botId: string, chatId: string, messageId: string): void {
-    const key = `${botId}:${chatId}`
-    const queue = this.queues.get(key)
-    if (queue === undefined) return
-    const index = queue.findIndex((m) => m.messageId === messageId)
-    if (index < 0) return
-    const [removed] = queue.splice(index, 1)
-    if (queue.length === 0) this.queues.delete(key)
-    void removed!.reply.notice(`已撤销排队消息：${queuedPreview(removed!)}`).catch(() => undefined)
+    const prefix = `${botId}:${chatId}:`
+    for (const [key, queue] of [...this.queues]) {
+      if (!key.startsWith(prefix)) continue
+      const index = queue.findIndex((m) => m.messageId === messageId)
+      if (index < 0) continue
+      const [removed] = queue.splice(index, 1)
+      if (queue.length === 0) this.queues.delete(key)
+      void removed!.reply.notice(`已撤销排队消息：${queuedPreview(removed!)}`).catch(() => undefined)
+      return
+    }
   }
 
   private async listSessions(bot: BotRecord, msg: InboundMessage): Promise<void> {
@@ -248,8 +261,8 @@ export class Inbound {
       await msg.reply.notice('当前项目下还没有可切换的会话（发消息即创建）')
       return
     }
-    const current = this.deps.router.boundSessionId(bot.id, msg.chatId)
-    this.lastLists.set(`${bot.id}:${msg.chatId}`, entries.map((e) => e.sessionId))
+    const current = this.deps.router.boundSessionId(bot.id, msg.chatId, msg.threadId)
+    this.lastLists.set(routeKey(bot.id, msg.chatId, msg.threadId), entries.map((e) => e.sessionId))
     const lines = entries.map((e, i) =>
       `${i + 1}. ${e.sessionId === current ? '✓ ' : ''}${e.title}（${e.sessionId.slice(0, 8)}）`)
     await msg.reply.notice(`会话列表（/switch <序号|id前缀> 切换）：\n${lines.join('\n')}`)
@@ -268,7 +281,7 @@ export class Inbound {
     const entries = await catalog.list(bot.project)
     let target: SessionCatalogEntry | undefined
     if (/^\d+$/.test(arg)) {
-      const ids = this.lastLists.get(`${bot.id}:${msg.chatId}`)
+      const ids = this.lastLists.get(routeKey(bot.id, msg.chatId, msg.threadId))
       const id = ids?.[Number(arg) - 1]
       target = id !== undefined ? entries.find((e) => e.sessionId === id) : undefined
       if (target === undefined) {
@@ -287,12 +300,12 @@ export class Inbound {
       }
       target = matches[0]
     }
-    if (target.sessionId === this.deps.router.boundSessionId(bot.id, msg.chatId)) {
+    if (target.sessionId === this.deps.router.boundSessionId(bot.id, msg.chatId, msg.threadId)) {
       await msg.reply.notice('已是当前会话')
       return
     }
     try {
-      await this.deps.router.switchTo(bot, msg.chatId, target.sessionId, msg.reply, msg.userId)
+      await this.deps.router.switchTo(bot, msg.chatId, msg.threadId, target.sessionId, msg.reply, msg.userId, chatKindOf(msg))
     } catch (error) {
       // 目标会话写句柄被占用（web 界面打开中或正收尾）：绑定不变，提示占用而非「处理失败」。
       if (error instanceof Error && error.name === 'SessionAlreadyOwnedError') {
@@ -302,7 +315,7 @@ export class Inbound {
       throw error
     }
     await msg.reply.notice(`已切换到会话：${target.title ?? '(无标题)'}（${target.sessionId.slice(0, 8)}）`)
-    this.drain(bot.id, msg.chatId)
+    this.drain(bot.id, msg.chatId, msg.threadId)
   }
 
   private async sendDoc(bot: BotRecord, msg: InboundMessage, arg: string | undefined): Promise<void> {
