@@ -55,6 +55,8 @@ test('正常链路：发卡挂起，点允许 resolve allowed-once 并定格卡�
   // present 是异步的，先让它落定拿到 key
   await vi.waitFor(() => { expect(presented).toHaveLength(1) })
   expect(presented[0]).toMatchObject({ chatId: 'oc_chat1', botName: '评审', toolName: 'write', reason: '需要写入文件' })
+  // replyAnchor 缺席：prompt 不带 replyToMessageId 键（行为零变化）
+  expect(presented[0]).not.toHaveProperty('replyToMessageId')
   const ack = center.handleCardAction({ chatId: 'oc_chat1', operatorOpenId: 'ou_initiator', operatorName: '张三', value: { key: presented[0]!.key, decision: 'allow' } })
   expect(ack).toEqual({ toast: '已允许' })
   await expect(pending).resolves.toBe('allowed-once')
@@ -137,6 +139,16 @@ test('dispose 兜底：全部挂起项 settle cancelled', async () => {
   sessions.set('s1', fakeRt('s1'))
   const pending = center.handleRequest(ask('s1'))
   await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  center.dispose()
+  await expect(pending).resolves.toBe('cancelled')
+})
+
+test('rt 带 replyAnchor → prompt 带 replyToMessageId（话题锚点）', async () => {
+  const { sessions, presented, center } = harness()
+  sessions.set('s1', { ...fakeRt('s1'), replyAnchor: 'om_turn1' })
+  const pending = center.handleRequest(ask('s1'))
+  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  expect(presented[0]).toMatchObject({ replyToMessageId: 'om_turn1' })
   center.dispose()
   await expect(pending).resolves.toBe('cancelled')
 })

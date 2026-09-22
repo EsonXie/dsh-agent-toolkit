@@ -62,7 +62,10 @@ export class FeishuApprovalPresenter implements ApprovalPresenter {
 
   async present(prompt: ApprovalPrompt): Promise<ApprovalPresentation> {
     const cardId = await withRetry(() => this.api.createCard(buildApprovalCardJson(prompt)))
-    await withRetry(() => this.api.sendCardMessage(prompt.chatId, cardId))
+    // replyToMessageId 存在时以第三参锚定触发消息（话题内发卡）；缺席时不传，调用形态不变。
+    await withRetry(() => prompt.replyToMessageId !== undefined
+      ? this.api.sendCardMessage(prompt.chatId, cardId, prompt.replyToMessageId)
+      : this.api.sendCardMessage(prompt.chatId, cardId))
     return {
       finalize: async (status, operatorName) => {
         try {

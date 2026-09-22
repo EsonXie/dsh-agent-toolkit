@@ -20,6 +20,8 @@ export interface ApprovalPrompt {
   botName: string
   toolName: string
   reason?: string
+  /** 话题锚点：发卡时回复到触发本 turn 的入站消息；replyAnchor 缺席则不带此键。 */
+  replyToMessageId?: string
 }
 
 /** 一次已展示的审批：finalize 把卡片定格为终态（实现内部 fire-and-forget 友好，失败自告警）。 */
@@ -89,6 +91,8 @@ export class ApprovalCenter {
       presentation = await channel.presenter.present({
         key, chatId: rt.chatId, botName: channel.botName, toolName: req.toolName,
         ...(req.reason !== undefined ? { reason: req.reason } : {}),
+        // 话题锚点：rt.replyAnchor 由入站在 dispatch 时写入；缺席时不带键，行为零变化。
+        ...(rt.replyAnchor !== undefined ? { replyToMessageId: rt.replyAnchor } : {}),
       })
     } catch (error) {
       this.warn(`[project-bot] 审批卡片发送失败，回退其他审批通道：${error instanceof Error ? error.message : String(error)}`)

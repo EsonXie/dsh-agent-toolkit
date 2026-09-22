@@ -52,3 +52,10 @@ test('建卡失败：错误传播（ApprovalCenter 回退 next 的前提）', as
   const presenter = new FeishuApprovalPresenter(api, () => undefined)
   await expect(presenter.present(PROMPT)).rejects.toThrow('cardkit boom')
 })
+
+test('prompt 带 replyToMessageId：sendCardMessage 收到第三参（话题内发卡）', async () => {
+  const api = fakeApi()
+  const presenter = new FeishuApprovalPresenter(api, () => undefined)
+  await presenter.present({ ...PROMPT, replyToMessageId: 'om_turn1' })
+  expect(api.sendCardMessage).toHaveBeenCalledWith('oc_chat1', 'card_1', 'om_turn1')
+})
