@@ -118,7 +118,7 @@ const TUNABLES = { cardUpdateThrottleMs: 50, cardMaxBytes: 26_000, cardPrintStep
 async function drive(failures: Map<string, number[]>) {
   vi.useFakeTimers()
   const { api, cards, calls } = fakeFeishu(failures)
-  const reply = new FeishuReplyHandle(api, 'oc_1', TUNABLES, () => undefined)
+  const reply = new FeishuReplyHandle(api, 'oc_1', undefined, TUNABLES, () => undefined)
   const rt = {
     botId: 'b', chatId: 'oc_1', sessionId: 's1', initiatorOpenId: 'ou_1',
     agent: { sessionId: 's1', followup: () => undefined, cancel: () => undefined, whenIdle: async () => undefined, dispose: async () => undefined },

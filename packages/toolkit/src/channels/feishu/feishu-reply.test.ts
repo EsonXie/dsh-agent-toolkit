@@ -34,7 +34,7 @@ function fakeApi() {
 
 function make(api: FeishuApi, tunables: ChannelTunables = TUNABLES) {
   const logs: string[] = []
-  const reply = new FeishuReplyHandle(api, 'oc_1', tunables, (m) => { logs.push(m) })
+  const reply = new FeishuReplyHandle(api, 'oc_1', undefined, tunables, (m) => { logs.push(m) })
   return { reply, logs }
 }
 
@@ -161,7 +161,7 @@ describe('FeishuReplyHandle', () => {
     const { api, calls } = fakeApi()
     const { reply } = make(api)
     await reply.notice('上一条还在处理中')
-    expect(calls).toEqual([{ op: 'sendText', args: ['oc_1', '上一条还在处理中'] }])
+    expect(calls).toEqual([{ op: 'sendText', args: ['oc_1', '上一条还在处理中', undefined] }])
   })
 })
 
@@ -453,7 +453,7 @@ test('sendFile：上传后经 chatId 发文件消息，不走卡片串行链', a
   await reply.sendFile!('report.md', new TextEncoder().encode('# 报告'))
   expect(calls.map((c) => c.op)).toEqual(['uploadFile', 'sendFile'])
   expect(calls[0].args[0]).toBe('report.md')
-  expect(calls[1].args).toEqual(['oc_1', 'file_v3_xxx'])
+  expect(calls[1].args).toEqual(['oc_1', 'file_v3_xxx', undefined])
 })
 
 test('sendFile：上传失败向调用方传播（重试耗尽后抛最后一次错误）', async () => {
@@ -469,7 +469,7 @@ test('sendFile：上传失败向调用方传播（重试耗尽后抛最后一次
 test('debug 事件：op/close/replace 落 sink；replace 失败非致命且有事件', async () => {
   const { api, calls } = fakeApi()
   const events: { event: string; [k: string]: unknown }[] = []
-  const reply = new FeishuReplyHandle(api, 'oc_1', TUNABLES, () => undefined, (e) => { events.push(e) })
+  const reply = new FeishuReplyHandle(api, 'oc_1', undefined, TUNABLES, () => undefined, (e) => { events.push(e) })
   await reply.update([{ kind: 'text', content: '你好' }])
   await vi.advanceTimersByTimeAsync(500)
   await reply.finalize('done')
@@ -495,7 +495,7 @@ test('debug 事件：replaceCard 失败记 replace failed + 日志，不触发�
   const failing = { ...api, replaceCard: async () => { throw bizError(999999) } }
   const events: { event: string; [k: string]: unknown }[] = []
   const logs: string[] = []
-  const reply = new FeishuReplyHandle(failing, 'oc_1', TUNABLES, (m) => { logs.push(m) }, (e) => { events.push(e) })
+  const reply = new FeishuReplyHandle(failing, 'oc_1', undefined, TUNABLES, (m) => { logs.push(m) }, (e) => { events.push(e) })
   await reply.update([{ kind: 'text', content: '结论' }])
   const fin = reply.finalize('done')
   await vi.advanceTimersByTimeAsync(1000)   // withRetry 的 300ms 退避
@@ -640,4 +640,20 @@ describe('ReplyHandle.breakCard', () => {
     expect(inserts[1].args[0]).toBe('card_2')
     expect(JSON.parse(String(inserts[1].args[1])).content).toBe('第三段')
   })
+})
+
+test('带锚点句柄的 notice 与发卡均走锚点', async () => {
+  const sent: unknown[][] = []
+  const api = {
+    createCard: async () => 'card_1',
+    sendCardMessage: async (...args: unknown[]) => { sent.push(['sendCardMessage', ...args]) },
+    sendText: async (...args: unknown[]) => { sent.push(['sendText', ...args]) },
+    setCardStreaming: async () => undefined,
+    replaceCard: async () => undefined,
+    insertElement: async () => undefined,
+    updateCardElement: async () => undefined,
+  } as unknown as FeishuApi
+  const handle = new FeishuReplyHandle(api, 'oc_1', 'om_anchor', TUNABLES, () => undefined)
+  await handle.notice('hi')
+  expect(sent).toEqual([['sendText', 'oc_1', 'hi', 'om_anchor']])
 })

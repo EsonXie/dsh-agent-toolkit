@@ -40,6 +40,8 @@ export class FeishuReplyHandle implements ReplyHandle {
   constructor(
     private readonly api: FeishuApi,
     private readonly chatId: string,
+    /** 话题回复锚点（入站消息 messageId）；undefined = chat 级 create（非话题现状）。 */
+    private readonly replyToMessageId: string | undefined,
     private readonly tunables: ChannelTunables,
     private readonly log: (message: string) => void,
     private readonly debugLog?: DebugSink,
@@ -84,7 +86,7 @@ export class FeishuReplyHandle implements ReplyHandle {
       }
     })
     if (!hadCard && detail !== undefined) {
-      this.enqueue(() => withRetry(() => this.api.sendText(this.chatId, detail)).then(() => undefined))
+      this.enqueue(() => withRetry(() => this.api.sendText(this.chatId, detail, this.replyToMessageId)).then(() => undefined))
     }
     await this.tail
   }
@@ -130,7 +132,7 @@ export class FeishuReplyHandle implements ReplyHandle {
   }
 
   notice(text: string): Promise<void> {
-    this.enqueue(() => withRetry(() => this.api.sendText(this.chatId, text)).then(() => undefined))
+    this.enqueue(() => withRetry(() => this.api.sendText(this.chatId, text, this.replyToMessageId)).then(() => undefined))
     return this.tail.then(() => undefined)
   }
 
@@ -138,7 +140,7 @@ export class FeishuReplyHandle implements ReplyHandle {
   async sendFile(name: string, data: Uint8Array): Promise<void> {
     await withRetry(async () => {
       const fileKey = await this.api.uploadFile(name, data)
-      await this.api.sendFile(this.chatId, fileKey)
+      await this.api.sendFile(this.chatId, fileKey, this.replyToMessageId)
     })
   }
 
@@ -283,7 +285,7 @@ export class FeishuReplyHandle implements ReplyHandle {
       return
     }
     if (op.type === 'send') {
-      await withRetry(() => this.api.sendCardMessage(this.chatId, this.state.cardId!))
+      await withRetry(() => this.api.sendCardMessage(this.chatId, this.state.cardId!, this.replyToMessageId))
     } else if (op.type === 'insert') {
       await this.api.insertElement(this.state.cardId!, op.elementJson, STATUS_ELEMENT_ID, op.sequence)
     } else if (op.type === 'update') {
@@ -362,7 +364,7 @@ export class FeishuReplyHandle implements ReplyHandle {
     this.log(`[project-bot] 卡片输出异常（${reason}），已废弃当前卡并在新卡继续`)
     this.debugLog?.({ event: 'abandon', chatId: this.chatId, cardId, reason, carrySegIndex: this.state.carry?.segIndex, carryBase: this.state.carry?.base })
     if (hadRealCard) {
-      await withRetry(() => this.api.sendText(this.chatId, ABANDON_NOTICE)).catch(() => undefined)
+      await withRetry(() => this.api.sendText(this.chatId, ABANDON_NOTICE, this.replyToMessageId)).catch(() => undefined)
     }
     return 'abandoned'
   }
