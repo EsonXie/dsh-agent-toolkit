@@ -56,9 +56,9 @@ export interface WorkspacePort {
 }
 
 export interface BindingStore {
-  get(botId: string, chatId: string): string | undefined
-  set(botId: string, chatId: string, sessionId: string): Promise<void>
-  delete(botId: string, chatId: string): Promise<void>
+  get(botId: string, chatId: string, threadId?: string): string | undefined
+  set(botId: string, chatId: string, threadId: string | undefined, sessionId: string): Promise<void>
+  delete(botId: string, chatId: string, threadId?: string): Promise<void>
   /** 删除某 bot 的全部绑定（bot 被删除时）。 */
   deleteBot(botId: string): Promise<void>
 }
@@ -81,9 +81,13 @@ export interface SessionRuntime {
   readonly sessionId: string
   /** 会话发起人的渠道 open_id（审批卡片越权校验用；ensure/reset 的 userId 落入）。 */
   readonly initiatorOpenId: string
+  /** 话题路由键第三元（话题群会话）；非话题缺席。 */
+  readonly threadId?: string
   agent: AgentPort
   /** 最近一次入站消息携带的回复句柄（回复永远回到 chat）。 */
   reply: ReplyHandle | undefined
+  /** 当前 turn 触发消息 id（审批/问答卡的话题锚点；dispatch 准入通过后刷新）。 */
+  replyAnchor?: string
   /** 单会话单 in-flight 槽；ack = 表情回复的 disposer。 */
   inflight: { ack: Disposer | undefined } | undefined
   /** 出站操作串行化 Promise 链（保序）。 */

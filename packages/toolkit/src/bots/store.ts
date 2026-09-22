@@ -56,7 +56,7 @@ export const projectBotDomain = defineDomain({
   },
 })
 
-/** bindings 表 key：(botId, chatId) → sessionId。 */
-export function bindingKey(botId: string, chatId: string): string {
-  return `${botId}:${chatId}`
+/** bindings 表 key：(botId, chatId[, threadId]) → sessionId；非话题维持 bot:chat 旧形态（存量绑定零迁移）。 */
+export function bindingKey(botId: string, chatId: string, threadId?: string): string {
+  return threadId === undefined ? `${botId}:${chatId}` : `${botId}:${chatId}:${threadId}`
 }

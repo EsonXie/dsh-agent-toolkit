@@ -1,8 +1,9 @@
 import { describe, expect, test, vi } from 'vitest'
 import type { BotChannel, ChannelHandle, ReplyHandle } from './channel.ts'
 import { BotRuntime, type RuntimeDeps } from './runtime.ts'
-import type { BotRecord } from '../bots/store.ts'
+import { bindingKey, type BotRecord } from '../bots/store.ts'
 import type { AgentRegistry } from '../agents/registry.ts'
+import type { BindingStore } from './ports.ts'
 import type { ApprovalPrompt, CardActionAck, CardActionInput } from './approval/center.ts'
 import type { QuestionPrompt } from './questions/center.ts'
 
@@ -110,6 +111,27 @@ test('stopBot 停渠道并清理该 bot 的绑定与会话', async () => {
   expect(closed).toEqual(['reviewer'])
   expect(deps.bindings.get('reviewer:oc_1')).toBeUndefined()
   expect(deps.bindings.get('other:oc_2')).toEqual({ sessionId: 's2' })
+})
+
+test('绑定键：话题消息独立键，非话题维持旧形态', async () => {
+  // bindingKey 纯函数：threadId 存在 → bot:chat:thread，缺席 → bot:chat
+  expect(bindingKey('b', 'oc_1', 'omt_a')).toBe('b:oc_1:omt_a')
+  expect(bindingKey('b', 'oc_1')).toBe('b:oc_1')
+  expect(bindingKey('b', 'oc_1', undefined)).toBe('b:oc_1')
+  // bindings 适配器经 bindingKey：话题键与 chat 键互不可见
+  const { runtime, deps } = harness()
+  const store = (runtime as unknown as { bindingStore(): BindingStore }).bindingStore()
+  await store.set('b', 'oc_1', 'omt_a', 's-topic')
+  await store.set('b', 'oc_1', undefined, 's-chat')
+  expect(deps.bindings.get('b:oc_1:omt_a')).toEqual({ sessionId: 's-topic' })
+  expect(deps.bindings.get('b:oc_1')).toEqual({ sessionId: 's-chat' })
+  expect(store.get('b', 'oc_1', 'omt_a')).toBe('s-topic')
+  expect(store.get('b', 'oc_1')).toBe('s-chat')
+  expect(store.get('b', 'oc_1', undefined)).toBe('s-chat')
+  // delete 定点删话题键，不影响 chat 键
+  await store.delete('b', 'oc_1', 'omt_a')
+  expect(deps.bindings.get('b:oc_1:omt_a')).toBeUndefined()
+  expect(deps.bindings.get('b:oc_1')).toEqual({ sessionId: 's-chat' })
 })
 
 test('停止/解绑/全停路径均清空该 bot 的排队队列', async () => {

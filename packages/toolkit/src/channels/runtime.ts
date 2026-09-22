@@ -203,9 +203,9 @@ export class BotRuntime {
   private bindingStore(): BindingStore {
     const { bindings } = this.deps
     return {
-      get: (b, c) => bindings.get(bindingKey(b, c))?.sessionId,
-      set: async (b, c, s) => { await bindings.put(bindingKey(b, c), { sessionId: s }) },
-      delete: async (b, c) => { await bindings.delete(bindingKey(b, c)) },
+      get: (b, c, t) => bindings.get(bindingKey(b, c, t))?.sessionId,
+      set: async (b, c, t, s) => { await bindings.put(bindingKey(b, c, t), { sessionId: s }) },
+      delete: async (b, c, t) => { await bindings.delete(bindingKey(b, c, t)) },
       deleteBot: async (b) => {
         for (const key of [...bindings.keys()]) {
           if (key.startsWith(`${b}:`)) await bindings.delete(key)
