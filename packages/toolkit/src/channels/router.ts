@@ -1,4 +1,4 @@
-/** 绑定路由：(botId, chatId) → 长期会话；create / resume / reset。 */
+/** 绑定路由：(botId, chatId, threadId) → 长期会话；create / resume / reset。话题群按话题独立键控，非话题 threadId 缺席（键形态与现状一致）。 */
 import { randomUUID } from 'node:crypto'
 import type { AgentRegistry } from '../agents/registry.ts'
 import type { BotRecord } from '../bots/store.ts'
@@ -9,9 +9,15 @@ import { roleAgentOptions, roleHooks } from './role-assembly.ts'
 /** 发起人提示段名：bot 会话声明来源渠道与发起人 open_id。 */
 export const SENDER_SECTION_NAME = 'dsh-agent-toolkit:channel:sender'
 
-/** sender 段文本（单聊语义；channel 取 BotRecord.channel，未来新渠道零改动透传）。 */
-export function senderSectionText(channel: string, userId: string): string {
-  return `本会话由 ${channel} 渠道的单聊会话发起。发起人 ID（${channel} open_id）：\`${userId}\`。`
+/** 会话形态（sender 段按形态区分文案）：p2p 单聊 / group 普通群 / topic 话题群话题。 */
+export type ChatKind = 'p2p' | 'group' | 'topic'
+
+/** sender 段文本（按会话形态区分文案；channel 取 BotRecord.channel，未来新渠道零改动透传）。 */
+export function senderSectionText(channel: string, userId: string, chatKind: ChatKind): string {
+  const initiator = `发起人 ID（${channel} open_id）：\`${userId}\`。`
+  if (chatKind === 'topic') return `本会话由 ${channel} 渠道话题群的一个话题发起。该话题绑定独立会话，同一话题群的其他话题互不共享会话。${initiator}`
+  if (chatKind === 'group') return `本会话由 ${channel} 渠道的群聊会话发起。${initiator}`
+  return `本会话由 ${channel} 渠道的单聊会话发起。${initiator}`
 }
 
 /** IM 引导段名：bot 会话恒注入（原 BASIC_TOOLS persona prefix 句，2026-09-16 挪入渠道段）。 */
@@ -60,32 +66,32 @@ export class Router {
   }
 
   /**
-   * 取（或建/恢复）该 chat 的会话 runtime。存量活跃会话保持其 reply——运行中 turn 的出站
+   * 取（或建/恢复）该 chat（话题群则该话题）的会话 runtime。存量活跃会话保持其 reply——运行中 turn 的出站
    * 必须留在原句柄收尾，reply 刷新由 Inbound 在 in-flight 准入通过后执行；
    * retiring（已 cancel、收尾中）的会话不可复用，重绑窗口内恢复时 resume + adopt 重建。
    */
-  async ensure(bot: BotRecord, chatId: string, reply: ReplyHandle, userId: string): Promise<SessionRuntime> {
-    const bound = this.bindings.get(bot.id, chatId)
+  async ensure(bot: BotRecord, chatId: string, threadId: string | undefined, reply: ReplyHandle, userId: string, chatKind: ChatKind): Promise<SessionRuntime> {
+    const bound = this.bindings.get(bot.id, chatId, threadId)
     if (bound !== undefined) {
       const existing = this.sessions.get(bound)
       // 活跃会话不替换 reply：运行中 turn 的出站必须留在原句柄收尾；
       // reply 的刷新由 Inbound 在 in-flight 准入通过后执行。
       if (existing !== undefined && !existing.retiring) return existing
       // 宿主内存中已存活（web 界面等持有写句柄）→ 接管复用；冷会话才 resume（避免 already owned）。
-      const agent = this.agents.get(bound) ?? await this.agents.resume({ sessionId: bound, ...this.resolveSession(bot, userId) })
-      return this.adopt(bot.id, chatId, userId, bound, agent, reply)
+      const agent = this.agents.get(bound) ?? await this.agents.resume({ sessionId: bound, ...this.resolveSession(bot, userId, chatKind) })
+      return this.adopt(bot.id, chatId, threadId, userId, bound, agent, reply)
     }
     const sessionId = randomUUID()
-    const agent = await this.agents.create({ sessionId, cwd: bot.project, ...this.resolveSession(bot, userId) })
-    await this.bindings.set(bot.id, chatId, sessionId)
-    return this.adopt(bot.id, chatId, userId, sessionId, agent, reply)
+    const agent = await this.agents.create({ sessionId, cwd: bot.project, ...this.resolveSession(bot, userId, chatKind) })
+    await this.bindings.set(bot.id, chatId, threadId, sessionId)
+    return this.adopt(bot.id, chatId, threadId, userId, sessionId, agent, reply)
   }
 
-  /** 向 hooks.sections 追加渠道段：guidance（order 15）恒注入；injectSender 开启时再追加 sender（order 20）。 */
-  private withChannelSections(hooks: AgentHooks, bot: BotRecord, userId: string): AgentHooks {
+  /** 向 hooks.sections 追加渠道段：guidance（order 15）恒注入；injectSender 开启时再追加 sender（order 20，文案随 chatKind）。 */
+  private withChannelSections(hooks: AgentHooks, bot: BotRecord, userId: string, chatKind: ChatKind): AgentHooks {
     const guidance: AgentSection = { name: GUIDANCE_SECTION_NAME, order: 15, text: guidanceSectionText(bot.channel ?? 'unknown') }
     if (!this.injectSender) return { ...hooks, sections: [...(hooks.sections ?? []), guidance] }
-    const sender: AgentSection = { name: SENDER_SECTION_NAME, order: 20, text: senderSectionText(bot.channel ?? 'unknown', userId) }
+    const sender: AgentSection = { name: SENDER_SECTION_NAME, order: 20, text: senderSectionText(bot.channel ?? 'unknown', userId, chatKind) }
     return { ...hooks, sections: [...(hooks.sections ?? []), guidance, sender] }
   }
 
@@ -96,30 +102,30 @@ export class Router {
    * - 指向角色 → 角色形态：persona 单 section + tools.restrict + role.model；
    * - 指向不存在角色 → warn 并降级为主 Agent 形态。
    */
-  private resolveSession(bot: BotRecord, userId: string): { agentOptions: { provider?: string; model?: string }; hooks: AgentHooks } {
+  private resolveSession(bot: BotRecord, userId: string, chatKind: ChatKind): { agentOptions: { provider?: string; model?: string }; hooks: AgentHooks } {
     const ref = bot.agentRef ?? 'main'
     const role = this.registry.get(ref)
     if (role === undefined || ref === 'main') {
       if (role === undefined && ref !== 'main') {
         this.onWarn(`[project-bot] bot "${bot.id}" 的 agentRef "${ref}" 不存在，降级绑定主 Agent`)
       }
-      return { agentOptions: bot.agentOptions ?? this.defaultModel(), hooks: this.withChannelSections({}, bot, userId) }
+      return { agentOptions: bot.agentOptions ?? this.defaultModel(), hooks: this.withChannelSections({}, bot, userId, chatKind) }
     }
     return {
       agentOptions: roleAgentOptions(role, this.defaultModel),
-      hooks: this.withChannelSections(roleHooks(role), bot, userId),
+      hooks: this.withChannelSections(roleHooks(role), bot, userId, chatKind),
     }
   }
 
   /** /new：取消旧会话；等 turn/end 落定（旧卡在旧句柄 finalize）后再摘出 sessions。 */
-  async reset(bot: BotRecord, chatId: string, reply: ReplyHandle, userId: string): Promise<SessionRuntime> {
-    const bound = this.bindings.get(bot.id, chatId)
+  async reset(bot: BotRecord, chatId: string, threadId: string | undefined, reply: ReplyHandle, userId: string, chatKind: ChatKind): Promise<SessionRuntime> {
+    const bound = this.bindings.get(bot.id, chatId, threadId)
     if (bound !== undefined) {
       const old = this.sessions.get(bound)
       if (old !== undefined) this.retire(bound, old)
-      await this.bindings.delete(bot.id, chatId)
+      await this.bindings.delete(bot.id, chatId, threadId)
     }
-    return this.ensure(bot, chatId, reply, userId)
+    return this.ensure(bot, chatId, threadId, reply, userId, chatKind)
   }
 
   /** 取消会话并等出站链落定后摘出 sessions（让在飞 turn 的 turn/end 正常 finalize 旧卡），随后 dispose 释放写句柄。 */
@@ -142,37 +148,37 @@ export class Router {
     })
   }
 
-  lookup(botId: string, chatId: string): SessionRuntime | undefined {
-    const bound = this.bindings.get(botId, chatId)
+  lookup(botId: string, chatId: string, threadId?: string): SessionRuntime | undefined {
+    const bound = this.bindings.get(botId, chatId, threadId)
     return bound === undefined ? undefined : this.sessions.get(bound)
   }
 
   /** 当前绑定 sessionId（不要求进程内有 runtime；/sessions ✓ 标记与 /switch 已是当前判定用）。 */
-  boundSessionId(botId: string, chatId: string): string | undefined {
-    return this.bindings.get(botId, chatId)
+  boundSessionId(botId: string, chatId: string, threadId?: string): string | undefined {
+    return this.bindings.get(botId, chatId, threadId)
   }
 
   /**
-   * /switch：把 chat 的绑定覆盖到目标会话。
+   * /switch：把 chat（话题群则该话题）的绑定覆盖到目标会话。
    * 目标已在内存且非 retiring → 直接复用（initiator 不变）；在宿主内存存活（web 界面等持有写句柄）→
    * 接管复用（保持其当前装配，setup 不重跑）；冷会话才 resume + adopt（套用 bot 装配，切换人成为发起人）。
    * binding 在接管/resume 成功后才覆盖（失败绑定不变；覆盖失败摘除本次 adopt 的 runtime，不留孤儿）。
    * 切走的旧 runtime 不 retire（在飞 turn 卡片在本 chat 照常收尾），闲置落定后仍未重新绑定才摘除。
    */
-  async switchTo(bot: BotRecord, chatId: string, sessionId: string, reply: ReplyHandle, userId: string): Promise<SessionRuntime> {
-    const oldBound = this.bindings.get(bot.id, chatId)
+  async switchTo(bot: BotRecord, chatId: string, threadId: string | undefined, sessionId: string, reply: ReplyHandle, userId: string, chatKind: ChatKind): Promise<SessionRuntime> {
+    const oldBound = this.bindings.get(bot.id, chatId, threadId)
     const existing = this.sessions.get(sessionId)
     let rt: SessionRuntime
     let adopted = false
     if (existing !== undefined && !existing.retiring) {
       rt = existing
     } else {
-      const agent = this.agents.get(sessionId) ?? await this.agents.resume({ sessionId, ...this.resolveSession(bot, userId) })
-      rt = this.adopt(bot.id, chatId, userId, sessionId, agent, reply)
+      const agent = this.agents.get(sessionId) ?? await this.agents.resume({ sessionId, ...this.resolveSession(bot, userId, chatKind) })
+      rt = this.adopt(bot.id, chatId, threadId, userId, sessionId, agent, reply)
       adopted = true
     }
     try {
-      await this.bindings.set(bot.id, chatId, sessionId)
+      await this.bindings.set(bot.id, chatId, threadId, sessionId)
     } catch (error) {
       // 本次 adopt 的 runtime 未写进绑定即失败：摘除并释放写句柄不留孤儿（复用路径 runtime 先于本次调用存在，不动）。
       if (adopted && this.sessions.get(sessionId) === rt) {
@@ -183,25 +189,27 @@ export class Router {
     }
     if (oldBound !== undefined && oldBound !== sessionId) {
       const old = this.sessions.get(oldBound)
-      if (old !== undefined && old !== rt && !old.retiring) this.releaseUnbound(bot.id, chatId, oldBound, old)
+      if (old !== undefined && old !== rt && !old.retiring) this.releaseUnbound(bot.id, chatId, threadId, oldBound, old)
     }
     return rt
   }
 
   /** 未绑定会话闲置落定（在飞 turn 卡片收尾）后，仍未被重新绑定才摘出 sessions 并 dispose（摘除窗口内被切回不误删）。 */
-  private releaseUnbound(botId: string, chatId: string, sessionId: string, rt: SessionRuntime): void {
+  private releaseUnbound(botId: string, chatId: string, threadId: string | undefined, sessionId: string, rt: SessionRuntime): void {
     void (async () => {
       await rt.agent.whenIdle().catch(() => undefined)
       await rt.tail.catch(() => undefined)
-      if (this.sessions.get(sessionId) !== rt || this.bindings.get(botId, chatId) === sessionId) return
+      if (this.sessions.get(sessionId) !== rt || this.bindings.get(botId, chatId, threadId) === sessionId) return
       this.sessions.delete(sessionId)
       await this.disposeAgent(sessionId, rt)
     })()
   }
 
-  private adopt(botId: string, chatId: string, userId: string, sessionId: string, agent: SessionRuntime['agent'], reply: ReplyHandle): SessionRuntime {
+  private adopt(botId: string, chatId: string, threadId: string | undefined, userId: string, sessionId: string, agent: SessionRuntime['agent'], reply: ReplyHandle): SessionRuntime {
     const rt: SessionRuntime = {
       botId, chatId, sessionId, initiatorOpenId: userId, agent, reply,
+      // 话题路由键第三元仅话题会话携带（非话题 runtime 形态与现状一致）。
+      ...(threadId !== undefined ? { threadId } : {}),
       inflight: undefined, tail: Promise.resolve(), turn: undefined, retiring: false,
     }
     this.sessions.set(sessionId, rt)
