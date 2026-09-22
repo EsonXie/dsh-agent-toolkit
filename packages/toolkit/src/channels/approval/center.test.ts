@@ -11,7 +11,7 @@ function fakeRt(sessionId: string, botId = 'reviewer', initiatorOpenId = 'ou_ini
   }
 }
 
-function harness(opts: { presentError?: Error } = {}) {
+function harness(opts: { presentError?: Error; timeoutMs?: number } = {}) {
   const sessions = new Map<string, SessionRuntime>()
   const warns: string[] = []
   const presented: ApprovalPrompt[] = []
@@ -35,12 +35,28 @@ function harness(opts: { presentError?: Error } = {}) {
       : undefined,
     (m) => { warns.push(m) },
     () => randomUUID(),
+    opts.timeoutMs,
   )
   return { sessions, warns, presented, finalized, center }
 }
 
 function ask(sessionId: string, signal?: AbortSignal): ApprovalRequestLike {
   return { agent: { session: { id: sessionId } }, toolName: 'write', reason: '需要写入文件', ...(signal !== undefined ? { signal } : {}) }
+}
+
+/** 记录 promise 落定状态（不引入未处理 rejection）。 */
+function track<T>(p: Promise<T>): { done: boolean; value?: T; error?: unknown } {
+  const state: { done: boolean; value?: T; error?: unknown } = { done: false }
+  void p.then(
+    (value) => { state.done = true; state.value = value },
+    (error: unknown) => { state.done = true; state.error = error },
+  )
+  return state
+}
+
+/** 纯微任务排空：fake timers 下不可用真实 setTimeout；present 的 await 链走微任务即可落定。 */
+const flush = async (): Promise<void> => {
+  for (let i = 0; i < 5; i++) await Promise.resolve()
 }
 
 test('非自有会话 → undefined（调用方回退 next）', async () => {
@@ -151,4 +167,75 @@ test('rt 带 replyAnchor → prompt 带 replyToMessageId（话题锚点）', asy
   expect(presented[0]).toMatchObject({ replyToMessageId: 'om_turn1' })
   center.dispose()
   await expect(pending).resolves.toBe('cancelled')
+})
+
+// ---------- 超时自动拒绝（feishu.approvalTimeoutMs，默认 5 分钟；<= 0 关闭） ----------
+
+test('超时：advance 不足时长不 settle（保持挂起等审批）', async () => {
+  vi.useFakeTimers()
+  try {
+    const { sessions, presented, finalized, center } = harness({ timeoutMs: 5_000 })
+    sessions.set('s1', fakeRt('s1'))
+    const tracker = track(center.handleRequest(ask('s1')))
+    await flush()
+    expect(presented).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(tracker.done).toBe(false)
+    expect(finalized).toHaveLength(0)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('超时：到点自动拒绝——resolve rejected、finalize rejected（operatorName 超时自动拒绝）', async () => {
+  vi.useFakeTimers()
+  try {
+    const { sessions, presented, finalized, center } = harness({ timeoutMs: 5_000 })
+    sessions.set('s1', fakeRt('s1'))
+    const pending = center.handleRequest(ask('s1'))
+    await flush()
+    expect(presented).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(5_000)
+    await expect(pending).resolves.toBe('rejected')
+    expect(finalized).toEqual([{ status: 'rejected', operatorName: '超时自动拒绝' }])
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('超时前已处理：定时器随 settle 清理，advance 后无二次 settle', async () => {
+  vi.useFakeTimers()
+  try {
+    const { sessions, presented, finalized, center } = harness({ timeoutMs: 5_000 })
+    sessions.set('s1', fakeRt('s1'))
+    const pending = center.handleRequest(ask('s1'))
+    await flush()
+    expect(presented).toHaveLength(1)
+    expect(center.handleCardAction({
+      chatId: 'oc_chat1', operatorOpenId: 'ou_initiator', operatorName: '张三',
+      value: { key: presented[0]!.key, decision: 'allow' },
+    })).toEqual({ toast: '已允许' })
+    await expect(pending).resolves.toBe('allowed-once')
+    expect(finalized).toEqual([{ status: 'allowed', operatorName: '张三' }])
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(finalized).toEqual([{ status: 'allowed', operatorName: '张三' }])
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('approvalTimeoutMs=0：关闭超时，不启动定时器（advance 很久仍挂起）', async () => {
+  vi.useFakeTimers()
+  try {
+    const { sessions, presented, finalized, center } = harness({ timeoutMs: 0 })
+    sessions.set('s1', fakeRt('s1'))
+    const tracker = track(center.handleRequest(ask('s1')))
+    await flush()
+    expect(presented).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(600_000)
+    expect(tracker.done).toBe(false)
+    expect(finalized).toHaveLength(0)
+  } finally {
+    vi.useRealTimers()
+  }
 })

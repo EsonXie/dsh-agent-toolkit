@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test, vi } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import {
   QuestionCenter,
   type QuestionItemLike,
@@ -30,7 +30,7 @@ function snapshot(view: QuestionView): ViewSnapshot {
   return { answers: new Map(view.answers) }
 }
 
-function harness(opts: { presentError?: Error; abortDuringPresent?: AbortController } = {}) {
+function harness(opts: { presentError?: Error; abortDuringPresent?: AbortController; timeoutMs?: number } = {}) {
   const sessions = new Map<string, SessionRuntime>()
   const warns: string[] = []
   const debugEvents: Record<string, unknown>[] = []
@@ -65,6 +65,7 @@ function harness(opts: { presentError?: Error; abortDuringPresent?: AbortControl
     (m) => { warns.push(m) },
     () => randomUUID(),
     (e) => { debugEvents.push(e) },
+    opts.timeoutMs,
   )
   return { sessions, warns, debugEvents, presented, finalized, breakCard, center, reply }
 }
@@ -450,4 +451,91 @@ test('tryConsumeText 话题隔离：threadId 不匹配不消费（两 rt 同 cha
   // 本话题（omt_a）的文本正常消费
   expect(center.tryConsumeText('reviewer', CHAT, 'omt_a', INITIATOR, '本话题答案')).toBe(true)
   await expect(pendingA).resolves.toEqual({ answers: [{ id: 'q_a', selected: [], custom: '本话题答案' }] })
+})
+
+// ---------- 超时自动跳过（feishu.questionTimeoutMs，默认 5 分钟；<= 0 关闭） ----------
+
+/** 纯微任务排空：fake timers 下不可用真实 setTimeout；present 的 await 链走微任务即可落定。 */
+const flush = async (): Promise<void> => {
+  for (let i = 0; i < 5; i++) await Promise.resolve()
+}
+
+test('超时：advance 不足时长不 settle（保持挂起等作答）', async () => {
+  vi.useFakeTimers()
+  try {
+    const { sessions, presented, finalized, center, reply } = harness({ timeoutMs: 5_000 })
+    sessions.set('s1', fakeRt('s1', reply))
+    const tracker = track(center.handleRequest(ask('s1', [item('q1', { options: [{ label: '红' }] })])))
+    await flush()
+    expect(presented).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(tracker.done).toBe(false)
+    expect(finalized).toHaveLength(0)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('超时：到点等同「跳过」——reject ASK_CANCELLED（message 含 timed out）、finalize cancelled、breakCard 续接', async () => {
+  vi.useFakeTimers()
+  try {
+    const { sessions, presented, finalized, breakCard, center, reply } = harness({ timeoutMs: 5_000 })
+    sessions.set('s1', fakeRt('s1', reply))
+    const pending = center.handleRequest(ask('s1', [item('q1', { options: [{ label: '红' }] })]))
+    await flush()
+    expect(presented).toHaveLength(1)
+    // 先挂 rejection 监听再推时钟：避免 advance 落地瞬间 rejection 尚无 handler 被记 unhandled。
+    const rejection = expect(pending).rejects.toMatchObject({
+      name: 'UserQuestionError',
+      code: 'ASK_CANCELLED',
+      message: expect.stringContaining('timed out'),
+    })
+    await vi.advanceTimersByTimeAsync(5_000)
+    await rejection
+    await flush()
+    expect(finalized.map((f) => f.status)).toEqual(['cancelled'])
+    expect(breakCard).toHaveBeenCalledTimes(1)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('超时前已作答：定时器随 settle 清理，advance 后无二次 settle', async () => {
+  vi.useFakeTimers()
+  try {
+    const { sessions, presented, finalized, breakCard, center, reply } = harness({ timeoutMs: 5_000 })
+    sessions.set('s1', fakeRt('s1', reply))
+    const pending = center.handleRequest(ask('s1', [item('q1', { options: [{ label: '红' }] })]))
+    await flush()
+    expect(presented).toHaveLength(1)
+    expect(center.handleCardAction({
+      chatId: CHAT, operatorOpenId: INITIATOR,
+      value: { kind: 'question', key: presented[0]!.prompt.key, submit: true },
+      formValue: { q0: '红' },
+    })).toEqual({ toast: '已提交作答' })
+    await expect(pending).resolves.toEqual({ answers: [{ id: 'q1', selected: ['红'] }] })
+    expect(finalized.map((f) => f.status)).toEqual(['answered'])
+    expect(breakCard).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(finalized.map((f) => f.status)).toEqual(['answered'])
+    expect(breakCard).toHaveBeenCalledTimes(1)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('timeoutMs=0：关闭超时，不启动定时器（advance 很久仍挂起）', async () => {
+  vi.useFakeTimers()
+  try {
+    const { sessions, presented, finalized, center, reply } = harness({ timeoutMs: 0 })
+    sessions.set('s1', fakeRt('s1', reply))
+    const tracker = track(center.handleRequest(ask('s1', [item('q1', { options: [{ label: '红' }] })])))
+    await flush()
+    expect(presented).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(600_000)
+    expect(tracker.done).toBe(false)
+    expect(finalized).toHaveLength(0)
+  } finally {
+    vi.useRealTimers()
+  }
 })

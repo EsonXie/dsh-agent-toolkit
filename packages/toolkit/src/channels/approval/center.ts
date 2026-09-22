@@ -1,5 +1,7 @@
 /** 审批中心（渠道无关）：自有 bot 会话的 approval ask → 渠道审批卡片挂起 → 卡片回调 resolve。
- *  spec: docs/superpowers/specs/archive/2026-09-08-feishu-approval-card-design.md（飞书独占 / 仅发起人 / 不超时）。 */
+ *  spec: docs/superpowers/specs/archive/2026-09-08-feishu-approval-card-design.md（飞书独占 / 仅发起人）；
+ *  超时自动拒绝（0.4.7）：present 成功入 pending 起 approvalTimeoutMs 定时器，到点无人审批即自动拒绝
+ *  （outcome rejected + 卡片定格 rejected）；<= 0 关闭；定时器在 settle 统一清理，幂等不二次 settle。 */
 import { randomUUID } from 'node:crypto'
 import type { SessionRuntime } from '../ports.ts'
 
@@ -61,6 +63,8 @@ interface PendingEntry {
   presentation: ApprovalPresentation
   signal: AbortSignal | undefined
   onAbort: () => void
+  /** 超时定时器（approvalTimeoutMs > 0 时创建；settle 统一清理）。 */
+  timer?: ReturnType<typeof setTimeout>
 }
 
 export class ApprovalCenter {
@@ -71,6 +75,8 @@ export class ApprovalCenter {
     private readonly channelFor: (botId: string) => ApprovalChannel | undefined,
     private readonly warn: (message: string) => void,
     private readonly newId: () => string = randomUUID,
+    /** 审批卡超时自动拒绝（毫秒；缺省/<= 0 关闭；见 Config feishu.approvalTimeoutMs）。 */
+    private readonly approvalTimeoutMs?: number,
   ) {}
 
   async handleRequest(req: ApprovalRequestLike): Promise<ApprovalOutcome | undefined> {
@@ -104,6 +110,12 @@ export class ApprovalCenter {
         onAbort: () => this.settle(key, 'cancelled'),
       }
       this.pending.set(key, entry)
+      // 超时守门（feishu.approvalTimeoutMs，默认 5 分钟）：到点无人审批即自动拒绝（卡片定格 rejected）。
+      // settle 开头的 pending 守卫已保证幂等：已处理/已取消/已 abort 的 entry 不会被超时二次 settle。
+      if (this.approvalTimeoutMs !== undefined && this.approvalTimeoutMs > 0) {
+        entry.timer = setTimeout(() => this.settle(key, 'rejected', '超时自动拒绝'), this.approvalTimeoutMs)
+        entry.timer.unref?.()
+      }
       req.signal?.addEventListener('abort', entry.onAbort, { once: true })
     })
   }
@@ -129,6 +141,7 @@ export class ApprovalCenter {
   private settle(key: string, outcome: ApprovalOutcome, operatorName?: string): void {
     const entry = this.pending.get(key)
     if (entry === undefined) return
+    if (entry.timer !== undefined) clearTimeout(entry.timer)
     this.pending.delete(key)
     entry.signal?.removeEventListener('abort', entry.onAbort)
     entry.resolve(outcome)

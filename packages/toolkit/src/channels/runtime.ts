@@ -34,6 +34,10 @@ export interface RuntimeDeps {
   catalog?: () => SessionCatalogPort | undefined
   /** 发起人提示段开关（缺省 true；见 Config feishu.injectSender）。 */
   injectSender?: boolean
+  /** 问答卡超时自动跳过（毫秒；缺省/<= 0 关闭；见 Config feishu.questionTimeoutMs）。 */
+  questionTimeoutMs?: number
+  /** 审批卡超时自动拒绝（毫秒；缺省/<= 0 关闭；见 Config feishu.approvalTimeoutMs）。 */
+  approvalTimeoutMs?: number
   /** 生产调试事件 sink（outbound reconcile/frame-stats；缺省不记录）。 */
   debugLog?: DebugSink
   resolveSecret(ref: string): Promise<string | undefined>
@@ -74,6 +78,8 @@ export class BotRuntime {
         return { presenter, botName: this.deps.bots.get(botId)?.name ?? botId }
       },
       (m) => deps.log.warn(m),
+      randomUUID,
+      deps.approvalTimeoutMs,
     )
     this.questions = new QuestionCenter(
       this.sessions,
@@ -85,6 +91,7 @@ export class BotRuntime {
       (m) => deps.log.warn(m),
       randomUUID,
       deps.debugLog,
+      deps.questionTimeoutMs,
     )
   }
 

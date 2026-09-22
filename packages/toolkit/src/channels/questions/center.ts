@@ -1,5 +1,7 @@
 /** 提问中心（渠道无关）：自有 bot 会话的 user-questions ask → 渠道问答卡挂起 → 回调/文本 resolve。
- *  spec: docs/superpowers/specs/2026-09-16-feishu-full-tool-face-design.md §3（仅发起人 / 不超时 / 收齐才 resolve）。 */
+ *  spec: docs/superpowers/specs/2026-09-16-feishu-full-tool-face-design.md §3（仅发起人 / 收齐才 resolve）；
+ *  超时自动跳过（0.4.7）：present 成功入 pending 起 questionTimeoutMs 定时器，到点等同用户点「跳过」
+ *  （reject ASK_CANCELLED + 卡片定格 cancelled）；<= 0 关闭；定时器在 settle 统一清理，幂等不二次 settle。 */
 import { randomUUID } from 'node:crypto'
 import type { DebugSink } from '../channel.ts'
 import type { SessionRuntime } from '../ports.ts'
@@ -73,6 +75,8 @@ interface PendingSet {
   resolve(answer: QuestionAnswerLike): void
   reject(error: unknown): void
   onAbort: () => void
+  /** 超时定时器（questionTimeoutMs > 0 时创建；settle 统一清理）。 */
+  timer?: ReturnType<typeof setTimeout>
 }
 
 type AnswerMap = Map<string, { selected: string[]; custom?: string }>
@@ -99,6 +103,8 @@ export class QuestionCenter {
     private readonly newId: () => string = randomUUID,
     // 生产排障（2026-09-17）：fall-through 分支的 warn 在 dsh web 不可见，回退原因只能靠 debugLog 分辨。
     private readonly debug?: DebugSink,
+    /** 问答卡超时自动跳过（毫秒；缺省/<= 0 关闭；见 Config feishu.questionTimeoutMs）。 */
+    private readonly questionTimeoutMs?: number,
   ) {}
 
   private viewOf(entry: PendingSet): QuestionView {
@@ -133,8 +139,12 @@ export class QuestionCenter {
     })
   }
 
-  /** settle 公共尾：摘 pending → 注销 abort 监听 → 定格卡片（fire-and-forget，失败由 presenter 自告警）→ breakCard 续接输出。 */
+  /** settle 公共尾：摘 pending → 清超时定时器 → 注销 abort 监听 → 定格卡片（fire-and-forget，失败由 presenter 自告警）→ breakCard 续接输出。 */
   private settle(key: string, entry: PendingSet, status: 'answered' | 'cancelled'): void {
+    // 幂等守卫：entry 已不在 pending（已作答/已跳过/已 abort/已超时/已 dispose）时直接返回，
+    // 不重复 finalize/breakCard（超时定时器回调与用户操作的竞态兜底）。
+    if (this.pending.get(key) !== entry) return
+    if (entry.timer !== undefined) clearTimeout(entry.timer)
     this.pending.delete(key)
     entry.signal?.removeEventListener('abort', entry.onAbort)
     void entry.presentation.finalize(entry.prompt, this.viewOf(entry), status).catch(() => undefined)
@@ -203,6 +213,14 @@ export class QuestionCenter {
         onAbort: () => this.settleCancelled(key, entry, 'ASK_ABORTED', 'ask_user_question was aborted before the user answered'),
       }
       this.pending.set(key, entry)
+      // 超时守门（feishu.questionTimeoutMs，默认 5 分钟）：到点等同用户点「跳过」（卡片定格 cancelled）。
+      // 竞态由 settle 开头的 pending 守卫兜底：已作答/已取消/已 abort 的 entry 不会被超时二次 settle。
+      if (this.questionTimeoutMs !== undefined && this.questionTimeoutMs > 0) {
+        entry.timer = setTimeout(() => {
+          this.settleCancelled(key, entry, 'ASK_CANCELLED', 'question timed out and was skipped')
+        }, this.questionTimeoutMs)
+        entry.timer.unref?.()
+      }
       // 发卡期间 abort 的竞态兜底：已 aborted 的 signal 不会触发后注册的监听，
       // 若不再查一次，ask 将永不 settle（spec §3.2：abort → ASK_ABORTED reject + 卡片定格取消）。
       if (req.signal?.aborted === true) {

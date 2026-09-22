@@ -40,7 +40,7 @@ import { createApiHandler } from './api.ts'
 import { RegisterAppService } from './register-app.ts'
 import type { Binding, BotRecord } from './store.ts'
 
-/** project-bot Config 的 14 个全局可调参数：9 个字段名不变（schemastery 定义与默认值源：archive/2026-08-26-merged-plugins/project-bot/src/index.ts:38-45，由 Task 15 平移进 suite Config）；docMaxBytes 与 debugLog/debugLogDir/debugLogRetentionDays 为 Task 5 新增（非 archive 平移）。 */
+/** project-bot Config 的 17 个全局可调参数：9 个字段名不变（schemastery 定义与默认值源：archive/2026-08-26-merged-plugins/project-bot/src/index.ts:38-45，由 Task 15 平移进 suite Config）；docMaxBytes 与 debugLog/debugLogDir/debugLogRetentionDays 为 Task 5 新增（非 archive 平移）；questionTimeoutMs/approvalTimeoutMs 为 0.4.7 新增（问答卡/审批卡超时自动结束）。 */
 export interface BotsModuleConfig {
   /** 卡片流式更新节流间隔（毫秒）。 */
   cardUpdateThrottleMs: number
@@ -62,6 +62,10 @@ export interface BotsModuleConfig {
   approval: boolean
   /** 飞书问答卡：bot 会话的 ask_user_question / plan 评审改由飞书卡片作答（仅会话发起人可答）。 */
   questions: boolean
+  /** 问答卡超时自动跳过（毫秒；默认 5 分钟，<= 0 关闭超时——超时等同用户点「跳过」，卡片定格 cancelled）。 */
+  questionTimeoutMs: number
+  /** 审批卡超时自动拒绝（毫秒；默认 5 分钟，<= 0 关闭超时——超时等同用户点「拒绝」，卡片定格 rejected）。 */
+  approvalTimeoutMs: number
   /** bot 会话建账即应用的宿主权限预设名（缺省维持宿主默认；danger-full-access 风险见 Config 注释）。 */
   permissionPreset?: string
   /** /doc 发送文件的大小上限（字节）。 */
@@ -211,6 +215,8 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
       attachments: attachmentsOf,
       catalog: catalogOf,
       injectSender: config.injectSender,
+      questionTimeoutMs: config.questionTimeoutMs,
+      approvalTimeoutMs: config.approvalTimeoutMs,
       resolveSecret: async (ref) => (await ctx.credentials.resolve(credentialRef(ref)))?.value,
       validateProject: (path) => existsSync(path),
       log,

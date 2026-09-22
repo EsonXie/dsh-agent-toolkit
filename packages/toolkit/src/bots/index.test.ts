@@ -27,6 +27,8 @@ function makeConfig(approval: boolean, questions = true): BotsModuleConfig {
     injectSender: true,
     approval,
     questions,
+    questionTimeoutMs: 300000,
+    approvalTimeoutMs: 300000,
     docMaxBytes: 0,
     debugLog: false,
     debugLogDir: '',

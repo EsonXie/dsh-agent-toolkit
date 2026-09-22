@@ -82,9 +82,10 @@ export const Config: z<unknown, Config> = z.object({
   timezone: z.string().default('Asia/Shanghai'),
   provider: z.string().default('spawn'),
   toolName: z.string().default('team_delegate'),
-  // feishu 14 个全局可调参数：9 个照归档 project-bot/src/index.ts:38-45 原样平移，docMaxBytes 与
+  // feishu 17 个全局可调参数：9 个照归档 project-bot/src/index.ts:38-45 原样平移，docMaxBytes 与
   // debugLog/debugLogDir/debugLogRetentionDays 为 Task 5 新增（非 archive 平移），permissionPreset 为
-  // 本特性新增（可选键）。cast 照 rules 的 `as z<Rule>` 先例：schemastery 的 ObjectT 要求对象级
+  // 本特性新增（可选键），questionTimeoutMs/approvalTimeoutMs 为 0.4.7 新增（问答卡/审批卡超时自动结束）。
+  // cast 照 rules 的 `as z<Rule>` 先例：schemastery 的 ObjectT 要求对象级
   // `.default({...})` 字面量含全部 dict 键，而 permissionPreset 无默认值、缺省 undefined，只能经
   // `as z<unknown, BotsModuleConfig>`（BotsModuleConfig.permissionPreset 可选）让默认字面量不含该键。
   feishu: (z.object({
@@ -98,6 +99,10 @@ export const Config: z<unknown, Config> = z.object({
     injectSender: z.boolean().default(true),
     approval: z.boolean().default(true),
     questions: z.boolean().default(true),
+    /** 问答卡超时自动跳过（毫秒；默认 5 分钟，<= 0 关闭超时——到点无人作答即等同用户点「跳过」，卡片定格 cancelled）。 */
+    questionTimeoutMs: z.number().default(300_000),
+    /** 审批卡超时自动拒绝（毫秒；默认 5 分钟，<= 0 关闭超时——到点无人审批即等同用户点「拒绝」，卡片定格 rejected）。 */
+    approvalTimeoutMs: z.number().default(300_000),
     /** bot 会话建账即应用的宿主权限预设名（如 danger-full-access = 完全权限不审批；缺省维持宿主默认）。
      *  警告：完全权限下任何能给 bot 发消息的人即获宿主完全文件/命令权限，建议仅私聊 bot 启用。 */
     permissionPreset: z.string(),
@@ -120,6 +125,8 @@ export const Config: z<unknown, Config> = z.object({
     injectSender: true,
     approval: true,
     questions: true,
+    questionTimeoutMs: 300_000,
+    approvalTimeoutMs: 300_000,
     docMaxBytes: 30 * 1024 * 1024,
     debugLog: true,
     debugLogDir: '',

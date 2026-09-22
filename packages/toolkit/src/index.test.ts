@@ -165,6 +165,8 @@ describe('Config 默认值', () => {
       injectSender: true,
       approval: true,
       questions: true,
+      questionTimeoutMs: 300_000,
+      approvalTimeoutMs: 300_000,
       docMaxBytes: 31_457_280,
       debugLog: true,
       debugLogDir: '',
@@ -193,6 +195,14 @@ describe('Config 默认值', () => {
   test('feishu.questions：默认开启（ask_user_question / plan 评审走飞书卡片作答），显式关闭原样保留', () => {
     expect(Config({}).feishu.questions).toBe(true)
     expect(Config({ feishu: { questions: false } }).feishu.questions).toBe(false)
+  })
+
+  test('feishu.questionTimeoutMs/approvalTimeoutMs：默认 5 分钟（300000），显式配置原样保留（<=0 关闭超时）', () => {
+    expect(Config({}).feishu.questionTimeoutMs).toBe(300_000)
+    expect(Config({}).feishu.approvalTimeoutMs).toBe(300_000)
+    const config = Config({ feishu: { questionTimeoutMs: 60_000, approvalTimeoutMs: 0 } })
+    expect(config.feishu.questionTimeoutMs).toBe(60_000)
+    expect(config.feishu.approvalTimeoutMs).toBe(0)
   })
 
   test('存量多余键兼容：agentTeamPreset.botsId 与 feishu 未知键均不炸（schemastery 宽容）', () => {
