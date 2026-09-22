@@ -4,12 +4,14 @@ import type { InboundImage } from '../channel.ts'
 
 export interface FeishuApi {
   createCard(cardJson: string): Promise<string>
-  sendCardMessage(chatId: string, cardId: string): Promise<void>
+  /** 发送卡片消息；replyToMessageId 提供时锚定回复该消息（im.message.reply），否则发到会话（im.message.create）。 */
+  sendCardMessage(chatId: string, cardId: string, replyToMessageId?: string): Promise<void>
   updateCardElement(cardId: string, elementId: string, content: string, sequence: number): Promise<void>
   insertElement(cardId: string, elementJson: string, targetElementId: string, sequence: number): Promise<void>
   setCardStreaming(cardId: string, streaming: boolean, sequence: number, summary?: string): Promise<void>
   replaceCard(cardId: string, cardJson: string, sequence: number): Promise<void>
-  sendText(chatId: string, text: string): Promise<void>
+  /** 发送文本消息；replyToMessageId 提供时锚定回复该消息（im.message.reply），否则发到会话（im.message.create）。 */
+  sendText(chatId: string, text: string, replyToMessageId?: string): Promise<void>
   addReaction(messageId: string, emojiType: string): Promise<string>
   removeReaction(messageId: string, reactionId: string): Promise<void>
   /** 下载消息内图片资源（im/v1 resources，type=image）；媒体类型按魔数判定、响应头兜底。 */
@@ -18,8 +20,8 @@ export interface FeishuApi {
   getBotOpenId(): Promise<string>
   /** 上传文件到消息资源库（im/v1 files，file_type=stream），返回 file_key。 */
   uploadFile(name: string, data: Uint8Array): Promise<string>
-  /** 发送文件消息（msg_type=file）。 */
-  sendFile(chatId: string, fileKey: string): Promise<void>
+  /** 发送文件消息（msg_type=file）；replyToMessageId 提供时锚定回复该消息（im.message.reply），否则发到会话（im.message.create）。 */
+  sendFile(chatId: string, fileKey: string, replyToMessageId?: string): Promise<void>
 }
 
 /** 从 lark SDK 抛出的 axios 错误提取飞书业务错误码（无则 undefined）。 */
@@ -48,6 +50,15 @@ export function sniffImageMediaType(data: Uint8Array, contentType?: unknown): Sn
     : undefined
 }
 
+/** 出站消息统一入口：带 replyToMessageId 时锚定回复该消息（im.message.reply），否则发到会话（im.message.create）。 */
+async function sendMessage(client: lark.Client, chatId: string, replyToMessageId: string | undefined, msgType: string, content: string): Promise<void> {
+  if (replyToMessageId !== undefined) {
+    await client.im.message.reply({ path: { message_id: replyToMessageId }, data: { msg_type: msgType, content } })
+    return
+  }
+  await client.im.message.create({ params: { receive_id_type: 'chat_id' }, data: { receive_id: chatId, msg_type: msgType, content } })
+}
+
 /** SDK 薄封装：tenant_access_token 由 SDK 自动管理；错误带 code/msg 上下文。 */
 export function createFeishuApi(client: lark.Client): FeishuApi {
   return {
@@ -59,11 +70,8 @@ export function createFeishuApi(client: lark.Client): FeishuApi {
       }
       return cardId
     },
-    async sendCardMessage(chatId, cardId) {
-      await client.im.message.create({
-        params: { receive_id_type: 'chat_id' },
-        data: { receive_id: chatId, msg_type: 'interactive', content: JSON.stringify({ type: 'card', data: { card_id: cardId } }) },
-      })
+    async sendCardMessage(chatId, cardId, replyToMessageId) {
+      await sendMessage(client, chatId, replyToMessageId, 'interactive', JSON.stringify({ type: 'card', data: { card_id: cardId } }))
     },
     async updateCardElement(cardId, elementId, content, sequence) {
       await client.cardkit.v1.cardElement.content({ path: { card_id: cardId, element_id: elementId }, data: { content, sequence } })
@@ -91,11 +99,8 @@ export function createFeishuApi(client: lark.Client): FeishuApi {
     async replaceCard(cardId, cardJson, sequence) {
       await client.cardkit.v1.card.update({ path: { card_id: cardId }, data: { card: { type: 'card_json', data: cardJson }, sequence } })
     },
-    async sendText(chatId, text) {
-      await client.im.message.create({
-        params: { receive_id_type: 'chat_id' },
-        data: { receive_id: chatId, msg_type: 'text', content: JSON.stringify({ text }) },
-      })
+    async sendText(chatId, text, replyToMessageId) {
+      await sendMessage(client, chatId, replyToMessageId, 'text', JSON.stringify({ text }))
     },
     async addReaction(messageId, emojiType) {
       const res = await client.im.messageReaction.create({
@@ -151,11 +156,8 @@ export function createFeishuApi(client: lark.Client): FeishuApi {
       }
       return fileKey
     },
-    async sendFile(chatId, fileKey) {
-      await client.im.message.create({
-        params: { receive_id_type: 'chat_id' },
-        data: { receive_id: chatId, msg_type: 'file', content: JSON.stringify({ file_key: fileKey }) },
-      })
+    async sendFile(chatId, fileKey, replyToMessageId) {
+      await sendMessage(client, chatId, replyToMessageId, 'file', JSON.stringify({ file_key: fileKey }))
     },
   }
 }

@@ -42,3 +42,74 @@ describe('FeishuApi.uploadFile / sendFile', () => {
     })
   })
 })
+
+describe('FeishuApi 出站锚点（replyToMessageId）', () => {
+  test('sendText 带锚点时走 im.message.reply', async () => {
+    const calls: { method: string; args: unknown }[] = []
+    const fakeClient = {
+      im: {
+        message: {
+          create: async (args: unknown) => { calls.push({ method: 'create', args }) },
+          reply: async (args: unknown) => { calls.push({ method: 'reply', args }) },
+        },
+      },
+    }
+    const api = createFeishuApi(fakeClient as never)
+    await api.sendText('oc_1', 'hello', 'om_anchor')
+    expect(calls).toEqual([{
+      method: 'reply',
+      args: { path: { message_id: 'om_anchor' }, data: { msg_type: 'text', content: JSON.stringify({ text: 'hello' }) } },
+    }])
+  })
+
+  test('sendText 无锚点维持 create', async () => {
+    const calls: string[] = []
+    const fakeClient = {
+      im: {
+        message: {
+          create: async () => { calls.push('create') },
+          reply: async () => { calls.push('reply') },
+        },
+      },
+    }
+    const api = createFeishuApi(fakeClient as never)
+    await api.sendText('oc_1', 'hello')
+    expect(calls).toEqual(['create'])
+  })
+
+  test('sendCardMessage 带锚点时走 im.message.reply', async () => {
+    const calls: { method: string; args: unknown }[] = []
+    const fakeClient = {
+      im: {
+        message: {
+          create: async (args: unknown) => { calls.push({ method: 'create', args }) },
+          reply: async (args: unknown) => { calls.push({ method: 'reply', args }) },
+        },
+      },
+    }
+    const api = createFeishuApi(fakeClient as never)
+    await api.sendCardMessage('oc_1', 'card_v3_xxx', 'om_anchor')
+    expect(calls).toEqual([{
+      method: 'reply',
+      args: { path: { message_id: 'om_anchor' }, data: { msg_type: 'interactive', content: JSON.stringify({ type: 'card', data: { card_id: 'card_v3_xxx' } }) } },
+    }])
+  })
+
+  test('sendFile 带锚点时走 im.message.reply', async () => {
+    const calls: { method: string; args: unknown }[] = []
+    const fakeClient = {
+      im: {
+        message: {
+          create: async (args: unknown) => { calls.push({ method: 'create', args }) },
+          reply: async (args: unknown) => { calls.push({ method: 'reply', args }) },
+        },
+      },
+    }
+    const api = createFeishuApi(fakeClient as never)
+    await api.sendFile('oc_1', 'file_v3_xxx', 'om_anchor')
+    expect(calls).toEqual([{
+      method: 'reply',
+      args: { path: { message_id: 'om_anchor' }, data: { msg_type: 'file', content: JSON.stringify({ file_key: 'file_v3_xxx' }) } },
+    }])
+  })
+})
