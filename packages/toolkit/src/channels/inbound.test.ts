@@ -327,6 +327,24 @@ describe('话题键控（threadId）', () => {
   })
 })
 
+describe('replyAnchor（话题锚点，仅话题消息写入）', () => {
+  test('非话题消息 dispatch 后 replyAnchor 缺席（非话题审批/问答卡维持 create 发卡形态）', async () => {
+    const { inbound, router, msg } = harness()
+    inbound.onMessage(msg('普通消息'))
+    await vi.waitFor(() => { expect(router.lookup('reviewer', 'oc_1')).toBeDefined() })
+    expect(router.lookup('reviewer', 'oc_1')!.replyAnchor).toBeUndefined()
+  })
+
+  test('话题消息 dispatch 后 replyAnchor 等于该消息 messageId', async () => {
+    const { inbound, router, msg } = harness()
+    const topicMsg = (text: string, threadId: string): InboundMessage => ({ ...msg(text), chatType: 'group', threadId })
+    const m = topicMsg('话题内消息', 'omt_a')
+    inbound.onMessage(m)
+    await vi.waitFor(() => { expect(router.lookup(BOT.id, 'oc_1', 'omt_a')).toBeDefined() })
+    expect(router.lookup(BOT.id, 'oc_1', 'omt_a')!.replyAnchor).toBe(m.messageId)
+  })
+})
+
 test('/new：重置会话并确认', async () => {
   const { rec, inbound, sessions, msg } = harness()
   inbound.onMessage(msg('触发建会话'))

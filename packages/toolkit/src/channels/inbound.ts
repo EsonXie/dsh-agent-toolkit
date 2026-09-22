@@ -158,8 +158,9 @@ export class Inbound {
     // reply 句柄只在准入通过后刷新——忙时/排队消息不抢走运行中 turn 的出站。
     rt.inflight = { ack: undefined }
     rt.reply = msg.reply
-    // 话题锚点：审批/问答卡回复定位到本 turn 的触发消息（话题内发卡）。
-    rt.replyAnchor = msg.messageId
+    // 话题锚点：仅话题消息写入——审批/问答卡回复定位到本 turn 的触发消息（话题内发卡）；
+    // 非话题不写（保持 create 发卡形态，全局约束「非话题零变化」）。
+    if (msg.threadId !== undefined) rt.replyAnchor = msg.messageId
     rt.inflight.ack = (await msg.ackProcessing().catch(() => undefined)) ?? undefined
     // source kind 用 'user'（与 ACP 同款）：dsh sessionTitle 服务只接纳 user 消息生成会话标题。
     // 图片：in-flight 窗口内懒下载（不占飞书 WS 3 秒窗口）→ 落附件库 → image 内容块。

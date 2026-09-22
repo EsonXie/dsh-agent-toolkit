@@ -310,6 +310,25 @@ test('审批集成：渠道 approval presenter 发卡，io.onCardAction 路由�
   await expect(pending).resolves.toBe('rejected')
 })
 
+test('审批集成：话题消息经 inbound dispatch 后，present 的 prompt 带 replyToMessageId（锚点仅话题写入）', async () => {
+  const { runtime, fakeReply, presented, ioOf } = approvalHarness()
+  await runtime.startAll()
+  runtime.inbound.onMessage({
+    botId: 'reviewer', chatId: 'oc_t1', userId: 'ou_initiator', messageId: 'om_t1', text: '跑个任务',
+    chatType: 'group', threadId: 'omt_a',
+    reply: fakeReply, ackProcessing: async () => () => undefined,
+  })
+  // 经 inbound.onMessage 驱动 dispatch（既有集成用例直建 rt 不经 dispatch，replyAnchor 恒缺席）：锚点落位后发卡带键
+  await vi.waitFor(() => { expect(runtime.router.lookup('reviewer', 'oc_t1', 'omt_a')?.replyAnchor).toBe('om_t1') })
+  const rt = runtime.router.lookup('reviewer', 'oc_t1', 'omt_a')!
+  const pending = runtime.approval.handleRequest({ agent: { session: { id: rt.sessionId } }, toolName: 'write' })
+  await vi.waitFor(() => { expect(presented).toHaveLength(1) })
+  expect(presented[0]!.replyToMessageId).toBe('om_t1')
+  const ack = ioOf()!.onCardAction!({ chatId: 'oc_t1', operatorOpenId: 'ou_initiator', value: { key: presented[0]!.key, decision: 'reject' } })
+  expect(ack).toEqual({ toast: '已拒绝' })
+  await expect(pending).resolves.toBe('rejected')
+})
+
 test('stopAll 兜底 dispose：挂起审批 settle cancelled', async () => {
   const { runtime, fakeReply, presented } = approvalHarness()
   await runtime.startAll()

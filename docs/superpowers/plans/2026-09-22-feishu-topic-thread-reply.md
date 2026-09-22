@@ -430,6 +430,7 @@ git commit -m "feat(channels): Router 按话题键控会话，sender 段区分�
   - `Inbound.drain(botId, chatId, threadId?)`、`revokeQueued(botId, chatId, messageId)`（签名不变，内部改前缀扫描）
   - `InboundDeps.consumeAnswer?: (botId, chatId, threadId: string | undefined, userId, text) => boolean`
   - dispatch 副作用：`rt.replyAnchor = msg.messageId`
+  - （errata 2026-09-22 终审：锚点仅话题消息写入——非话题保持 create 发卡形态，全局约束「非话题零变化」优先；代码已按 `if (msg.threadId !== undefined)` 门控实现。）
 
 - [ ] **Step 1: 写失败测试**（inbound.test.ts 追加；`msg(...)` helper 返回对象补 `chatType: 'p2p'`，另加话题消息工厂）
 

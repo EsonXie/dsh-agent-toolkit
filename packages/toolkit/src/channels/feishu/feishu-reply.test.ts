@@ -656,4 +656,9 @@ test('带锚点句柄的 notice 与发卡均走锚点', async () => {
   const handle = new FeishuReplyHandle(api, 'oc_1', 'om_anchor', TUNABLES, () => undefined)
   await handle.notice('hi')
   expect(sent).toEqual([['sendText', 'oc_1', 'hi', 'om_anchor']])
+  // 发卡同走锚点：sendCardMessage 第三参透传话题锚点（话题内发卡）
+  await handle.update([{ kind: 'text', content: '结论' }])
+  await vi.advanceTimersByTimeAsync(500)
+  const cardSent = sent.find((entry) => entry[0] === 'sendCardMessage')
+  expect(cardSent).toEqual(['sendCardMessage', 'oc_1', 'card_1', 'om_anchor'])
 })
