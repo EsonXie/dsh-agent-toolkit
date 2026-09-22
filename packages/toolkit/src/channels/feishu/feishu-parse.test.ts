@@ -130,3 +130,30 @@ describe('MessageDedup', () => {
     expect(dedup.check('a')).toBe(true)
   })
 })
+
+test('话题群消息透传 threadId', () => {
+  const event = {
+    sender: { sender_type: 'user', sender_id: { open_id: 'ou_u1' } },
+    message: {
+      message_id: 'om_1', chat_id: 'oc_1', chat_type: 'group', message_type: 'text',
+      thread_id: 'omt_abc',
+      content: JSON.stringify({ text: 'hi' }),
+      mentions: [{ mentioned_type: 'bot', id: { open_id: BOT } }],
+    },
+  }
+  const parsed = parseMessageEvent(event, BOT)
+  expect(parsed?.threadId).toBe('omt_abc')
+})
+
+test('普通群消息 threadId 缺席', () => {
+  const event = {
+    sender: { sender_type: 'user', sender_id: { open_id: 'ou_u1' } },
+    message: {
+      message_id: 'om_1', chat_id: 'oc_1', chat_type: 'group', message_type: 'text',
+      content: JSON.stringify({ text: 'hi' }),
+      mentions: [{ mentioned_type: 'bot', id: { open_id: BOT } }],
+    },
+  }
+  const parsed = parseMessageEvent(event, BOT)
+  expect(parsed?.threadId).toBeUndefined()
+})

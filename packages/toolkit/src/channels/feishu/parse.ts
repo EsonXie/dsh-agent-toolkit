@@ -9,6 +9,8 @@ export interface ParsedMessage {
   text: string
   /** 消息携带的图片 key（post 富文本节点与 image 消息），按出现顺序；文本下载经渠道懒加载。 */
   imageKeys: readonly string[]
+  /** 话题群消息的话题 ID（omt_*）；非话题消息缺席。 */
+  threadId?: string
 }
 
 interface RawEvent {
@@ -18,6 +20,7 @@ interface RawEvent {
     chat_id?: unknown
     chat_type?: unknown
     message_type?: unknown
+    thread_id?: unknown
     content?: unknown
     mentions?: readonly { mentioned_type?: unknown; id?: { open_id?: unknown } }[]
   }
@@ -101,7 +104,11 @@ export function parseMessageEvent(data: unknown, botOpenId: string): ParsedMessa
   }
   if (text.length === 0 && imageKeys.length === 0) return null
 
-  return { messageId: msg.message_id, chatId: msg.chat_id, chatType: msg.chat_type, userId, text, imageKeys }
+  const threadId = typeof msg.thread_id === 'string' && msg.thread_id.length > 0 ? msg.thread_id : undefined
+  return {
+    messageId: msg.message_id, chatId: msg.chat_id, chatType: msg.chat_type, userId, text, imageKeys,
+    ...(threadId !== undefined ? { threadId } : {}),
+  }
 }
 
 /** message_id 去重（飞书会重推）；FIFO 容量淘汰。 */
