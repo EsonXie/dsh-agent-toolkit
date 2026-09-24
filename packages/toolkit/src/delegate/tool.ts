@@ -40,7 +40,7 @@ function stopReasonError(result: SubagentResult): string | undefined {
 }
 
 /** 报错时附上成员已产出的部分文本，让截断/取消的真实产出仍回到主 Agent。 */
-function withPartialText(error: string, output: ContentBlock[]): string {
+function withPartialText(error: string, output: readonly ContentBlock[]): string {
   const text = output
     .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
     .map(block => block.text)
