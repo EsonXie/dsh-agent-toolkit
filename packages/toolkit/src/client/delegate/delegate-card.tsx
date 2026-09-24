@@ -1,7 +1,6 @@
 /** 委派卡：team_delegate 的 keyed tool.call.toolview 渲染器。 */
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { MarkdownText, StateDot, type MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
@@ -30,7 +29,7 @@ interface DelegateArgs {
 /** 运行中轮询间隔（命中/settled/卸载即停）。 */
 const ACTIVE_POLL_MS = 1500
 
-function argsOf(block: ToolCallBlock): DelegateArgs {
+function argsOf(block: DelegateCardProps['block']): DelegateArgs {
   const raw = 'kind' in block && block.kind === 'tool-result' ? block.call?.argsRaw : (block as { argsRaw?: string }).argsRaw
   if (typeof raw !== 'string') return {}
   try {
@@ -40,7 +39,7 @@ function argsOf(block: ToolCallBlock): DelegateArgs {
   }
 }
 
-function resultText(block: ToolCallBlock): string {
+function resultText(block: DelegateCardProps['block']): string {
   if (!('kind' in block) || block.kind !== 'tool-result') return ''
   return block.content
     .filter((b): b is { type: 'text'; text: string } => (b as { type: string }).type === 'text')
@@ -51,10 +50,12 @@ export type DelegateCardProps = ToolCallViewProps & DelegateCardInjected & Props
 
 export function DelegateCard(props: DelegateCardProps) {
   const { block, sessionId, openChild, t } = props
-  const settled = 'kind' in block && block.kind === 'tool-result'
-  const isError = settled && block.isError
+  // 0.1.7 起 preparing 阶段也派发本卡：该阶段 block 无 argsRaw，role chip 短暂缺失属宿主新行为。
+  // settled 以 phase 判别，与 block 的 tool-result 收窄等价。
+  const settled = props.phase === 'result'
+  const isError = settled && props.block.isError
   const args = argsOf(block)
-  const meta = settled ? (block.meta as DelegateMeta | undefined) : undefined
+  const meta = settled ? (props.block.meta as DelegateMeta | undefined) : undefined
   const [expanded, setExpanded] = useState(false)
   const role = args.role
   const [activeRoute, setActiveRoute] = useState<DelegateRoute | null>(null)

@@ -38,8 +38,9 @@ function resultBlock(args: Record<string, unknown>, meta?: Record<string, unknow
 
 const ARGS = { role: 'reviewer', description: '审查登录模块', prompt: '请审查' }
 
-function propsFor(block: unknown) {
-  return { block, sessionId: 'parent-s1', openChild, t } as unknown as Parameters<typeof DelegateCard>[0]
+// 0.1.7 起 settled 以 phase 判别：running 传 'start'，settled 传 'result'。
+function propsFor(phase: 'start' | 'result', block: unknown) {
+  return { phase, block, sessionId: 'parent-s1', openChild, t } as unknown as Parameters<typeof DelegateCard>[0]
 }
 
 test('运行中：轮询命中在途端点 → 渲染模型 chip', async () => {
@@ -47,14 +48,14 @@ test('运行中：轮询命中在途端点 → 渲染模型 chip', async () => {
     ok: true,
     json: async () => ({ provider: 'deepseek', model: 'deepseek-reasoner' }),
   })))
-  render(<DelegateCard {...propsFor(callBlock(ARGS))} />)
+  render(<DelegateCard {...propsFor('start', callBlock(ARGS))} />)
   expect(await screen.findByText('deepseek / deepseek-reasoner')).toBeTruthy()
   expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/dsh-agent-toolkit/api/delegate/active?session=parent-s1&role=reviewer'))
 })
 
 test('运行中：404 → 不渲染 chip', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => ({}) })))
-  render(<DelegateCard {...propsFor(callBlock(ARGS))} />)
+  render(<DelegateCard {...propsFor('start', callBlock(ARGS))} />)
   await waitFor(() => { expect(fetch).toHaveBeenCalled() })
   expect(screen.queryByText(/deepseek/)).toBeNull()
 })
@@ -62,7 +63,7 @@ test('运行中：404 → 不渲染 chip', async () => {
 test('运行中且 args 缺 role：不发起轮询、不渲染 chip', () => {
   const fetchMock = vi.fn()
   vi.stubGlobal('fetch', fetchMock)
-  render(<DelegateCard {...propsFor(callBlock({ description: '审查登录模块', prompt: '请审查' }))} />)
+  render(<DelegateCard {...propsFor('start', callBlock({ description: '审查登录模块', prompt: '请审查' }))} />)
   expect(fetchMock).not.toHaveBeenCalled()
   expect(screen.queryByText(/deepseek/)).toBeNull()
   expect(screen.queryByText('reviewer')).toBeNull()
@@ -71,7 +72,7 @@ test('运行中且 args 缺 role：不发起轮询、不渲染 chip', () => {
 test('settled：读 meta 渲染 chip，不请求在途端点', async () => {
   const fetchMock = vi.fn()
   vi.stubGlobal('fetch', fetchMock)
-  render(<DelegateCard {...propsFor(resultBlock(ARGS, {
+  render(<DelegateCard {...propsFor('result', resultBlock(ARGS, {
     role: 'reviewer', runId: 'r1', childSessionId: 'child-1', provider: 'deepseek', model: 'deepseek-chat',
   }))} />)
   expect(screen.getByText('deepseek / deepseek-chat')).toBeTruthy()
@@ -79,6 +80,6 @@ test('settled：读 meta 渲染 chip，不请求在途端点', async () => {
 })
 
 test('settled 旧事件（meta 无新字段）：不渲染 chip', () => {
-  render(<DelegateCard {...propsFor(resultBlock(ARGS, { role: 'reviewer', runId: 'r1', childSessionId: 'child-1' }))} />)
+  render(<DelegateCard {...propsFor('result', resultBlock(ARGS, { role: 'reviewer', runId: 'r1', childSessionId: 'child-1' }))} />)
   expect(screen.queryByText(/deepseek/)).toBeNull()
 })
