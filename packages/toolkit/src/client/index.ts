@@ -5,7 +5,7 @@ import { setupSubagentModelClient } from './subagent-model/index.ts'
 import { setupSettingsClient } from './settings/index.ts'
 import { setupUsageClient } from '@dsh-agent-toolkit/token-usage/client-module'
 
-export const inject = ['sessions', 'slots', 'locale']
+export const inject = ['uiWorkspace', 'slots', 'locale']
 
 export function apply(ctx: Context): void {
   setupDelegateClient(ctx)

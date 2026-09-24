@@ -105,7 +105,7 @@ test('setupSettingsClient：注册 settings.section（id agent-toolkit, order 25
       register: (ns: string, dicts: Record<string, unknown>) => { localeRegistered.push({ ns, dicts }); return () => {} },
       bind: (ns: string) => (key: string) => (ns === 'agent-toolkit' ? t(key) : tSchedule(key)),
     },
-    sessions: { open: (id: string) => { opened.push(id) } },
+    uiWorkspace: { openSession: (id: string) => { opened.push(id) } },
     slots: {
       inject: (_key: string, callback: () => unknown) => { callback(); return () => {} },
       register: (options: Record<string, unknown>, component: unknown) => {
@@ -126,7 +126,7 @@ test('setupSettingsClient：注册 settings.section（id agent-toolkit, order 25
   const label = section?.options.label as () => string
   expect(label()).toBe('Agent 工具箱')
 
-  // inject 面下发 openSession（包装 ctx.sessions.open）与 tSchedule
+  // inject 面下发 openSession（包装 ctx.uiWorkspace.openSession）与 tSchedule
   const inject = (section?.options.inject as () => { openSession: (id: string) => void; tSchedule: (k: string) => string })()
   inject.openSession('sess-1')
   expect(opened).toEqual(['sess-1'])
