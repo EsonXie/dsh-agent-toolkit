@@ -2,7 +2,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import { Button, IconChevronDownOutline14, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutlineRegular, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AgentRecord } from '../../agents/store.ts'
 import { deleteAgent, fetchAgents } from './api.ts'
 import { fetchBots, type BotListItem } from '../bots/api.ts'
@@ -148,7 +148,7 @@ export function AgentsPage(props: AgentsPageProps): ReactNode {
             <button type="button" data-testid="agent-card-toggle" className={css.cardHead}
               aria-expanded={expanded}
               onClick={() => { setExpandedId(expanded ? null : agent.id) }}>
-              <IconChevronDownOutline14 className={clsx(css.chevron, !expanded && css.chevronCollapsed)} />
+              <IconChevronDownOutlineRegular size={14} className={clsx(css.chevron, !expanded && css.chevronCollapsed)} />
               <span data-testid="agent-card-name" className={css.cardName}>{agent.name}</span>
               {agent.builtin === true && <Pill className={css.badge}>{t('agents.builtin')}</Pill>}
               {agent.visibleInTeam === false && <Pill className={css.badge}>{t('agents.hiddenInTeam')}</Pill>}
