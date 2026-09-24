@@ -1,12 +1,8 @@
 import { describe, expect, test, vi } from 'vitest'
-import { disableSubagentRows } from './team-preset.ts'
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { Context } from '@deepseek-ai/cordis'
+import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import yaml from 'js-yaml'
-import { afterEach, beforeEach } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
-import { setupAgentTeamPreset, type AgentTeamPresetConfig } from './team-preset.ts'
+import { disableSubagentRows, TEAM_PRESET_DISABLED_ROWS, setupAgentTeamPreset, type AgentTeamPresetConfig } from './team-preset.ts'
 
 // 镜像宿主 shipped standard 的 delegation 块（缩进 4 空格的列表行）。
 const SOURCE = [
@@ -156,143 +152,141 @@ describe('setupAgentTeamPreset', () => {
     name: 'Agent 团队',
     description: 'Agent 团队模式：禁用原生 subagent 工具族，委派统一走 team_delegate 团队角色',
   }
+  const TARGETS: readonly string[] = TEAM_PRESET_DISABLED_ROWS
 
-  let tempDir: string
-  let userRoot: string
-  beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'dsh-toolkit-team-preset-'))
-    userRoot = join(tempDir, 'presets')
-  })
-  afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true })
-  })
+  /** 解析后 entry list 的行形（嵌套 group 的 config 递归收集）。 */
+  type PluginRow = { id?: string; disabled?: unknown; group?: boolean; config?: unknown }
 
-  function makeCtx(agentPresets: unknown): { ctx: Context; warn: ReturnType<typeof vi.fn> } {
-    const warn = vi.fn()
-    const ctx = { logger: { warn }, get: vi.fn(() => agentPresets) } as unknown as Context
+  function collectRows(value: unknown, into: PluginRow[] = []): PluginRow[] {
+    if (!Array.isArray(value)) return into
+    for (const row of value) {
+      if (typeof row !== 'object' || row === null) continue
+      into.push(row as PluginRow)
+      collectRows((row as PluginRow).config, into)
+    }
+    return into
+  }
+
+  /**
+   * 真实 cordis Context + 可选注入的 fake agentPresets 服务。fake 面与 0.1.7 宿主面一致
+   *（readDocument/register，@deepseek-ai/dsh-agent-preset-registry）——0.2.3/0.2.4 两起
+   * "fake 单测掩盖宿主语义"事故的直接对策：旧 roots/read 面在 0.1.7 registry 上必炸。
+   */
+  function makeCtx(service?: ReturnType<typeof makeAgentPresets>) {
+    const ctx = new Context()
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    if (service !== undefined) ctx.provide('agentPresets', service)
     return { ctx, warn }
   }
 
   function makeAgentPresets(overrides: {
-    roots?: { path: string; trust: 'system' | 'user' }[]
-    read?: (id: string) => Promise<string>
+    readDocument?: (id: string) => Promise<{ content: string }>
+    register?: (definition: { id: string; name?: string; description?: string; plugins: readonly unknown[] }) => Promise<() => Promise<void>>
   } = {}) {
     return {
-      roots: overrides.roots ?? [{ path: userRoot, trust: 'user' as const }],
-      read: vi.fn(overrides.read ?? (() => Promise.resolve(SOURCE))),
+      readDocument: vi.fn(overrides.readDocument ?? (async () => ({ content: SOURCE }))),
+      register: vi.fn(overrides.register ?? (async () => async () => {})),
     }
   }
 
-  const targetDir = () => join(userRoot, 'agent-team')
-  const botDir = () => join(userRoot, 'agent-bot')
-
-  test('enabled=false：不读服务、不写任何文件', async () => {
+  test('enabled=false：服务零调用、零 warn', async () => {
     const agentPresets = makeAgentPresets()
-    const { ctx } = makeCtx(agentPresets)
+    const { ctx, warn } = makeCtx(agentPresets)
     await setupAgentTeamPreset(ctx, { ...CONFIG, enabled: false })
-    expect(agentPresets.read).not.toHaveBeenCalled()
-    await expect(readdir(userRoot)).rejects.toThrow()
-    await expect(readdir(botDir())).rejects.toThrow()
+    expect(agentPresets.readDocument).not.toHaveBeenCalled()
+    expect(agentPresets.register).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
   })
 
-  test('agentPresets 服务缺席（rc2 旧宿主）：静默跳过，不 warn 不抛错不写文件', async () => {
-    const { ctx, warn } = makeCtx(undefined)
+  test('agentPresets 服务缺席（旧宿主）：静默跳过，不 warn 不抛错', async () => {
+    const { ctx, warn } = makeCtx()
     await expect(setupAgentTeamPreset(ctx, CONFIG)).resolves.toBeUndefined()
     expect(warn).not.toHaveBeenCalled()
-    await expect(readdir(userRoot)).rejects.toThrow()
-    await expect(readdir(botDir())).rejects.toThrow()
   })
 
-  test('非法 id（路径逃逸）：read 之前 warn 返回', async () => {
+  test('非法 id：readDocument 之前 warn 返回', async () => {
     const agentPresets = makeAgentPresets()
     const { ctx, warn } = makeCtx(agentPresets)
     await setupAgentTeamPreset(ctx, { ...CONFIG, id: '../evil' })
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('不是合法 preset id'))
-    expect(agentPresets.read).not.toHaveBeenCalled()
+    expect(agentPresets.readDocument).not.toHaveBeenCalled()
+    expect(agentPresets.register).not.toHaveBeenCalled()
   })
 
-  test('read 失败（未知/损坏源 preset）：warn 降级，不写 agent-team', async () => {
-    const agentPresets = makeAgentPresets({ read: () => Promise.reject(new Error('preset "standard" not found')) })
+  test('readDocument 失败：warn 降级，不调 register', async () => {
+    const agentPresets = makeAgentPresets({ readDocument: () => Promise.reject(new Error('Unknown agent preset: standard')) })
     const { ctx, warn } = makeCtx(agentPresets)
     await setupAgentTeamPreset(ctx, CONFIG)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('preset "standard" not found'))
-    await expect(readFile(join(targetDir(), 'agent.cordis.yml'), 'utf8')).rejects.toThrow()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Unknown agent preset: standard'))
+    expect(agentPresets.register).not.toHaveBeenCalled()
   })
 
-  test('roots 无 trust=user：warn 降级，不写文件', async () => {
-    const agentPresets = makeAgentPresets({ roots: [{ path: join(tempDir, 'sys'), trust: 'system' }] })
+  test('正常路径：register 被调，plugins = 派生文本经 js-yaml + entryListSchema 的解析结果（4 个目标行 disabled: true）', async () => {
+    const agentPresets = makeAgentPresets()
     const { ctx, warn } = makeCtx(agentPresets)
     await setupAgentTeamPreset(ctx, CONFIG)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('trust=user'))
-    await expect(readdir(userRoot)).rejects.toThrow()
+    expect(warn).not.toHaveBeenCalled()
+    expect(agentPresets.readDocument).toHaveBeenCalledWith('standard')
+    expect(agentPresets.register).toHaveBeenCalledTimes(1)
+    const definition = agentPresets.register.mock.calls[0][0]
+    expect(definition.id).toBe(CONFIG.id)
+    expect(definition.name).toBe(CONFIG.name)
+    expect(definition.description).toBe(CONFIG.description)
+    // 注册的 plugins 与 disableSubagentRows 派生文本（EXPECTED）的 schema 解析结果全等。
+    expect(definition.plugins).toEqual(yaml.load(EXPECTED, { schema: entryListSchema }))
+    const rows = collectRows(definition.plugins)
+    expect(TARGETS.every((id) => rows.find((row) => row.id === id)?.disabled === true)).toBe(true)
+    // 非目标行不受影响：tool-workflow 保持无 disabled。
+    expect(rows.find((row) => row.id === 'tool-workflow')?.disabled).toBeUndefined()
   })
 
-  test('同名用户 preset 保护：无 .generated-by 标记的已存在目录不覆盖', async () => {
-    await mkdir(targetDir(), { recursive: true })
-    await writeFile(join(targetDir(), 'keep.txt'), 'user data', 'utf8')
-    const { ctx, warn } = makeCtx(makeAgentPresets())
+  test('源 content 缺锚点行：warn 指出缺失行，其余目标行照常禁用并注册', async () => {
+    const source = SOURCE.replace(
+      "    - id: tool-subagent-list-agents\n      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'\n\n",
+      '',
+    )
+    const agentPresets = makeAgentPresets({ readDocument: async () => ({ content: source }) })
+    const { ctx, warn } = makeCtx(agentPresets)
     await setupAgentTeamPreset(ctx, CONFIG)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('不覆盖'))
-    expect(await readFile(join(targetDir(), 'keep.txt'), 'utf8')).toBe('user data')
-    await expect(readFile(join(targetDir(), 'agent.cordis.yml'), 'utf8')).rejects.toThrow()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('- id: tool-subagent-list-agents'))
+    expect(agentPresets.register).toHaveBeenCalledTimes(1)
+    const rows = collectRows(agentPresets.register.mock.calls[0][0].plugins)
+    const disabled = TARGETS.filter((id) => rows.find((row) => row.id === id)?.disabled === true)
+    expect(disabled).toEqual(TARGETS.filter((id) => id !== 'tool-subagent-list-agents'))
   })
 
-  test('同名用户 preset 保护：.generated-by 内容不符的已存在目录不覆盖', async () => {
-    await mkdir(targetDir(), { recursive: true })
-    await writeFile(join(targetDir(), '.generated-by'), 'other-tool\n', 'utf8')
-    await writeFile(join(targetDir(), 'keep.txt'), 'user data', 'utf8')
-    const { ctx, warn } = makeCtx(makeAgentPresets())
-    await setupAgentTeamPreset(ctx, CONFIG)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('不覆盖'))
-    expect(await readFile(join(targetDir(), '.generated-by'), 'utf8')).toBe('other-tool\n')
-    expect(await readFile(join(targetDir(), 'keep.txt'), 'utf8')).toBe('user data')
-    await expect(readFile(join(targetDir(), 'agent.cordis.yml'), 'utf8')).rejects.toThrow()
-  })
-
-  test('正常路径：写入 3 个文件，composition 带头部注释 + 4 个 disabled；重复运行（带标记）重写', async () => {
-    const { ctx, warn } = makeCtx(makeAgentPresets())
+  test('content 含 !!js 行（宿主 Loader 方言）：entryListSchema 解析为 JsExpr 对象，目标行照常禁用', async () => {
+    const source = `${SOURCE}    - id: tool-workflow-guard\n      name: '@deepseek-ai/dsh-tool-workflow'\n      disabled: !!js process.platform === 'win32'\n`
+    const agentPresets = makeAgentPresets({ readDocument: async () => ({ content: source }) })
+    const { ctx, warn } = makeCtx(agentPresets)
     await setupAgentTeamPreset(ctx, CONFIG)
     expect(warn).not.toHaveBeenCalled()
-    const composition = await readFile(join(targetDir(), 'agent.cordis.yml'), 'utf8')
-    expect(composition.startsWith('# 本文件由 dsh-agent-toolkit 自动生成')).toBe(true)
-    expect(composition.match(/disabled: true/g)).toHaveLength(4)
-    const metadata = yaml.load(await readFile(join(targetDir(), 'preset.yml'), 'utf8'))
-    expect(metadata).toEqual({ name: 'Agent 团队', description: CONFIG.description })
-    expect((await readFile(join(targetDir(), '.generated-by'), 'utf8')).trim()).toBe('dsh-agent-toolkit')
-    // 重复运行：目录已有标记 → 重写（name 改了要生效），不 warn。
-    await setupAgentTeamPreset(ctx, { ...CONFIG, name: '团队模式' })
-    expect(warn).not.toHaveBeenCalled()
-    expect(yaml.load(await readFile(join(targetDir(), 'preset.yml'), 'utf8'))).toEqual({ name: '团队模式', description: CONFIG.description })
+    expect(agentPresets.register).toHaveBeenCalledTimes(1)
+    const rows = collectRows(agentPresets.register.mock.calls[0][0].plugins)
+    // !!js 行解析为 JsExpr（若插件误用默认 schema 解析，这里会先抛错走降级分支）。
+    expect(rows.find((row) => row.id === 'tool-workflow-guard')?.disabled).toEqual({ __jsExpr: "process.platform === 'win32'" })
+    expect(TARGETS.every((id) => rows.find((row) => row.id === id)?.disabled === true)).toBe(true)
   })
 
-  test('生成结果只有 agent-team：不再写 agent-bot composition', async () => {
-    const { ctx, warn } = makeCtx(makeAgentPresets())
+  test('解析失败：warn 降级，不调 register', async () => {
+    const agentPresets = makeAgentPresets({ readDocument: async () => ({ content: '[1,2' }) })
+    const { ctx, warn } = makeCtx(agentPresets)
     await setupAgentTeamPreset(ctx, CONFIG)
-    expect(warn).not.toHaveBeenCalled()
-    expect((await readdir(userRoot)).sort()).toEqual(['agent-team'])
-    await expect(readdir(botDir())).rejects.toThrow()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('解析派生 composition 失败'))
+    expect(agentPresets.register).not.toHaveBeenCalled()
   })
 
-  test('启动时删除带 .generated-by 标记的存量 agent-bot 目录，无标记目录保留', async () => {
-    // 1) 含 .generated-by（内容 'dsh-agent-toolkit'）→ 整个目录被清理。
-    await mkdir(botDir(), { recursive: true })
-    await writeFile(join(botDir(), '.generated-by'), 'dsh-agent-toolkit\n', 'utf8')
-    await writeFile(join(botDir(), 'agent.cordis.yml'), 'stale bot composition', 'utf8')
-    const marked = makeCtx(makeAgentPresets())
-    await setupAgentTeamPreset(marked.ctx, CONFIG)
-    await expect(readdir(botDir())).rejects.toThrow()
-
-    // 2) 无标记 → 用户手工同名目录保留，warn 提示保留语义。
-    const otherRoot = await mkdtemp(join(tmpdir(), 'dsh-toolkit-team-preset-'))
-    try {
-      await mkdir(join(otherRoot, 'agent-bot'), { recursive: true })
-      await writeFile(join(otherRoot, 'agent-bot', 'keep.txt'), 'user data', 'utf8')
-      const unmarked = makeCtx(makeAgentPresets({ roots: [{ path: otherRoot, trust: 'user' }] }))
-      await setupAgentTeamPreset(unmarked.ctx, CONFIG)
-      expect(unmarked.warn).toHaveBeenCalledWith(expect.stringMatching(/用户手工 preset.*保留不清理/))
-      expect(await readFile(join(otherRoot, 'agent-bot', 'keep.txt'), 'utf8')).toBe('user data')
-    } finally {
-      await rm(otherRoot, { recursive: true, force: true })
-    }
+  test('注册 disposer 接入 effect：插件卸载时 register 返回的卸载函数被调用', async () => {
+    const unregister = vi.fn(async () => {})
+    const agentPresets = makeAgentPresets({ register: async () => unregister })
+    const { ctx } = makeCtx(agentPresets)
+    // 经真实 cordis 插件 fiber 启动：setup 在 plugin apply 内注册 effect（生产同款生命周期）。
+    const fiber = ctx.plugin(async (inner: Context) => { await setupAgentTeamPreset(inner, CONFIG) })
+    await fiber
+    expect(agentPresets.register).toHaveBeenCalledTimes(1)
+    expect(unregister).not.toHaveBeenCalled()
+    // 卸载（HMR 重组同路径）：effect disposer 等待 register 的 Promise 结算后调用卸载函数。
+    await fiber.dispose()
+    expect(unregister).toHaveBeenCalledTimes(1)
   })
 })
