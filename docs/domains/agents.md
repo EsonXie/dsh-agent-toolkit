@@ -12,7 +12,7 @@ Agent 注册表：UI 管理（**设置面板 → Agent 工具箱 → Agents**，
 
 ## 内置 preset 自动生成
 
-启动时自动生成/刷新用户 preset `agent-team`（派生 shipped standard、文本级禁用 subagent 工具族 4 行，写入首个 trust=user root；`.generated-by` 标记保护用户同名目录；`agentPresets` 为可选服务经 ctx.get 读取，缺席静默跳过），并清理存量废弃的 `agent-bot` 标记目录（带 `.generated-by: dsh-agent-toolkit` 标记的删除、无标记的用户手工同名目录告警保留）。实现与测试在 `src/agents/team-preset.ts`。
+启动时经宿主 registry 声明式注册 preset `agent-team`（dsh 0.1.7 起文件根扫描协议删除，preset 全走 registry）：`agentPresets.readDocument(source)` 读源 preset composition（Loader 方言 plugins 列表 YAML 文本）→ `disableSubagentRows` 文本级禁用 subagent 工具族 4 行（整行锚点精确匹配防前缀误中，块内已有 `disabled:` 则跳过，幂等）→ `js-yaml` 以 `entryListSchema`（`@deepseek-ai/cordis-plugin-include`，`!!js` 解析为 JsExpr）解析回 entry list → `agentPresets.register({ id, name, description, plugins })` 声明注册，注册生命周期接 `ctx.effect`（插件卸载/HMR 重组时宿主自动注销，无文件残留；0.1.5 时代的写入首个 trust=user root、`.generated-by` 标记目录保护与 `agent-bot` legacy 清理已随之删除）。`agentPresets` 为可选服务经 ctx.get 读取，缺席静默跳过（无 subagent/team_delegate 竞争问题）；id 非法、读源失败、解析失败均 warn 降级跳过，不影响插件其余功能。实现与测试在 `src/agents/team-preset.ts`。
 
 ## 会话创建与工具面（setup / scope / restrict）
 

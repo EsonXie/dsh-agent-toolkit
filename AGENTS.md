@@ -2,9 +2,9 @@
 
 ## 仓库性质
 
-本仓库是 DeepSeek Harness（dsh）插件的开发工作区。包含 `docs/refer/` 下的 dsh 官方文档本地镜像（2026-08 抓取自 <https://deepseek-harness.github.io/deepseek-harness/> 中文站，共 87 篇），以及双包 `packages/toolkit`（npm 包名 `dsh-agent-toolkit`，Agent 注册表 + 分层提示词 + 并行委派 + 飞书 bots + token 用量，Node 半 + 浏览器半 bundle，851/851 测试通过（84 文件，另 2 skipped））+ `packages/usage`（npm 包名 `@dsh-agent-toolkit/token-usage`，token 用量（含启动回填 + `/token-usage refresh` 重建命令），Node 半 + 浏览器半 + client-module 三产物，92/92 测试通过）。合并前的四包代码快照已于 2026-08-27 删除（如需参考可从 git 历史恢复）；其中 token-usage 已 2026-08-31 拆回独立包（`packages/usage`）。使用手册在 `docs/usage/`（中文多文件，含 `images/` 界面截图；2026-09-21 已按设置面板收编 + 用量新入口重拍，委派卡与飞书审批卡待补拍）。
+本仓库是 DeepSeek Harness（dsh）插件的开发工作区。包含 `docs/refer/` 下的 dsh 官方文档本地镜像（2026-08 抓取自 <https://deepseek-harness.github.io/deepseek-harness/> 中文站，共 87 篇），以及双包 `packages/toolkit`（npm 包名 `dsh-agent-toolkit`，Agent 注册表 + 分层提示词 + 并行委派 + 飞书 bots + token 用量，Node 半 + 浏览器半 bundle，881/881 测试通过（84 文件，另 2 skipped））+ `packages/usage`（npm 包名 `@dsh-agent-toolkit/token-usage`，token 用量（含启动回填 + `/token-usage refresh` 重建命令），Node 半 + 浏览器半 + client-module 三产物，93/93 测试通过）。合并前的四包代码快照已于 2026-08-27 删除（如需参考可从 git 历史恢复）；其中 token-usage 已 2026-08-31 拆回独立包（`packages/usage`）。使用手册在 `docs/usage/`（中文多文件，含 `images/` 界面截图；2026-09-21 已按设置面板收编 + 用量新入口重拍，委派卡与飞书审批卡待补拍）。
 
-已是 git 仓库（2026-08-18 初始化）；`deepseek-harness/` 被 .gitignore 排除。**2026-09-10 起 checkout 为 0.1.5-rc.1 fresh clone（tag `dsh-v0.1.5-rc.1`，`.git` 在位）；旧 08-18 基线 `deepseek-harness.old-0.1.2/` 已于 0.1.5 兼容性升级验证通过后删除（2026-09-10）。**0.1.5-rc.1 结构变化：内置 agent presets 迁至 `packages/preset/agent-presets/presets/`；`packages/client/runtime`（dsh-client-runtime）裁撤，类型拆到 `api/session-controller` 等；`Context.slots` 声明合并在 `@deepseek-ai/dsh-client-ui-renderer/client`。** 升级台账（已完成并归档）：[docs/superpowers/plans/archive/2026-09-10-dsh-0.1.5-compat-upgrade.md](docs/superpowers/plans/archive/2026-09-10-dsh-0.1.5-compat-upgrade.md)（宿主破坏清单与修复记录；飞书流式迁移 spec 同归档于 specs/archive/）。
+已是 git 仓库（2026-08-18 初始化）；`deepseek-harness/` 被 .gitignore 排除。**`deepseek-harness/` 现为 0.1.7-rc.1 只读源码快照（tag `dsh-v0.1.7-rc.1`，无 `.git`，已构建；0.1.5-rc.1 快照随 0.1.7 兼容性升级移除，更早的 08-18 基线已于 0.1.5 升级时删除）。**0.1.7-rc.1 结构变化：preset 体系重构为声明式注册——`@deepseek-ai/dsh-agent-presets`（文件根扫描 + `roots`/`read`）整体删除，分包为 `packages/preset/agent-preset-registry`（服务键仍为 `ctx.agentPresets`，`readDocument(id)` 读 composition、`register(definition)` 声明注册）与 `packages/preset/agent-preset`（宿主内置 preset 改经 bundle patch 声明，不再扫描文件目录）；`ISessions.open`/`openSubagent` 删除，会话导航归 `ctx.uiWorkspace.openSession(target)`（`SessionTarget = SessionId | SubagentAddress`，声明合并在 `@deepseek-ai/dsh-client-ui-workspace/client`）；`ui-primitives` 删除名字内嵌尺寸的图标导出（无兼容别名，如 `IconChevronDownOutline14` → `IconChevronDownOutlineRegular` + 显式 `size`）；会话格式升 V4（`SESSION_FORMAT_VERSION = 4`，宿主自带 V3→V4 迁移）。** 升级台账（已完成，随下次发布归档）：[docs/superpowers/plans/2026-09-24-dsh-0.1.7-compat-fixes.md](docs/superpowers/plans/2026-09-24-dsh-0.1.7-compat-fixes.md)（宿主破坏清单与修复记录）；0.1.5 台账（已完成并归档）：[docs/superpowers/plans/archive/2026-09-10-dsh-0.1.5-compat-upgrade.md](docs/superpowers/plans/archive/2026-09-10-dsh-0.1.5-compat-upgrade.md)（飞书流式迁移 spec 同归档于 specs/archive/）。
 
 ## 开发命令
 
@@ -26,7 +26,7 @@
 - 本地开发回路：插件经 `dsh plugin --profile web add link:<packages/toolkit 绝对路径>` 装进 web profile，由包自带 `cordis.patch.yml`（bundles 层，id: dsh-agent-toolkit）激活，走 loader 的 profile 目录解析锚点。**根 patch 不要 insert 本地插件**：Windows 绝对路径（`D:\...`）会被 loader 当裸 specifier 报 `ERR_UNSUPPORTED_ESM_URL_SCHEME`（protocol 'd:'），`file://` 名虽可 import 但会脱离 profile 解析锚点（找不到宿主注入服务）；根 `cordis.yml` 只按 id 覆盖 config。
 - 修改 `cordis.yml` 中的插件 config 会触发 HMR 热替换，无需重启。
 - 单插件入口：`packages/toolkit/src/index.ts` 命名导出 `name`/`inject`/`Config`/`apply`；`inject` 是 merged 模块直接消费的硬依赖服务全集（含 storageDomain/tokenMeter/credentials/agents 等 10 项）。
-- 浏览器半 `packages/toolkit/src/client/index.ts` 同样必须命名导出服务名数组 `inject`（现为 `['sessions', 'slots', 'locale']`）：browser kernel 按插件模块自身导出的 inject 门控 `ctx.<service>` 访问，package.json 的 `dsh.client.inject`（包名数组）只是信息性 boot-graph 边，不参与门控。
+- 浏览器半 `packages/toolkit/src/client/index.ts` 同样必须命名导出服务名数组 `inject`（现为 `['uiWorkspace', 'slots', 'locale']`；`sessions` 已随 0.1.7 删除 `ISessions.open` 而移除，委派卡/设置页会话导航改走 `ctx.uiWorkspace.openSession`）：browser kernel 按插件模块自身导出的 inject 门控 `ctx.<service>` 访问，package.json 的 `dsh.client.inject`（包名数组）只是信息性 boot-graph 边，不参与门控。
 - 共享层约定：`src/shared/` 的 `openDomainSafely`（安全打开存储域 + 卸载时关闭）/`registerOptionalRoutes`（webServer 可选服务下注册路由，headless/CLI 惰性不抛错）；`src/shared/http.ts`（json/readJsonBody 响应助手，agents/prompt 两个 API 共用）；`src/client/shared/` 的 `useLoadState`（loading/error/ok 状态机）与 `feedback.tsx`（`useToast` + `SaveBar` 保存反馈共享件，Agents/Schedule/Prompt 三页共用）；`createSidebarEntry` 工厂已随 2026-09-17 设置面板收编删除（四个底栏弹窗改为 `src/client/settings/` 单 `settings.section` 壳 + 页内三 tab）。
 - 浏览器半 UI 入口：四个底栏弹窗（Agents/Prompt/Bots/Schedule）已收编为宿主设置面板 section「Agent 工具箱」（id `agent-toolkit`, order 25，`src/client/settings/index.ts` 注册 + `ToolkitSection.tsx` 三 tab 壳），usage（token 用量）入口在会话标题栏右上角 utilities 区；新增 chrome 文案走 NS `agent-toolkit`（zh 真源 + en 镜像），`agent-schedule` 词典注册点移至 `src/client/settings/index.ts`。
 - toolkit 的 src 运行时值导入 `@deepseek-ai/dsh-storage-domain`，但不进 dependencies/peerDependencies：它由宿主 dsh base 隐式提供（devDependencies link 到 deepseek-harness 源码），加依赖会导致 pnpm 装副本、storage domain 双实例注册分裂。
@@ -48,7 +48,7 @@
 
 ```
 dsh-agent-toolkit/
-├─ deepseek-harness/     ← dsh 源码 checkout（自带 .git；只读使用，不修改其中文件）
+├─ deepseek-harness/     ← dsh 源码快照（0.1.7-rc.1，无 .git；只读使用，不修改其中文件）
 │                           本仓库 git 化时必须 .gitignore 掉它
 ├─ docs/refer/           ← 官方文档镜像（87 篇）
 ├─ docs/usage/           ← 插件使用手册（中文多文件 + images/ 界面截图）
