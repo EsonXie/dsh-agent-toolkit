@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, type SessionEvent, type SessionHeader, type SessionId } from '@deepseek-ai/dsh-session'
 import { emptyDaily } from './aggregate.ts'
 import type { DailyRecord } from './store.ts'
 import { BACKFILL_DONE_KEY, backfillMissingDays, refreshUsageRange, type BackfillPersistence } from './backfill.ts'
@@ -17,7 +17,7 @@ function fakeTable() {
   }
 }
 
-const HEADER: SessionHeader = { version: 3, isSeeded: false, id: 'sess-1' as SessionId, createdAt: 0, cwd: 'D:\\proj' }
+const HEADER: SessionHeader = { version: SESSION_FORMAT_VERSION, isSeeded: false, id: 'sess-1' as SessionId, createdAt: 0, cwd: 'D:\\proj' }
 
 /** 2026-08-27 12:00 Asia/Shanghai；usage 可省略（省略即走估算路径）。 */
 function usageEvent(time: number, usage?: { inputTokens: number; outputTokens: number }): SessionEvent {
