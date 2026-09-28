@@ -57,9 +57,9 @@ importers:
       '@deepseek-ai/dsh-agent-instructions':
         specifier: link:../../deepseek-harness/packages/context/agent-instructions
         version: link:../../deepseek-harness/packages/context/agent-instructions
-      '@deepseek-ai/dsh-agent-presets':
-        specifier: link:../../deepseek-harness/packages/preset/agent-presets
-        version: link:../../deepseek-harness/packages/preset/agent-presets
+      '@deepseek-ai/dsh-agent-preset-registry':
+        specifier: link:../../deepseek-harness/packages/preset/agent-preset-registry
+        version: link:../../deepseek-harness/packages/preset/agent-preset-registry
       '@deepseek-ai/dsh-api-session-controller':
         specifier: link:../../deepseek-harness/packages/api/session-controller
         version: link:../../deepseek-harness/packages/api/session-controller
@@ -93,6 +93,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-tool':
         specifier: link:../../deepseek-harness/packages/client/ui-tool
         version: link:../../deepseek-harness/packages/client/ui-tool
+      '@deepseek-ai/dsh-client-ui-workspace':
+        specifier: link:../../deepseek-harness/packages/client/ui-workspace
+        version: link:../../deepseek-harness/packages/client/ui-workspace
       '@deepseek-ai/dsh-commands':
         specifier: link:../../deepseek-harness/packages/interaction/commands
         version: link:../../deepseek-harness/packages/interaction/commands

@@ -60,7 +60,7 @@
     "@deepseek-ai/dsh-agent": "link:../../deepseek-harness/packages/core/agent",
     "@deepseek-ai/dsh-agent-default-model": "link:../../deepseek-harness/packages/core/agent-default-model",
     "@deepseek-ai/dsh-agent-instructions": "link:../../deepseek-harness/packages/context/agent-instructions",
-    "@deepseek-ai/dsh-agent-presets": "link:../../deepseek-harness/packages/preset/agent-presets",
+    "@deepseek-ai/dsh-agent-preset-registry": "link:../../deepseek-harness/packages/preset/agent-preset-registry",
     "@deepseek-ai/dsh-attachment": "link:../../deepseek-harness/packages/attachment/attachment",
     "@deepseek-ai/dsh-api-session-controller": "link:../../deepseek-harness/packages/api/session-controller",
     "@deepseek-ai/dsh-api-workspace-controller": "link:../../deepseek-harness/packages/api/workspace-controller",

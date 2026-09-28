@@ -8,10 +8,9 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import Include from '@deepseek-ai/cordis-plugin-include'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import AgentPresets from '@deepseek-ai/dsh-agent-presets'
+import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import { createScopeJoiner } from '../channels/scope-joiner.ts'
@@ -31,12 +30,6 @@ export function apply(ctx, config) {
 }
 `
 
-const COMPOSITION = `- id: fixture
-  name: ../../plugins/contribute.mjs
-  config:
-    tool: cron-fixture
-`
-
 let ctx: Context
 let tempDir: string
 
@@ -44,19 +37,20 @@ beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), 'dsh-toolkit-cron-composition-'))
   await mkdir(join(tempDir, 'plugins'))
   await writeFile(join(tempDir, 'plugins', 'contribute.mjs'), FIXTURE_PLUGIN, 'utf8')
-  await mkdir(join(tempDir, 'presets', 'agent-bot'), { recursive: true })
-  await writeFile(join(tempDir, 'presets', 'agent-bot', 'agent.cordis.yml'), COMPOSITION, 'utf8')
 
   ctx = new Context()
   ctx.baseUrl = pathToFileURL(tempDir).href + '/'
   await ctx.plugin(Loader)
-  ctx.loader.builtins.include = Include
-  // 0.1.5-rc.1 起 AgentPresets inject ['loader', 'sessionProjections']，缺 sessionProjections
-  // 时服务不发布（ctx.agentPresets 恒 undefined）。镜像宿主 mount.spec.ts 的 harness 补上。
+  // 0.1.7 起 registry 声明式注册，inject 仍为 ['loader', 'sessionProjections']，缺
+  // sessionProjections 时服务不发布（ctx.agentPresets 恒 undefined）。镜像宿主 harness 补上。
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt, { personaPrefix: '' })
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(AgentPresets, { default: 'agent-bot', roots: [{ path: join(tempDir, 'presets'), trust: 'user' }], includeUserRoot: false, includeShippedRoot: false })
+  await ctx.plugin(AgentPresets, { default: 'agent-bot' })
+  await ctx.agentPresets.register({
+    id: 'agent-bot',
+    plugins: [{ name: pathToFileURL(join(tempDir, 'plugins', 'contribute.mjs')).href, config: { tool: 'cron-fixture' } }],
+  })
 })
 
 afterEach(async () => {
