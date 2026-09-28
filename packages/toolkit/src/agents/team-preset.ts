@@ -85,8 +85,8 @@ interface AgentPresetsLike {
 /**
  * 启动时派生并声明式注册 agent-team preset：readDocument 读源 composition →
  * disableSubagentRows 文本改写 → entryListSchema 解析 → agentPresets.register。
- * 所有失败路径 warn 降级，不影响插件其余功能。不设为默认 preset；卸载/HMR 重组时
- * ctx.effect 自动注销注册，无文件残留。
+ * 读取/解析失败 warn 降级跳过；register 失败经宿主 effect 记 error 并丢弃本次注册，
+ * 插件不中断。不设为默认 preset；卸载/HMR 重组时 ctx.effect 自动注销注册，无文件残留。
  */
 export async function setupAgentTeamPreset(ctx: Context, config: AgentTeamPresetConfig): Promise<void> {
   if (!config.enabled) return
