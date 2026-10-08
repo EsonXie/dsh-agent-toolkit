@@ -8,8 +8,8 @@ export interface ParsedDirective {
 }
 
 /**
- * 精确指令（/new /stop /status /sessions /help）要求整条消息 trim+lowercase 精确匹配，
- * 带参数/前后文按普通消息处理；/switch /doc /ls 为首词判定的带参指令。
+ * 精确指令（/new /stop /status /help）要求整条消息 trim+lowercase 精确匹配，
+ * 带参数/前后文按普通消息处理；/sessions /switch /doc /ls 为首词判定的带参指令。
  * /doc /ls 的 arg 是文件系统路径（大小写敏感）：取自原始文本切片（toLowerCase 不改变长度，索引对齐）。
  */
 export function parseDirective(text: string): ParsedDirective | null {
@@ -19,6 +19,7 @@ export function parseDirective(text: string): ParsedDirective | null {
   if (t === '/stop') return { name: 'stop' }
   if (t === '/status') return { name: 'status' }
   if (t === '/sessions') return { name: 'sessions' }
+  if (t.startsWith('/sessions ')) return { name: 'sessions', arg: t.slice('/sessions '.length).trim() }
   if (t === '/help') return { name: 'help' }
   if (t === '/switch') return { name: 'switch' }
   if (t.startsWith('/switch ')) return { name: 'switch', arg: t.slice('/switch '.length).trim() }

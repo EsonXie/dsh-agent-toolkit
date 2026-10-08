@@ -8,7 +8,7 @@ describe('parseDirective', () => {
     expect(parseDirective('/STATUS')).toEqual({ name: 'status' })
   })
 
-  test('识别新指令 /sessions 与 /help（整条精确匹配）', () => {
+  test('识别新指令 /sessions 与 /help', () => {
     expect(parseDirective('/sessions')).toEqual({ name: 'sessions' })
     expect(parseDirective('  /Help ')).toEqual({ name: 'help' })
   })
@@ -16,6 +16,16 @@ describe('parseDirective', () => {
   test('/switch 带参：首词判定，余串为 arg', () => {
     expect(parseDirective('/switch 2')).toEqual({ name: 'switch', arg: '2' })
     expect(parseDirective('/switch  a1b2c3d4 ')).toEqual({ name: 'switch', arg: 'a1b2c3d4' })
+  })
+
+  test('/sessions 带参：首词判定，余串为 arg（页码）', () => {
+    expect(parseDirective('/sessions 2')).toEqual({ name: 'sessions', arg: '2' })
+    expect(parseDirective('/SESSIONS  3 ')).toEqual({ name: 'sessions', arg: '3' })
+    expect(parseDirective('/sessions abc')).toEqual({ name: 'sessions', arg: 'abc' })
+  })
+
+  test('/sessions 前缀不误伤：/sessionsx 不是指令', () => {
+    expect(parseDirective('/sessionsx')).toBeNull()
   })
 
   test('/switch 无参：命中且 arg 缺省（由 Inbound 提示用法）', () => {
@@ -52,7 +62,6 @@ describe('parseDirective', () => {
   test('普通文本与带参数的精确指令都不算', () => {
     expect(parseDirective('你好')).toBeNull()
     expect(parseDirective('/new 请重来')).toBeNull()
-    expect(parseDirective('/sessions 请')).toBeNull()
     expect(parseDirective('/unknown')).toBeNull()
   })
 })
