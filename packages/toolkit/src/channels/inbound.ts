@@ -44,7 +44,7 @@ const HELP_TEXT = [
   '/new 开启新会话（旧会话保留，可用 /switch 切回）',
   '/stop 停止当前任务',
   '/status 查看项目与会话状态',
-  '/sessions 列出本项目可切换的会话',
+  '/sessions [页码] 列出本项目可切换的会话（分页）',
   '/switch <序号|id前缀> 切换到指定会话',
   '/doc <相对路径> 发送项目内文件（如对话产出的 Markdown 文档）',
   '/ls [相对路径] [关键字] 列出项目目录内容（图标 + 大小；带关键字时递归按名称搜索）',
@@ -127,7 +127,7 @@ export class Inbound {
       return
     }
     if (directive?.name === 'sessions') {
-      await this.listSessions(bot, msg)
+      await this.listSessions(bot, msg, directive.arg)
       return
     }
     if (directive?.name === 'switch') {
@@ -253,10 +253,14 @@ export class Inbound {
     }
   }
 
-  private async listSessions(bot: BotRecord, msg: InboundMessage): Promise<void> {
+  private async listSessions(bot: BotRecord, msg: InboundMessage, arg: string | undefined): Promise<void> {
     const catalog = this.deps.catalog?.()
     if (catalog === undefined) {
       await msg.reply.notice('会话切换在当前环境不可用')
+      return
+    }
+    if (arg !== undefined && !/^\d+$/.test(arg)) {
+      await msg.reply.notice('用法：/sessions [页码]')
       return
     }
     const entries = await catalog.list(bot.project)
@@ -264,11 +268,21 @@ export class Inbound {
       await msg.reply.notice('当前项目下还没有可切换的会话（发消息即创建）')
       return
     }
-    const current = this.deps.router.boundSessionId(bot.id, msg.chatId, msg.threadId)
+    // 缓存全量 id（任意页都刷新）：/switch <序号> 的序号 = 全表全局编号，翻页不影响切换语义。
     this.lastLists.set(routeKey(bot.id, msg.chatId, msg.threadId), entries.map((e) => e.sessionId))
-    const lines = entries.map((e, i) =>
-      `${i + 1}. ${e.sessionId === current ? '✓ ' : ''}${e.title}（${e.sessionId.slice(0, 8)}）`)
-    await msg.reply.notice(`会话列表（/switch <序号|id前缀> 切换）：\n${lines.join('\n')}`)
+    const pageSize = Math.max(1, Math.floor(this.deps.sessionsPageSize))
+    const totalPages = Math.ceil(entries.length / pageSize)
+    const page = arg === undefined ? 1 : Number(arg)
+    if (page < 1 || page > totalPages) {
+      await msg.reply.notice(`页码超出范围：共 ${totalPages} 页（/sessions <页码> 翻页）`)
+      return
+    }
+    const current = this.deps.router.boundSessionId(bot.id, msg.chatId, msg.threadId)
+    const slice = entries.slice((page - 1) * pageSize, page * pageSize)
+    const lines = slice.map((e, i) =>
+      `${(page - 1) * pageSize + i + 1}. ${e.sessionId === current ? '✓ ' : ''}${e.title}（${e.sessionId.slice(0, 8)}）`)
+    const footer = totalPages > 1 ? `\n共 ${entries.length} 个会话，第 ${page}/${totalPages} 页（/sessions <页码> 翻页）` : ''
+    await msg.reply.notice(`会话列表（/switch <序号|id前缀> 切换）：\n${lines.join('\n')}${footer}`)
   }
 
   private async switchSession(bot: BotRecord, msg: InboundMessage, arg: string | undefined): Promise<void> {

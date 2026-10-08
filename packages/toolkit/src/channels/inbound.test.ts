@@ -536,6 +536,11 @@ const CATALOG_ENTRIES = [
   { sessionId: 'bbbb2222-0000-0000-0000-000000000000', title: 'bbbb2222-0000-0000-0000-000000000000' },
 ]
 
+const MANY_ENTRIES = Array.from({ length: 25 }, (_, i) => ({
+  sessionId: `cccc${String(i + 1).padStart(4, '0')}-0000-0000-0000-000000000000`,
+  title: `会话${i + 1}`,
+}))
+
 function catalogHarness(entries = CATALOG_ENTRIES) {
   return harness({ catalog: () => ({ list: async () => entries }) })
 }
@@ -576,6 +581,63 @@ test('/sessions：空列表提示', async () => {
   const { rec, inbound, msg } = catalogHarness([])
   inbound.onMessage(msg('/sessions'))
   await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('还没有可切换的会话'))).toBe(true) })
+})
+
+test('/sessions 分页：默认第 1 页，/sessions 2、/sessions 3 编号连续带页脚', async () => {
+  const { rec, inbound, msg } = catalogHarness(MANY_ENTRIES)
+  inbound.onMessage(msg('/sessions'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('会话列表'))).toBe(true) })
+  const page1 = rec.notices.find((n) => n.includes('会话列表'))!
+  expect(page1).toContain('1. 会话1（cccc0001）')
+  expect(page1).toContain('10. 会话10（cccc0010）')
+  expect(page1).not.toContain('11. 会话11')
+  expect(page1).toContain('共 25 个会话，第 1/3 页')
+
+  rec.notices.length = 0
+  inbound.onMessage(msg('/sessions 2'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('会话列表'))).toBe(true) })
+  const page2 = rec.notices.find((n) => n.includes('会话列表'))!
+  expect(page2).toContain('11. 会话11（cccc0011）')
+  expect(page2).toContain('20. 会话20（cccc0020）')
+  expect(page2).toContain('共 25 个会话，第 2/3 页')
+
+  rec.notices.length = 0
+  inbound.onMessage(msg('/sessions 3'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('会话列表'))).toBe(true) })
+  const page3 = rec.notices.find((n) => n.includes('会话列表'))!
+  expect(page3).toContain('21. 会话21（cccc0021）')
+  expect(page3).toContain('25. 会话25（cccc0025）')
+  expect(page3).toContain('共 25 个会话，第 3/3 页')
+})
+
+test('/sessions 分页：单页省略页脚', async () => {
+  const { rec, inbound, msg } = catalogHarness(CATALOG_ENTRIES)
+  inbound.onMessage(msg('/sessions'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('会话列表'))).toBe(true) })
+  const list = rec.notices.find((n) => n.includes('会话列表'))!
+  expect(list).not.toContain('翻页')
+})
+
+test('/sessions 分页：页码越界与非数字参数提示', async () => {
+  const { rec, inbound, msg } = catalogHarness(MANY_ENTRIES)
+  inbound.onMessage(msg('/sessions 4'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('页码超出范围'))).toBe(true) })
+  expect(rec.notices.find((n) => n.includes('页码超出范围'))).toContain('共 3 页')
+  inbound.onMessage(msg('/sessions 0'))
+  await vi.waitFor(() => { expect(rec.notices.filter((n) => n.includes('页码超出范围'))).toHaveLength(2) })
+  inbound.onMessage(msg('/sessions abc'))
+  await vi.waitFor(() => { expect(rec.notices).toContain('用法：/sessions [页码]') })
+})
+
+test('/switch 序号跨页：/sessions 2 后按全局序号切换第 1 页条目', async () => {
+  const { rec, inbound, router, msg } = catalogHarness(MANY_ENTRIES)
+  inbound.onMessage(msg('建会话'))
+  await vi.waitFor(() => { expect(rec.followups).toHaveLength(1) })
+  inbound.onMessage(msg('/sessions 2'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('会话列表'))).toBe(true) })
+  inbound.onMessage(msg('/switch 3'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('已切换到会话'))).toBe(true) })
+  expect(router.boundSessionId('reviewer', 'oc_1')).toBe(MANY_ENTRIES[2].sessionId)
 })
 
 test('/switch 序号：按最近一次 /sessions 列表切换并确认', async () => {
