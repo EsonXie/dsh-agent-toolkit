@@ -30,6 +30,7 @@ function makeConfig(approval: boolean, questions = true): BotsModuleConfig {
     questionTimeoutMs: 300000,
     approvalTimeoutMs: 300000,
     docMaxBytes: 0,
+    sessionsPageSize: 0,
     debugLog: false,
     debugLogDir: '',
     debugLogRetentionDays: 7,

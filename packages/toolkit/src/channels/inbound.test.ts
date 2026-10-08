@@ -34,6 +34,7 @@ function harness(opts: {
   followupThrowsOn?: string
   extraBots?: BotRecord[]
   consumeAnswer?: InboundDeps['consumeAnswer']
+  sessionsPageSize?: number
 } = {}) {
   const rec: Recorded = { notices: [], acked: 0, followups: [], cancels: 0, hookInputs: [] }
   const bot: BotRecord = { ...BOT, ...(opts.project !== undefined ? { project: opts.project } : {}) }
@@ -74,6 +75,7 @@ function harness(opts: {
     bots: { get: (id) => allBots.find((b) => b.id === id) },
     maxErrorDetailChars: 200,
     docMaxBytes: 1024 * 1024,
+    sessionsPageSize: opts.sessionsPageSize ?? 10,
     ...(opts.attachments !== undefined ? { attachments: opts.attachments } : {}),
     ...(opts.catalog !== undefined ? { catalog: opts.catalog } : {}),
     ...(opts.consumeAnswer !== undefined ? { consumeAnswer: opts.consumeAnswer } : {}),

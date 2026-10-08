@@ -40,7 +40,7 @@ import { createApiHandler } from './api.ts'
 import { RegisterAppService } from './register-app.ts'
 import type { Binding, BotRecord } from './store.ts'
 
-/** project-bot Config 的 17 个全局可调参数：9 个字段名不变（schemastery 定义与默认值源：archive/2026-08-26-merged-plugins/project-bot/src/index.ts:38-45，由 Task 15 平移进 suite Config）；docMaxBytes 与 debugLog/debugLogDir/debugLogRetentionDays 为 Task 5 新增（非 archive 平移）；questionTimeoutMs/approvalTimeoutMs 为 0.4.7 新增（问答卡/审批卡超时自动结束）。 */
+/** project-bot Config 的 18 个全局可调参数：9 个字段名不变（schemastery 定义与默认值源：archive/2026-08-26-merged-plugins/project-bot/src/index.ts:38-45，由 Task 15 平移进 suite Config）；docMaxBytes 与 debugLog/debugLogDir/debugLogRetentionDays 为 Task 5 新增（非 archive 平移）；questionTimeoutMs/approvalTimeoutMs 为 0.4.7 新增（问答卡/审批卡超时自动结束）；sessionsPageSize 为 /sessions 分页新增。 */
 export interface BotsModuleConfig {
   /** 卡片流式更新节流间隔（毫秒）。 */
   cardUpdateThrottleMs: number
@@ -70,6 +70,8 @@ export interface BotsModuleConfig {
   permissionPreset?: string
   /** /doc 发送文件的大小上限（字节）。 */
   docMaxBytes: number
+  /** /sessions 每页条数。 */
+  sessionsPageSize: number
   /** 生产调试文件日志开关（JSONL，按日滚动）。 */
   debugLog: boolean
   /** 日志目录（空 = <os.homedir()>/.dsh/logs/feishu-debug/）。 */
@@ -211,6 +213,7 @@ export function setupBots(ctx: Context, config: BotsModuleConfig, deps: BotsDeps
       tunables,
       maxErrorDetailChars: config.errorDetailMaxChars,
       docMaxBytes: config.docMaxBytes,
+      sessionsPageSize: config.sessionsPageSize,
       ...(debugLog !== undefined ? { debugLog } : {}),
       attachments: attachmentsOf,
       catalog: catalogOf,

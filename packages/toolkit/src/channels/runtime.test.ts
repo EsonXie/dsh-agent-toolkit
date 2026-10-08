@@ -63,6 +63,7 @@ function harness(overrides: Partial<RuntimeDeps> = {}) {
     tunables: { cardUpdateThrottleMs: 10, cardMaxBytes: 1024, processMaxBytes: 1024, cardPrintStep: 5, processingReactionEmoji: 'OneSecond' },
     maxErrorDetailChars: 500,
     docMaxBytes: 1024,
+    sessionsPageSize: 10,
     resolveSecret: async () => 'secret',
     validateProject: () => true,
     log: { warn: (m) => { warns.push(m) }, info: () => undefined },

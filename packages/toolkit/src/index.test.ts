@@ -168,6 +168,7 @@ describe('Config 默认值', () => {
       questionTimeoutMs: 300_000,
       approvalTimeoutMs: 300_000,
       docMaxBytes: 31_457_280,
+      sessionsPageSize: 10,
       debugLog: true,
       debugLogDir: '',
       debugLogRetentionDays: 7,

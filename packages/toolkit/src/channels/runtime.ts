@@ -28,6 +28,8 @@ export interface RuntimeDeps {
   maxErrorDetailChars: number
   /** /doc 发送文件的大小上限（字节）。 */
   docMaxBytes: number
+  /** /sessions 每页条数。 */
+  sessionsPageSize: number
   /** 可选：宿主附件服务的惰性取用器（消息时解析；返回 undefined = 图片降级提示）。 */
   attachments?: () => AttachmentsPort | undefined
   /** 可选：候选会话目录的惰性取用器（/sessions、/switch；缺席时两指令降级文案）。 */
@@ -64,6 +66,7 @@ export class BotRuntime {
       bots: deps.bots,
       maxErrorDetailChars: deps.maxErrorDetailChars,
       docMaxBytes: deps.docMaxBytes,
+      sessionsPageSize: deps.sessionsPageSize,
       ...(deps.attachments !== undefined ? { attachments: deps.attachments } : {}),
       ...(deps.catalog !== undefined ? { catalog: deps.catalog } : {}),
       consumeAnswer: (botId, chatId, threadId, userId, text) => this.questions.tryConsumeText(botId, chatId, threadId, userId, text),
