@@ -610,6 +610,21 @@ test('/sessions 分页：默认第 1 页，/sessions 2、/sessions 3 编号连�
   expect(page3).toContain('共 25 个会话，第 3/3 页')
 })
 
+test('/sessions 分页：非默认 sessionsPageSize 生效（5 条/页）', async () => {
+  const entries = Array.from({ length: 12 }, (_, i) => ({
+    sessionId: `dddd${String(i + 1).padStart(4, '0')}-0000-0000-0000-000000000000`,
+    title: `会话${i + 1}`,
+  }))
+  const { rec, inbound, msg } = harness({ catalog: () => ({ list: async () => entries }), sessionsPageSize: 5 })
+  inbound.onMessage(msg('/sessions'))
+  await vi.waitFor(() => { expect(rec.notices.some((n) => n.includes('会话列表'))).toBe(true) })
+  const page1 = rec.notices.find((n) => n.includes('会话列表'))!
+  expect(page1).toContain('1. 会话1（dddd0001）')
+  expect(page1).toContain('5. 会话5（dddd0005）')
+  expect(page1).not.toContain('6. 会话6')
+  expect(page1).toContain('共 12 个会话，第 1/3 页')
+})
+
 test('/sessions 分页：单页省略页脚', async () => {
   const { rec, inbound, msg } = catalogHarness(CATALOG_ENTRIES)
   inbound.onMessage(msg('/sessions'))

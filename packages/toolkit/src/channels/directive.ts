@@ -3,7 +3,7 @@ export type Directive = 'new' | 'stop' | 'status' | 'sessions' | 'switch' | 'hel
 
 export interface ParsedDirective {
   name: Directive
-  /** 带参指令的参数（/switch 首词后的余串；无参时缺省，由 Inbound 提示用法）。 */
+  /** 带参指令的参数（/sessions /switch 首词后的余串；无参时缺省，由 Inbound 提示用法）。 */
   arg?: string
 }
 
