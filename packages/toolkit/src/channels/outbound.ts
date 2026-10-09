@@ -18,6 +18,14 @@ export function textOf(content: readonly unknown[]): string {
     .join('')
 }
 
+/** 从 assistant 消息内容块重建过程区 reasoning 的流式等价文本（块间与尾部段落分隔；空块忽略）。 */
+export function reasoningOf(content: readonly unknown[]): string {
+  const parts = (content as readonly { type?: unknown; text?: unknown }[])
+    .filter((b): b is { type: 'reasoning'; text: string } => b.type === 'reasoning' && typeof b.text === 'string' && b.text.length > 0)
+    .map((b) => b.text)
+  return parts.length === 0 ? '' : `${parts.join('\n\n')}\n\n`
+}
+
 /** 从 assistant 消息内容块取最后一个 text 块的纯文本；无 text 块返回 ''（非 undefined）。 */
 export function lastTextOf(content: readonly unknown[]): string {
   const texts = (content as readonly { type?: unknown; text?: unknown }[])
@@ -83,6 +91,50 @@ export function processOf(content: readonly unknown[]): string {
   return parts.length === 0 ? '' : `${parts.join('\n\n')}\n\n`
 }
 
+export type ProcessReconcileResult = 'replaced' | 'appended' | 'kept' | 'skipped-empty' | 'skipped-multi'
+
+/**
+ * 过程区对账：把本 step 的 reasoning 收敛到持久消息的权威全文。
+ * - 权威为空：保留已流式内容（绝不删除；消息可能本就不带 reasoning 块）。
+ * - 基线缺席（start 帧整丢 ⇒ 本 attempt 一帧未流式）：append 新过程段补回（调用方保证在正文 append 之前，时序保持）。
+ * - 基线命中且本 attempt 恰好一个过程段：原位替换其 attempt 区间（缺帧补齐/重试去重；只许原位或追加，
+ *   中段插入会错位卡片 cardSegs 的 segIndex 台账）。
+ * - 基线命中但无本 attempt 过程段（reasoning 帧全丢、正文流式正常）：append 到末尾（落在正文之后）。
+ * - 多过程段（reasoning/正文交错）：无法定位权威归属，保守不动。
+ */
+export function reconcileProcess(
+  turn: { segments: TurnSegment[]; attemptStep?: number; attemptProcessBase?: { seg: number; len: number } },
+  step: number,
+  authoritative: string,
+): ProcessReconcileResult {
+  if (authoritative === '') return 'skipped-empty'
+  const base = turn.attemptProcessBase
+  if (turn.attemptStep !== step || base === undefined) {
+    appendToSegments(turn.segments, 'process', authoritative)
+    return 'appended'
+  }
+  const segments = turn.segments
+  const locations: { seg: number; from: number }[] = []
+  const scanFrom = base.len > 0 ? base.seg + 1 : base.seg
+  if (base.len > 0) {
+    const seg = segments[base.seg]
+    if (seg !== undefined && seg.kind === 'process' && seg.content.length > base.len) locations.push({ seg: base.seg, from: base.len })
+  }
+  for (let i = scanFrom; i < segments.length; i++) {
+    if (segments[i]!.kind === 'process') locations.push({ seg: i, from: 0 })
+  }
+  if (locations.length === 0) {
+    appendToSegments(segments, 'process', authoritative)
+    return 'appended'
+  }
+  if (locations.length > 1) return 'skipped-multi'
+  const [{ seg, from }] = locations
+  const target = segments[seg]!
+  if (target.content.slice(from) === authoritative) return 'kept'
+  target.content = target.content.slice(0, from) + authoritative
+  return 'replaced'
+}
+
 /** turn/end 的 reason 形状（宿主 TurnEndReason 的窄化视图：核心只读 kind 与 error.message）。 */
 export interface TurnEndReasonLike {
   kind: string
@@ -136,6 +188,8 @@ export class Outbound {
       const content = (event.data.message as { content?: readonly unknown[] }).content ?? []
       // 权威文本 = 全部 text 块拼接（与流式合并语义对齐；多 text 块消息不丢前块）。
       const authoritative = textOf(content)
+      // 过程区对账先于正文：基线缺席（start 帧整丢）时 append 补回须保持「过程区在正文前」的时序。
+      const reasoningResult = reconcileProcess(turn, step, reasoningOf(content))
       let tailLen: number | undefined
       for (let i = turn.segments.length - 1; i >= 0; i--) {
         if (turn.segments[i]!.kind === 'text') { tailLen = turn.segments[i]!.content.length; break }
@@ -151,8 +205,13 @@ export class Outbound {
       } else {
         result = 'skipped-empty'
       }
-      this.debugLog?.({ event: 'reconcile', sessionId, chatId: rt.chatId, turn: turn.n, step, result, tailLen, authoritativeLen: authoritative.length })
-      if (result === 'skipped-noop' || result === 'skipped-empty') return
+      // settle 后清空 attempt 基线：下一 step 的 start 帧若丢失，chunk 不得沿用本 step 的陈旧基线
+      // （陈旧基线会把下一 step 的帧并入本 step 段，settle append 补回时造成重复）。
+      turn.attemptStep = undefined
+      turn.attemptProcessBase = undefined
+      this.debugLog?.({ event: 'reconcile', sessionId, chatId: rt.chatId, turn: turn.n, step, result, reasoning: reasoningResult, tailLen, authoritativeLen: authoritative.length })
+      const changed = result === 'replaced' || result === 'appended' || reasoningResult === 'replaced' || reasoningResult === 'appended'
+      if (!changed) return
       const snapshot = turn.segments.map((s) => ({ ...s }))
       this.enqueue(rt, async () => {
         if (rt.reply === undefined) return
@@ -221,6 +280,12 @@ export class Outbound {
     if (frame.type === 'start') {
       if (turn.n !== frame.turn) return
       turn.attemptStep = frame.step
+      // 过程区对账基线：本 attempt 的 reasoning 只可能并入尾过程段（同类合并）或新开段，
+      // 记录起点（段索引 + 已有长度），settle 时按此区间与权威 reasoning 比对补齐。
+      const tail = turn.segments[turn.segments.length - 1]
+      turn.attemptProcessBase = tail !== undefined && tail.kind === 'process'
+        ? { seg: turn.segments.length - 1, len: tail.content.length }
+        : { seg: turn.segments.length, len: 0 }
       if (turn.stats !== undefined) turn.stats.starts += 1
       return
     }

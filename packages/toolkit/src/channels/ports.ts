@@ -95,6 +95,8 @@ export interface SessionRuntime {
   /** 当前 turn 归集状态；无进行中 turn 为 undefined。 */
   turn: {
     n: number; segments: TurnSegment[]; began: boolean; lastTextStep?: number; attemptStep?: number
+    /** 本 attempt 过程区基线（start 帧记录）：reasoning 只可能并入尾过程段或新开段，settle 对账按此区间定位。 */
+    attemptProcessBase?: { seg: number; len: number }
     /** 帧统计（frame-stats debug 事件；turn/end 输出后随 turn 销毁）。 */
     stats?: { starts: number; textDeltas: number; reasoningDeltas: number; droppedNoBaseline: number }
   } | undefined

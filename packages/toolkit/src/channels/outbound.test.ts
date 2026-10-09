@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from 'vitest'
 import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ReplyHandle, TurnSegment, TurnStatus } from './channel.ts'
-import { Outbound, applyStreamChunk, lastTextOf, mapTurnEnd, processOf, reconcileTrailingText, textOf } from './outbound.ts'
+import { Outbound, applyStreamChunk, lastTextOf, mapTurnEnd, processOf, reasoningOf, reconcileTrailingText, textOf } from './outbound.ts'
 import type { SessionRuntime } from './ports.ts'
 
 /** 构造一个 chunk 帧（attemptId/revision/index/time 宿主细节对 outbound 不消费，用占位；chunk 帧无 turn/step，由 start 帧建基线）。 */
@@ -340,6 +340,135 @@ describe('Outbound.handleSessionEvent', () => {
       { op: 'update', arg: 'process:想一 | text:你好 | process:🔧 fs_read — {}\n\n再想 | text:世界' },
       { op: 'finalize', arg: 'done' },
     ])
+  })
+})
+
+describe('reasoningOf', () => {
+  test('reasoning 块按流式格式重建（块间段落分隔 + 尾部分隔）；空块忽略', () => {
+    expect(reasoningOf([{ type: 'reasoning', text: 'r1' }, { type: 'text', text: 't' }, { type: 'reasoning', text: 'r2' }])).toBe('r1\n\nr2\n\n')
+    expect(reasoningOf([{ type: 'reasoning', text: '想' }])).toBe('想\n\n')
+    expect(reasoningOf([{ type: 'reasoning', text: '' }, { type: 'text', text: 't' }])).toBe('')
+    expect(reasoningOf([])).toBe('')
+  })
+})
+
+describe('assistant/message 过程区对账', () => {
+  test('reasoning 部分丢帧：settle 用权威全文原位替换本 attempt 过程段', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const events: { event: string; [k: string]: unknown }[] = []
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined, 500, undefined, (e) => { events.push(e) })
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'reasoning-delta', index: 0, text: '先读' }))   // 后半「再写」丢帧
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'reasoning', text: '先读再写' }, { type: 'text', text: '好' }] } } })
+    await drain(rt)
+    expect(rt.turn!.segments).toEqual([
+      { kind: 'process', content: '先读再写\n\n' },
+      { kind: 'text', content: '好' },
+    ])
+    expect(calls[calls.length - 1]).toEqual({ op: 'update', arg: 'process:先读再写\n\n | text:好' })
+    expect(events).toContainEqual(expect.objectContaining({ event: 'reconcile', reasoning: 'replaced' }))
+  })
+
+  test('reasoning 并入上一步过程段：原位替换只动本 attempt 区间，不碰已有内容', async () => {
+    const { reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'A' }] } } })
+    outbound.handleSessionEvent('s1', { type: 'tool/call', data: { turn: 1, step: 1, callId: 'c1', name: 'fs_read', arguments: '{}' } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 2))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'reasoning-delta', index: 0, text: '想' }))   // 丢帧，权威为「想全」
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 2, message: { content: [{ type: 'reasoning', text: '想全' }] } } })
+    await drain(rt)
+    expect(rt.turn!.segments).toEqual([
+      { kind: 'text', content: 'A' },
+      { kind: 'process', content: '🔧 fs_read — {}\n\n想全\n\n' },
+    ])
+  })
+
+  test('reasoning 帧全丢但正文流式正常：append 新过程段补回（落在正文之后）', async () => {
+    const { reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 0, text: '好' }))
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'reasoning', text: '想' }, { type: 'text', text: '好' }] } } })
+    await drain(rt)
+    expect(rt.turn!.segments).toEqual([
+      { kind: 'text', content: '好' },
+      { kind: 'process', content: '想\n\n' },
+    ])
+  })
+
+  test('start 帧整丢（本 step 一帧未流式）：先补过程段再补正文段，保持时序', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'reasoning', text: '想' }, { type: 'text', text: '好' }] } } })
+    await drain(rt)
+    expect(rt.turn!.segments).toEqual([
+      { kind: 'process', content: '想\n\n' },
+      { kind: 'text', content: '好' },
+    ])
+    expect(calls[calls.length - 1]).toEqual({ op: 'update', arg: 'process:想\n\n | text:好' })
+  })
+
+  test('reasoning 无丢失：对账 no-op，不产生额外 update', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'reasoning-delta', index: 0, text: '想' }))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'block-end', index: 0, block: { type: 'reasoning', text: '想' } }))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 1, text: '好' }))
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'reasoning', text: '想' }, { type: 'text', text: '好' }] } } })
+    await drain(rt)
+    expect(rt.turn!.segments).toEqual([
+      { kind: 'process', content: '想\n\n' },
+      { kind: 'text', content: '好' },
+    ])
+    expect(calls[calls.length - 1]).toEqual({ op: 'update', arg: 'process:想\n\n | text:好' })   // 最后一更仍是流式帧那更
+  })
+
+  test('reasoning 与正文交错（多过程段）：无法定位权威归属，保守跳过', async () => {
+    const { reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'reasoning-delta', index: 0, text: 'r1' }))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 1, text: 't' }))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'reasoning-delta', index: 2, text: 'r2' }))
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'reasoning', text: 'r1x' }, { type: 'text', text: 't' }, { type: 'reasoning', text: 'r2x' }] } } })
+    await drain(rt)
+    expect(rt.turn!.segments).toEqual([
+      { kind: 'process', content: 'r1' },
+      { kind: 'text', content: 't' },
+      { kind: 'process', content: 'r2' },
+    ])
+  })
+
+  test('settle 清空 attempt 基线：下一 step start 帧丢失时 chunk 丢弃不串步，settle append 补回一次不重复', async () => {
+    const { calls, reply } = recorder()
+    const rt = fakeRuntime(reply)
+    const outbound = new Outbound(new Map([['s1', rt]]), () => undefined)
+    outbound.handleSessionEvent('s1', { type: 'turn/start', data: { turn: 1 } })
+    outbound.handleAssistantFrame('s1', startFrame(1, 1))
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 0, text: 'A' }))
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'A' }] } } })
+    expect(rt.turn!.attemptStep).toBeUndefined()   // settle 后基线清空
+    // step2 的 start 帧丢失：chunk 不得沿用 step1 的陈旧基线（否则 settle append 会重复）
+    outbound.handleAssistantFrame('s1', chunkFrame({ type: 'text-delta', index: 0, text: 'B' }))
+    outbound.handleSessionEvent('s1', { type: 'assistant/message', data: { turn: 1, step: 2, message: { content: [{ type: 'text', text: 'B' }] } } })
+    await drain(rt)
+    expect(rt.turn!.segments).toEqual([{ kind: 'text', content: 'AB' }])
+    expect(calls[calls.length - 1]).toEqual({ op: 'update', arg: 'text:AB' })
   })
 })
 

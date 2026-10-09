@@ -24,6 +24,9 @@ export async function withRetry<T>(fn: () => Promise<T>, attempts = 3, baseDelay
 /** 卡片输出异常时的用户提示（仅真实废弃一张已发卡时发送）。 */
 const ABANDON_NOTICE = '⚠️ 卡片输出异常，已在新卡片继续；如有内容缺失请重发。'
 
+/** 关流后全量重放失败的用户提示（罕见：重试耗尽；关流截停打字机后未渲染存量只靠重放补齐，失败即缺字）。 */
+const REPLAY_FAILURE_NOTICE = '⚠️ 卡片内容重放失败，末尾内容可能缺失；完整内容请在 web 端会话查看。'
+
 /** 单次 flush 内连续废弃换卡的上限（防异常死循环；超限抛给出站链日志）。 */
 const MAX_ABANDON_PER_FLUSH = 3
 
@@ -186,8 +189,9 @@ export class FeishuReplyHandle implements ReplyHandle {
       return 'ok'
     }
     if (op.type === 'replace') {
-      // 纯显示修复：失败不进失败分类治理（内容早已正确在卡），重试一次后记日志、照常 commit。
-      // cardId 为 PENDING 占位时（同一次 planSync 内建卡即拆卡）解析为紧邻前一个关流 settings 的真实 id。
+      // 整卡重放：与同卡其他写 op 同一 sequence 空间，必须随已确认 seq 抬升——前序 op 重放/重激活
+      // 推高 state.seq 后按规划旧序号照发，平台视作幂等 no-op 静默丢弃（invokeThenCommit 同款不变量），
+      // 而关流已截停打字机，未渲染存量只靠本次重放补齐 → 丢弃即末尾缺字。
       const cardId = op.cardId === PENDING_CARD_ID ? this.closedCardId : op.cardId
       const started = Date.now()
       if (cardId === null || cardId === PENDING_CARD_ID) {
@@ -196,12 +200,15 @@ export class FeishuReplyHandle implements ReplyHandle {
         this.commit(planned)
         return 'ok'
       }
+      const sequence = Math.max(op.sequence, this.state.seq + 1)
       try {
-        await withRetry(() => this.api.replaceCard(cardId, op.cardJson, op.sequence), 2)
+        await withRetry(() => this.api.replaceCard(cardId, op.cardJson, sequence), 2)
         this.debugLog?.({ event: 'replace', chatId: this.chatId, cardId, ok: true, elements: op.elements, dslBytes: Buffer.byteLength(op.cardJson, 'utf8'), durationMs: Date.now() - started })
       } catch (error) {
         this.debugLog?.({ event: 'replace', chatId: this.chatId, cardId, ok: false, code: feishuErrorCode(error), durationMs: Date.now() - started })
-        this.log(`[project-bot] 关流后全量重放失败（不影响内容）：${error instanceof Error ? error.message : String(error)}`)
+        this.log(`[project-bot] 关流后全量重放失败，卡片可能缺少末尾内容：${error instanceof Error ? error.message : String(error)}`)
+        // 失败即缺字（非纯显示修复）：告知用户去 web 端看完整内容；notice 失败静默
+        await withRetry(() => this.api.sendText(this.chatId, REPLAY_FAILURE_NOTICE, this.replyToMessageId)).catch(() => undefined)
       }
       this.commit(planned)
       return 'ok'

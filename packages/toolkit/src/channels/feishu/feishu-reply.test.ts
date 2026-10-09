@@ -397,19 +397,41 @@ describe('确认式出站与失败治理', () => {
     expect(JSON.parse(String(inserts[1].args[1])).content).toBe('xxx')
   })
 
-  test('replace 失败非致命：记日志、照常 commit、批内后续 op 继续，不触发废弃', async () => {
+  test('定格批前序 op 重放推高已确认 seq 后：replace 抬升到已确认 seq+1 发出（不被平台静默丢弃）', async () => {
+    const { api, calls } = fakeApi()
+    let once = true
+    api.updateCardElement = async (...args) => {
+      calls.push({ op: 'updateCardElement', args })
+      // 只让定格批的状态行 update 首试失败（未知错误 → seq+2 重放推高已确认 seq）
+      if (once && args[1] === 'status') { once = false; throw new Error('socket hangup') }
+    }
+    const { reply } = make(api)
+    await reply.update([{ kind: 'text', content: '结论' }])
+    await vi.advanceTimersByTimeAsync(500)      // flush：建卡 + insert seg_1@1
+    await reply.finalize('done')                // 定格批：status update@2 失败 → 重放@4；settings@3 抬升@5；replace 规划@4 须抬升到 6
+    const updates = calls.filter((c) => c.op === 'updateCardElement')
+    expect(updates).toHaveLength(2)             // 首试失败 + 重放成功
+    const settings = calls.find((c) => c.op === 'setCardStreaming' && c.args[1] === false)!
+    const replace = calls.filter((c) => c.op === 'replaceCard').at(-1)!
+    expect(replace.args[2] as number).toBeGreaterThan(settings.args[2] as number)   // 严格大于关流序号
+    expect(replace.args[2]).toBe((updates[1].args[3] as number) + 2)                // 抬升到已确认 seq+1 之后
+  })
+
+  test('replace 失败：记日志、照常 commit、批内后续 op 继续，并发「重放失败」notice 告知用户', async () => {
     const { api, calls } = fakeApi()
     api.replaceCard = async (...args) => { calls.push({ op: 'replaceCard', args }); throw new Error('network down') }
     const { reply, logs } = make(api, overflowBatchTunables())
     await reply.update([{ kind: 'text', content: 'x'.repeat(7) }])
     await vi.advanceTimersByTimeAsync(500)    // flush：replace 首试失败，排 300ms 重试
-    await vi.advanceTimersByTimeAsync(1000)   // 重试再败 → 记日志 + commit + 批内续卡继续
+    await vi.advanceTimersByTimeAsync(1000)   // 重试再败 → 记日志 + notice + commit + 批内续卡继续
     expect(logs.some((m) => m.includes('全量重放失败'))).toBe(true)
     const replaces = calls.filter((c) => c.op === 'replaceCard')
     expect(replaces.length).toBeGreaterThan(0)
     expect(replaces[0].args[0]).toBe('card_1')   // 重放仍解析到真实卡号
-    // 非致命：未触发废弃 notice，批内后续 op 照常 commit（续卡建卡并承接剩余）
+    // 失败不再静默吞掉：用户拿到「重放失败、内容可能缺失」的文本提示（非废弃 notice，不触发废弃）
+    expect(calls.some((c) => c.op === 'sendText' && String(c.args[1]).includes('重放失败'))).toBe(true)
     expect(calls.some((c) => c.op === 'sendText' && String(c.args[1]).includes('卡片输出异常'))).toBe(false)
+    // 批内后续 op 照常 commit（续卡建卡并承接剩余）
     expect(calls.filter((c) => c.op === 'createCard').length).toBe(2)
     const inserts = calls.filter((c) => c.op === 'insertElement')
     expect(inserts[inserts.length - 1].args[0]).toBe('card_2')
@@ -490,7 +512,7 @@ test('debug 事件：op/close/replace 落 sink；replace 失败非致命且有�
   void calls
 })
 
-test('debug 事件：replaceCard 失败记 replace failed + 日志，不触发废弃通知', async () => {
+test('debug 事件：replaceCard 失败记 replace failed + 日志 + notice，不触发废弃通知', async () => {
   const { api, calls } = fakeApi()
   const failing = { ...api, replaceCard: async () => { throw bizError(999999) } }
   const events: { event: string; [k: string]: unknown }[] = []
@@ -502,7 +524,9 @@ test('debug 事件：replaceCard 失败记 replace failed + 日志，不触发�
   await fin
   expect(events).toContainEqual(expect.objectContaining({ event: 'replace', ok: false, code: 999999 }))
   expect(logs.some((m) => m.includes('全量重放失败'))).toBe(true)
-  expect(calls.map((c) => c.op)).not.toContain('sendText')   // 无 ABANDON_NOTICE
+  const texts = calls.filter((c) => c.op === 'sendText').map((c) => String(c.args[1]))
+  expect(texts.some((t) => t.includes('重放失败'))).toBe(true)          // 重放失败 notice
+  expect(texts.some((t) => t.includes('卡片输出异常'))).toBe(false)     // 非废弃，无 ABANDON_NOTICE
 })
 
 describe('ReplyHandle.breakCard', () => {
