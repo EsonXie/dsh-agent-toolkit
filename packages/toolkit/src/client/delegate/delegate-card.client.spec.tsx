@@ -42,9 +42,6 @@ function renderCard(phase: 'start' | 'result', block: StartedToolCall | ToolResu
       loadImage={(() => { throw new Error('unused') }) as never}
       // 0.1.7 起 ToolCallCommonProps 新增必填 useDisclosure（宿主展开态钩子）；本卡自持 expanded 局部态，不消费，桩掉。
       useDisclosure={(() => ({ open: false, toggle: () => {} })) as never}
-      // 0.1.7 起 tool.call.toolview 注入 hooks 新增 useToolCallArgumentsPartial（preparing 阶段原始参数前缀订阅）；
-      // 本卡 preparing 阶段不取参数，桩掉。
-      useToolCallArgumentsPartial={(() => '') as never}
       sessionId={'parent-1' as SessionId}
       useSession={(() => undefined) as never}
       useSessions={(() => undefined) as never}
@@ -58,10 +55,17 @@ function renderCard(phase: 'start' | 'result', block: StartedToolCall | ToolResu
       // 0.1.5 起 SessionStandardProps 新增的会话座位；本卡不消费，桩掉。
       useConversation={(() => undefined) as never}
       useChat={(() => undefined) as never}
+      // 0.2.1 起 SessionStandardProps 新增必填 useAccess（会话资源动作授权钩子）；本卡不消费，桩掉。
+      useAccess={(() => true) as never}
       // 0.1.7 起 GlobalStandardProps 新增 useSessionStatus/useSessionRetainInfo（ui-session 合并），
       // 并删除 useSessionPendingInteraction 座位（pendingInteraction 移交 composer chain owner 数据），对应桩移除。
       useSessionStatus={(() => undefined) as never}
       useSessionRetainInfo={(() => undefined) as never}
+      // 0.2.1 起 GlobalStandardProps 新增必填 useRemoteAccess/useSessionAccess/useWorkspaceAccess
+      // （资源动作授权钩子）；本卡不消费，桩掉。
+      useRemoteAccess={(() => true) as never}
+      useSessionAccess={(() => true) as never}
+      useWorkspaceAccess={(() => true) as never}
       usePanelInfo={(() => undefined) as never}
       openChild={openChild}
       t={((key: keyof typeof zh) => zh[key]) as never}

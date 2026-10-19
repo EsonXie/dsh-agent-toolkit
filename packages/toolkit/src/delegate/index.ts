@@ -1,12 +1,13 @@
-/** delegate 模块：注册表驱动的 team_delegate 委派工具 + 函数式团队提示段。 */
+/** delegate 模块：注册表驱动的 team_delegate 委派工具 + 函数式团队提示段。
+ *  0.2.1：persona/工具白名单迁出工具请求，经角色 preset 组合承载（role-preset.ts）。 */
 import type { Context } from '@deepseek-ai/cordis'
-import { scopeOf } from '@deepseek-ai/dsh-scope'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import { isTeamVisible, type AgentRecord } from '../agents/store.ts'
 import type { AgentRegistry } from '../agents/registry.ts'
 import { buildAgentPersona } from '../prompt/persona.ts'
 import type { Rule } from '../prompt/types.ts'
 import { createDelegateTool } from './tool.ts'
+import { setupRolePresets } from './role-preset.ts'
 import type { ActiveRoutes, DelegateRoute } from './active.ts'
 
 export type { DelegateToolDeps } from './tool.ts'
@@ -47,9 +48,9 @@ export interface DelegateChannels {
 
 /**
  * 挂载 team_delegate 工具与函数式团队提示段。
- * provider 能力守卫与生命周期镜像同归档 tool-subagent：persona/depthLimit 缺失响亮报错，
- * 工具随 provider 在场与否挂载/摘除。名册来自注册表（main 排除），工具与提示段都经
- * 闭包读取 registry，UI 改角色后新会话即生效。
+ * provider 能力守卫与生命周期镜像同归档 tool-subagent：agentPreset/depthLimit/agentOptions
+ * 缺失响亮报错，工具随 provider 在场与否挂载/摘除。名册来自注册表（main 排除），工具与
+ * 提示段都经闭包读取 registry，UI 改角色后新会话即生效。
  */
 export function setupDelegate(ctx: Context, config: DelegateConfig, registry: AgentRegistry, channels: DelegateChannels): void {
   const { provider, toolName } = config
@@ -57,26 +58,21 @@ export function setupDelegate(ctx: Context, config: DelegateConfig, registry: Ag
   let providerFailed = false
   const mountTool = (p: SubagentProvider): void => {
     const missing: string[] = []
-    if (!p.capabilities.persona) missing.push('persona')
+    if (!p.capabilities.agentPreset) missing.push('agentPreset')
     if (!p.capabilities.depthLimit) missing.push('depthLimit')
+    if (!p.capabilities.agentOptions) missing.push('agentOptions')
     if (missing.length > 0) {
       throw new Error(
-        `dsh-agent-toolkit: provider "${p.name}" 缺少 team_delegate 委派必需能力 ${missing.join('/')}（固定发送 persona 与 maxDepth:1）——请配置具备 persona 与 depthLimit 能力的 provider（如 spawn/fork）`,
+        `dsh-agent-toolkit: provider "${p.name}" 缺少 team_delegate 委派必需能力 ${missing.join('/')}——请配置具备这些能力的 provider（如 spawn/fork）`,
       )
     }
     if (disposeTool === undefined) {
       disposeTool = ctx.tools.register(createDelegateTool(toolName, {
         roster: () => registry.list(),
         provider,
-        buildPersona: (role: AgentRecord) =>
-          buildAgentPersona({ rules: config.rules }, role, role.model),
-        startRun: (pr, request) => ctx.subagents.start(pr, request),
+        startActivation: (spec) => ctx.subagents.startActivation(spec),
         active: channels.active,
         recordRoute: channels.recordRoute,
-        // 父会话真实可见面：scoped schemas = global + 祖先层，与 bot 路径同款手段
-        // （scopeOf 对未 scoped ctx 返回 undefined，schemas 接受 undefined 为顶层视图——
-        // channels/agent-setup.ts:41 先例）。
-        visibleSurface: (agent) => agent.ctx.tools.schemas(scopeOf(agent.ctx)).map((s) => s.name),
         warn: (msg) => { ctx.logger.warn(msg) },
       }))
     }
@@ -118,4 +114,6 @@ export function setupDelegate(ctx: Context, config: DelegateConfig, registry: Ag
       ctx.tools.get(config.toolName, context.scope) !== undefined,
     ),
   })
+  // 角色 preset 生命周期：persona 与工具白名单经 preset 组合承载，委派请求只按角色选 preset。
+  setupRolePresets(ctx, registry, (role) => buildAgentPersona({ rules: config.rules }, role, role.model))
 }

@@ -1,10 +1,13 @@
-/** team_delegate 工具：查角色 → 一次性 spawn 前台委派 → 规范 JSON 返回。 */
+/** team_delegate 工具：查角色 → startActivation 前台委派 → 规范 JSON 返回。
+ *  0.2.1：persona 与工具白名单由角色 preset 承载（role-preset.ts 生命周期），请求只按
+ *  角色选 preset（agentPreset），不再内联 persona/toolFilter。 */
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
-import { defineTool, RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
-import type { SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { SubagentActivation, SubagentActivationSpec, SubagentResult } from '@deepseek-ai/dsh-subagent'
 import { isTeamVisible, type AgentRecord } from '../agents/store.ts'
+import { rolePresetId } from './role-preset.ts'
 import type { ActiveRoutes, DelegateRoute } from './active.ts'
 
 /** createDelegateTool 的外部依赖。 */
@@ -13,16 +16,12 @@ export interface DelegateToolDeps {
   readonly roster: () => readonly AgentRecord[]
   /** ctx.subagents 的 provider 名（默认 'spawn'）。 */
   readonly provider: string
-  /** 成员 persona 装配（生产为 buildAgentPersona，测试注入假实现）。 */
-  readonly buildPersona: (role: AgentRecord) => string
-  /** 委派入口：生产为 ctx.subagents.start.bind(ctx.subagents)，测试注入假实现。 */
-  readonly startRun: (provider: string, request: SubagentStartRequest) => Promise<SubagentRun>
+  /** 0.2.1：persona/白名单由角色 preset 承载，buildPersona 改由 role-preset 生命周期消费。 */
+  readonly startActivation: (spec: SubagentActivationSpec) => Promise<SubagentActivation>
   /** 在途表：运行中委派卡 chip 的数据源。 */
   readonly active: ActiveRoutes
   /** 持久路由写入（子会话头部 chip 数据源）；实现方保证不抛错语义由调用处 catch 兜底。 */
   readonly recordRoute: (childSessionId: string, route: DelegateRoute) => Promise<void>
-  /** 父会话真实可见工具面（生产走 scopeOf(agent.ctx) + scoped schemas；测试注入 fake）。 */
-  readonly visibleSurface: (agent: Agent) => string[]
   /** 未知名 warn-drop 日志（生产 ctx.logger.warn）。 */
   readonly warn: (msg: string) => void
 }
@@ -48,25 +47,24 @@ function withPartialText(error: string, output: readonly ContentBlock[]): string
   return text.length === 0 ? error : `${error}\n成员中断前的部分产出：\n${text}`
 }
 
-/** 收集并释放一次前台运行；dispose 失败不掩盖独立的结果失败。 */
-async function settleForegroundRun(run: SubagentRun, roleId: string, route?: DelegateRoute) {
-  // 本地 run 的 run.id 契约上即子 session id（dsh-subagent types.ts:249-255）。
-  const childSessionId = String(run.id)
+/** 收集并释放一次前台 activation；dispose 失败不掩盖独立的结果失败。 */
+async function settleForeground(activation: SubagentActivation, roleId: string, route?: DelegateRoute) {
+  const childSessionId = String(activation.childId)
   const [execution] = await Promise.allSettled([
-    run.result.then((result) => {
+    activation.result.then((result) => {
       const error = stopReasonError(result)
       if (error !== undefined) throw new Error(withPartialText(error, result.output))
       return {
         kind: 'foreground' as const,
         role: roleId,
-        runId: String(run.id),
+        runId: childSessionId,
         childSessionId,
         output: result.output as unknown as JsonValue[],
         ...route !== undefined ? { provider: route.provider, model: route.model } : {},
       }
     }),
   ])
-  const [disposal] = await Promise.allSettled([Promise.resolve().then(() => run.dispose())])
+  const [disposal] = await Promise.allSettled([Promise.resolve().then(() => activation.dispose())])
   if (execution.status === 'rejected') {
     if (disposal.status === 'rejected') {
       throw new AggregateError([execution.reason, disposal.reason],
@@ -81,7 +79,7 @@ async function settleForegroundRun(run: SubagentRun, roleId: string, route?: Del
 /**
  * 创建 team_delegate 工具。
  * @param toolName - 模型可见工具名（Config.toolName，默认 team_delegate）。
- * @param deps - 名册、provider、persona 装配与委派入口。
+ * @param deps - 名册、provider 与委派入口。
  * @returns defineTool 产物，交给 ctx.tools.register。
  *
  * 工具注册是 standing scope 的单次注册，description 无法内嵌名册；名册对模型的
@@ -149,38 +147,21 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
       if (!role) {
         throw new Error(`未知角色 "${args.role}"。可用角色：${roster.map(r => r.id).join(', ')}`)
       }
-      const persona = deps.buildPersona(role)
-      // 白名单与父会话真实可见面求交（warn-drop 未知名）——宿主 child-agent 对 toolFilter
-      // 直接 restrict，未知名响亮失败（spawn-in-process 测试 "an unknown toolFilter name
-      // fails the spawn loudly" 佐证）；与 bot 会话路径（channels/agent-setup.ts）对称，
-      // 消除两条路径的白名单有效性不对称。求交为空抛错防静默零工具子会话。
-      let toolFilter: { allow: string[] } | undefined
-      if (role.tools !== undefined) {
-        const visible = new Set(deps.visibleSurface(parent).filter((n) => n !== RUN_CODE_NAME))
-        const effective = role.tools.allow.filter((n) => visible.has(n))
-        const dropped = role.tools.allow.filter((n) => !visible.has(n))
-        if (dropped.length > 0) {
-          deps.warn(`dsh-agent-toolkit: 角色 ${role.id} 白名单含本会话不可见工具，委派时忽略：${dropped.join(', ')}`)
-        }
-        if (effective.length === 0) {
-          throw new Error(`dsh-agent-toolkit: 角色 ${role.id} 工具白名单求交后为空（原 ${role.tools.allow.length} 个均不可见）：${role.tools.allow.join(', ')}`)
-        }
-        toolFilter = { allow: effective }
-      }
-      const request: SubagentStartRequest = {
+      const spec: SubagentActivationSpec = {
+        provider: deps.provider,
         label: `role:${role.id}: ${args.description}`,
-        prompt: [{ type: 'text', text: args.prompt } as ContentBlock],
-        parent,
-        persona,
-        maxDepth: 1, // 禁止套娃：成员（深度 1）再委派时 childDepth 2 > 1，provider 响亮拒绝
+        request: {
+          prompt: [{ type: 'text', text: args.prompt } as ContentBlock],
+          parent,
+          agentPreset: rolePresetId(role.id),
+          maxDepth: 1, // 禁止套娃：成员（深度 1）再委派时 childDepth 2 > 1，provider 响亮拒绝
+          ...role.model !== undefined
+            ? { agentOptions: { provider: role.model.provider, model: role.model.model } }
+            : {},
+        },
         signal: exec.signal,
-        ...role.model !== undefined
-          ? { agentOptions: { provider: role.model.provider, model: role.model.model } }
-          : {},
-        ...toolFilter !== undefined
-          ? { toolFilter }
-          : {},
-      } as SubagentStartRequest
+        delivery: 'caller', // 前台等待：result 作为工具返回，父会话不收委派消息
+      }
       // 路由解析与 spawn driver resolveChildAgentOptions 同源：角色覆盖 ?? 父 options。
       // 字段为空串视为未配置；任一缺失整体省略（不猜部署默认——显示错值比不显示更糟）。
       const route: DelegateRoute | undefined =
@@ -194,12 +175,12 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
       const parentSessionId = String(parent.session.id)
       if (route !== undefined) deps.active.set(parentSessionId, role.id, route)
       try {
-        const run = await deps.startRun(deps.provider, request)
+        const activation = await deps.startActivation(spec)
         if (route !== undefined) {
           // 展示向写入失败不阻断委派（域关闭等异常吞掉）。
-          await deps.recordRoute(String(run.id), route).catch(() => undefined)
+          await deps.recordRoute(String(activation.childId), route).catch(() => undefined)
         }
-        return await settleForegroundRun(run, role.id, route)
+        return await settleForeground(activation, role.id, route)
       } finally {
         if (route !== undefined) deps.active.delete(parentSessionId, role.id)
       }
