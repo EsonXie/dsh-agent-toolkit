@@ -93,8 +93,9 @@ export function setupCreateAgentCommand(ctx: Context, deps: CreateAgentCommandDe
     description: '交互式创建 Agent 团队成员：访谈澄清需求 → 推荐配置 → 确认后经面板 API 落库',
     input: { hint: '初始需求描述，可空' },
     handler: async ({ rawInput, agent }: { rawInput: string; agent: { followup(message: unknown): void } }) => {
-      const webServer = ctx.get('webServer') as { port: number } | undefined
-      const origin = webServer === undefined ? undefined : `http://127.0.0.1:${webServer.port}`
+      const webServer = ctx.get('webServer') as { port?: number } | undefined
+      const port = webServer?.port
+      const origin = port === undefined ? undefined : `http://127.0.0.1:${port}`
       const text = buildCreateAgentGuidance({
         requirement: rawInput.trim(),
         agentIds: deps.registry.list().map((agent) => agent.id),
