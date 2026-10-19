@@ -13,6 +13,8 @@
   "exports": {
     ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
     "./client": "./lib/client.js",
+    "./role-persona": { "types": "./lib/role-persona.d.ts", "default": "./lib/role-persona.js" },
+    "./role-tools": { "types": "./lib/role-tools.d.ts", "default": "./lib/role-tools.js" },
     "./package.json": "./package.json"
   },
   "files": ["lib", "cordis.patch.yml", "README.md", "LICENSE"],

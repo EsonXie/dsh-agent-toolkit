@@ -12,7 +12,7 @@ const ID = 'dsh-agent-toolkit'
 /** Node 半：所有包依赖保持 external，由安装侧（profile）解析；只转译本地 src。 */
 const nodeConfig = {
   name: `${ID}/node`,
-  entry: { index: 'src/index.ts' },
+  entry: { index: 'src/index.ts', 'role-persona': 'src/role-persona.ts', 'role-tools': 'src/role-tools.ts' },
   outDir: 'lib',
   format: 'esm',
   platform: 'node',
