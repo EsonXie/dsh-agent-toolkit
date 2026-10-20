@@ -1,26 +1,55 @@
 {
   "name": "dsh-agent-toolkit",
-  "version": "0.4.10",
+  "version": "0.4.11",
   "description": "DeepSeek Harness plugin: agent registry with layered prompts, parallel delegation, Feishu bots and token usage",
   "license": "MIT",
-  "keywords": ["deepseek-harness", "dsh", "dsh-plugin", "agent-team", "feishu", "token-usage"],
-  "repository": { "type": "git", "url": "git+https://github.com/EsonXie/dsh-agent-toolkit.git", "directory": "packages/toolkit" },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "agent-team",
+    "feishu",
+    "token-usage"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EsonXie/dsh-agent-toolkit.git",
+    "directory": "packages/toolkit"
+  },
   "homepage": "https://github.com/EsonXie/dsh-agent-toolkit#readme",
   "bugs": "https://github.com/EsonXie/dsh-agent-toolkit/issues",
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
   "exports": {
-    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
     "./client": "./lib/client.js",
-    "./role-persona": { "types": "./lib/role-persona.d.ts", "default": "./lib/role-persona.js" },
-    "./role-tools": { "types": "./lib/role-tools.d.ts", "default": "./lib/role-tools.js" },
+    "./role-persona": {
+      "types": "./lib/role-persona.d.ts",
+      "default": "./lib/role-persona.js"
+    },
+    "./role-tools": {
+      "types": "./lib/role-tools.d.ts",
+      "default": "./lib/role-tools.js"
+    },
     "./package.json": "./package.json"
   },
-  "files": ["lib", "cordis.patch.yml", "README.md", "LICENSE"],
-  "publishConfig": { "access": "public" },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "inject": [
@@ -43,8 +72,8 @@
     "prepack": "pnpm run bundle"
   },
   "dependencies": {
-    "@dsh-agent-toolkit/token-usage": "workspace:^",
     "@deepseek-ai/schemastery": "^3.18.1",
+    "@dsh-agent-toolkit/token-usage": "workspace:^",
     "@larksuiteoapi/node-sdk": "^1.73.0",
     "clsx": "^2.0.0",
     "croner": "^10.0.1",
@@ -63,15 +92,15 @@
     "@deepseek-ai/dsh-agent-default-model": "link:../../deepseek-harness/packages/core/agent-default-model",
     "@deepseek-ai/dsh-agent-instructions": "link:../../deepseek-harness/packages/context/agent-instructions",
     "@deepseek-ai/dsh-agent-preset-registry": "link:../../deepseek-harness/packages/preset/agent-preset-registry",
-    "@deepseek-ai/dsh-attachment": "link:../../deepseek-harness/packages/attachment/attachment",
     "@deepseek-ai/dsh-api-session-controller": "link:../../deepseek-harness/packages/api/session-controller",
     "@deepseek-ai/dsh-api-workspace-controller": "link:../../deepseek-harness/packages/api/workspace-controller",
+    "@deepseek-ai/dsh-attachment": "link:../../deepseek-harness/packages/attachment/attachment",
     "@deepseek-ai/dsh-client-locale": "link:../../deepseek-harness/packages/client/locale",
     "@deepseek-ai/dsh-client-ui-conversation": "link:../../deepseek-harness/packages/client/ui-conversation",
     "@deepseek-ai/dsh-client-ui-primitives": "link:../../deepseek-harness/packages/client/ui-primitives",
     "@deepseek-ai/dsh-client-ui-renderer": "link:../../deepseek-harness/packages/client/ui-renderer",
-    "@deepseek-ai/dsh-client-ui-sidebar": "link:../../deepseek-harness/packages/client/ui-sidebar",
     "@deepseek-ai/dsh-client-ui-settings": "link:../../deepseek-harness/packages/client/ui-settings",
+    "@deepseek-ai/dsh-client-ui-sidebar": "link:../../deepseek-harness/packages/client/ui-sidebar",
     "@deepseek-ai/dsh-client-ui-slots": "link:../../deepseek-harness/packages/client/ui-slots",
     "@deepseek-ai/dsh-client-ui-tool": "link:../../deepseek-harness/packages/client/ui-tool",
     "@deepseek-ai/dsh-client-ui-workspace": "link:../../deepseek-harness/packages/client/ui-workspace",
