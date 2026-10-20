@@ -1,6 +1,7 @@
 /** agent 创建/恢复的作用域组合：加入作用域组合（preset 或基础工具 standing scope 回退）→ persona/tools 创作期注入。
- *  hooks.tools / hooks.denyTools 先与该会话真实可见面求交（warn-drop 未知名）——同一白名单同时喂委派 toolFilter
- *  （父 preset 面）与 bot 会话（agent-team 面），求交消除两条路径的有效性不对称，并保证宿主工具缺席时
+ *  hooks.tools / hooks.denyTools 先与该会话真实可见面求交（warn-drop 未知名）——同一白名单同时喂委派
+ *  （0.2.1 起委派侧白名单走角色 preset 的 role-tools 组合行 restrict，见 delegate/role-preset.ts）与
+ *  bot 会话（agent-team 面），求交消除两条路径的有效性不对称，并保证宿主工具缺席时
  *  restrict 不会因未知工具名抛错（cron 执行会话 deny ask_user_question 的安全前提）。 */
 import type { Context } from '@deepseek-ai/cordis'
 // type-only 激活 dsh-system-prompt / dsh-tools 对 cordis Context 的声明合并（agentCtx.systemPrompt / agentCtx.tools）。

@@ -68,7 +68,8 @@ export async function registerRolePreset(
 
 /**
  * 挂载角色 preset 生命周期：初始注册全部团队可见角色，订阅名册变更做增/改/删联动
- * （改 = 先 dispose 再注册；宿主重复 id 抛错）。全部 disposer 随 ctx.effect 清理。
+ * （改 = 先 dispose 再注册）。宿主对重复 id 抛错（slug 碰撞）或挂载异常时仅 warn 跳过
+ * 该角色，同步/注销的拒绝一律 catch 到 ctx.logger，不拖垮宿主进程。全部 disposer 随 ctx.effect 清理。
  */
 export function setupRolePresets(
   ctx: Context,
@@ -82,21 +83,31 @@ export function setupRolePresets(
       if (!wanted.has(id)) { disposers.delete(id); await dispose() }
     }
     for (const [id, role] of wanted) {
-      const persona = buildPersona(role)
-      // 简化策略：任何名册变更都重建该角色 preset（注册便宜，避免 diff persona/白名单）。
-      const previous = disposers.get(id)
-      if (previous !== undefined) await previous()
-      const next = await registerRolePreset(ctx, role, persona)
-      if (next !== undefined) disposers.set(id, next)
-      else disposers.delete(id)
+      try {
+        const persona = buildPersona(role)
+        // 简化策略：任何名册变更都重建该角色 preset（注册便宜，避免 diff persona/白名单）。
+        const previous = disposers.get(id)
+        if (previous !== undefined) await previous()
+        const next = await registerRolePreset(ctx, role, persona)
+        if (next !== undefined) disposers.set(id, next)
+        else disposers.delete(id)
+      } catch (error) {
+        // 单角色失败不拖垮同步：slug 碰撞触发宿主重复 id 抛错、或挂载期异常，仅跳过该角色。
+        ctx.logger.warn(`dsh-agent-toolkit: 角色 ${id} preset 注册失败，已跳过：${String(error)}`)
+      }
     }
   }
+  const syncGuarded = (): void => {
+    void sync().catch((error) => ctx.logger.warn(`dsh-agent-toolkit: 角色 preset 同步失败：${String(error)}`))
+  }
   ctx.effect(() => {
-    void sync()
-    const unsubscribe = registry.subscribe(() => { void sync() })
+    syncGuarded()
+    const unsubscribe = registry.subscribe(syncGuarded)
     return () => {
       unsubscribe()
-      for (const dispose of disposers.values()) void dispose()
+      for (const dispose of disposers.values()) {
+        void dispose().catch((error) => ctx.logger.warn(`dsh-agent-toolkit: 角色 preset 注销失败：${String(error)}`))
+      }
       disposers.clear()
     }
   }, 'dsh-agent-toolkit: role presets')

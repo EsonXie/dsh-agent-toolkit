@@ -46,7 +46,7 @@ pnpm dsh web --patch <仓库根>/cordis.yml
 
 - 宿主 dsh 需提供以下注入服务（均为硬依赖）：`storageDomain`、`tools`、`subagents`、`systemPrompt`、`commands`、`llm`、`agentDefaultModel`、`agents`、`tokenMeter`、`credentials`。
 - `webServer` 为可选服务：headless/CLI 模式下 HTTP API 自动不注册，插件其余功能不受影响。
-- 委派功能需要具备 `persona` + `depthLimit` 能力的 subagent provider（如默认的 `spawn`）；provider 不在场时委派工具不挂载，其余功能正常。
+- 委派功能需要具备 `agentPreset` + `depthLimit` + `agentOptions` 能力的 subagent provider（如默认的 `spawn`）；provider 不在场时委派工具不挂载，其余功能正常。
 - 浏览器半依赖服务：`sessions`、`slots`、`locale`。
 
 ## 配置与热更新

@@ -50,4 +50,4 @@
 | `provider` | `spawn` | 委派用的 subagent provider 名 |
 | `toolName` | `team_delegate` | 工具对模型的可见名（见上方卡片注意事项） |
 
-委派工具仅在 subagent provider 具备 `persona` + `depthLimit` 能力时挂载；provider 不在场时工具不可用（日志有提示），团队名册段仍会注入。
+委派工具仅在 subagent provider 具备 `agentPreset` + `depthLimit` + `agentOptions` 能力时挂载；provider 不在场时工具不可用（日志有提示），团队名册段仍会注入。
