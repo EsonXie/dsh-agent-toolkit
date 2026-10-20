@@ -52,7 +52,6 @@ function depsWith(
     startActivation: async (spec) => { captured.push({ spec }); return activation },
     active: extras.active ?? createActiveRoutes(),
     recordRoute: extras.recordRoute ?? (async () => {}),
-    warn: () => {},
   }
 }
 
@@ -246,7 +245,6 @@ test('角色 model 字段含空串：视为未配置，路由回退父 options',
     startActivation: async () => fakeActivation({ stopReason: 'completed', output: [] } as SubagentResult),
     active: createActiveRoutes(),
     recordRoute: async (id, route) => { recorded.push({ id, route }) },
-    warn: () => {},
   }
   const tool = createDelegateTool('team_delegate', deps)
   const a = await callTool(tool, { role: 'both-empty', description: 'a', prompt: '任务' }) as Record<string, unknown>

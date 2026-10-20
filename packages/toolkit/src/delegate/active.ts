@@ -7,11 +7,11 @@ export interface DelegateRoute {
 }
 
 export interface ActiveRoutes {
-  /** startRun 前写入；同 key 并发委派后写覆盖（纯展示，可接受）。 */
+  /** startActivation 前写入；同 key 并发委派后写覆盖（纯展示，可接受）。 */
   set(parentSessionId: string, roleId: string, route: DelegateRoute): void
   /** 端点读取；无条目返回 undefined。 */
   get(parentSessionId: string, roleId: string): DelegateRoute | undefined
-  /** try/finally 删除（startRun 抛错、settle 成功/出错都删）。 */
+  /** try/finally 删除（startActivation 抛错、settle 成功/出错都删）。 */
   delete(parentSessionId: string, roleId: string): void
 }
 

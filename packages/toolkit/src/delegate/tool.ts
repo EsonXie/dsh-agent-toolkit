@@ -22,8 +22,6 @@ export interface DelegateToolDeps {
   readonly active: ActiveRoutes
   /** 持久路由写入（子会话头部 chip 数据源）；实现方保证不抛错语义由调用处 catch 兜底。 */
   readonly recordRoute: (childSessionId: string, route: DelegateRoute) => Promise<void>
-  /** 未知名 warn-drop 日志（生产 ctx.logger.warn）。 */
-  readonly warn: (msg: string) => void
 }
 
 /** 非 completed 的 stopReason 意味着成员未干净完成。 */

@@ -73,7 +73,6 @@ export function setupDelegate(ctx: Context, config: DelegateConfig, registry: Ag
         startActivation: (spec) => ctx.subagents.startActivation(spec),
         active: channels.active,
         recordRoute: channels.recordRoute,
-        warn: (msg) => { ctx.logger.warn(msg) },
       }))
     }
   }

@@ -35,7 +35,7 @@ test('角色 preset 组合挂载：自引用解析、persona 段与工具白名�
   const ctx = new Context()
   // 组合行解析锚点 = 本包根（生产为 profile 内安装目录；registry register 以
   // record.context.baseUrl 扩展挂载 scope，src/index.ts:109 extend({ baseUrl })）。
-  const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
+  const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
   ctx.baseUrl = pathToFileURL(packageRoot).href + '/'
   await ctx.plugin(Loader)
   // registry 的 inject 为 ['loader', 'sessionProjections']，缺 sessionProjections 服务不发布。
