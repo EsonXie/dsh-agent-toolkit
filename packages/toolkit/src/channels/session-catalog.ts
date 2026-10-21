@@ -5,9 +5,10 @@
  * 标题链路与 web session.list 一致（deepseek-harness packages/api/session-controller/src/list.ts）：
  *  - live 会话：sessionProjections.cachedSnapshot(session) 的 title 投影；投影服务缺席时
  *    sessionTitle fold 兜底（同源 session/title 日志事件，结果等价）。
- *  - 冷会话：sessionQuery.listSessions() 取 header（不激活 Agent），非 seeded 时
- *    sessionProjectionCache.cachedSnapshot(header, 0) ?? cachedPredecessorTitle(header, 0)
- *    读持久化 title 投影（零 I/O 列表读，不 resume 会话）。
+ *  - 冷会话：sessionQuery.listSessions() 取 header（不激活 Agent），
+ *    sessionProjectionCache.cachedSnapshot(header) ?? cachedPredecessorTitle(header)
+ *    读持久化 title 投影（零 I/O 列表读，不 resume 会话；seeded/unseeded 一视同仁，
+ *    宿主签名为 cachedSnapshot(meta, keys?)——只传 header 单参，误传第二参会抛错）。
  *  - 展示标题统一 displayTitleOf 三级回退：title（非空）→ cwd 末段 → session id
  *    （web client/sessions/service.ts 同款；cwd 末段规则同 dsh-workspace-path workspaceTitleOf）。
  */
@@ -51,10 +52,10 @@ export interface CatalogSessionQuery {
   listSessions(): Promise<readonly { header: CatalogSessionHeader }[]>
 }
 
-/** 宿主 sessionProjectionCache 服务窄化：web 冷列表行同款零 I/O 投影读。 */
+/** 宿主 sessionProjectionCache 服务窄化：web 冷列表行同款零 I/O 投影读（单参调用）。 */
 export interface CatalogSessionProjectionCache {
-  cachedSnapshot(header: CatalogSessionHeader, inheritedEventCount: number): { values: Record<string, unknown> } | undefined
-  cachedPredecessorTitle(header: CatalogSessionHeader, inheritedEventCount: number): { values: Record<string, unknown> } | undefined
+  cachedSnapshot(header: CatalogSessionHeader): { values: Record<string, unknown> } | undefined
+  cachedPredecessorTitle(header: CatalogSessionHeader): { values: Record<string, unknown> } | undefined
 }
 
 export interface CatalogServices {
@@ -84,7 +85,7 @@ function coldTitle(
   header: CatalogSessionHeader,
 ): unknown {
   try {
-    const block = cache.cachedSnapshot(header, 0) ?? cache.cachedPredecessorTitle(header, 0)
+    const block = cache.cachedSnapshot(header) ?? cache.cachedPredecessorTitle(header)
     return block?.values.title
   } catch {
     return undefined
@@ -119,7 +120,7 @@ export function createSessionCatalog(resolve: () => CatalogServices): SessionCat
           return { sessionId: String(id), title: displayTitleOf(title, live.header?.cwd, id) }
         }
         const header = headers.get(String(id))
-        const title = header !== undefined && !header.isSeeded && sessionProjectionCache !== undefined
+        const title = header !== undefined && sessionProjectionCache !== undefined
           ? coldTitle(sessionProjectionCache, header)
           : undefined
         return { sessionId: String(id), title: displayTitleOf(title, header?.cwd, id) }

@@ -28,7 +28,12 @@ function services(overrides: Partial<CatalogServices> = {}): CatalogServices {
       listSessions: async () => [{ header: coldHeader }],
     },
     sessionProjectionCache: {
-      cachedSnapshot: () => ({ values: { title: '冷会话标题' } }),
+      // 宿主真实签名为 cachedSnapshot(meta, keys?: string[])：第二参误传（如 0）会
+      // 在 viewCheckpoint 的 new Set(keys) 抛 TypeError；此处镜像该行为钉住单参调用。
+      cachedSnapshot: (...args: unknown[]) => {
+        if (args.length > 1) throw new TypeError('number 0 is not iterable')
+        return { values: { title: '冷会话标题' } }
+      },
       cachedPredecessorTitle: () => undefined,
     },
     ...overrides,
@@ -85,18 +90,12 @@ describe('createSessionCatalog', () => {
     expect(entries[1]).toEqual({ sessionId: 'sess-cold', title: '前代标题' })
   })
 
-  test('cold：isSeeded 头部不读缓存，直接 cwd 末段回退', async () => {
-    let cacheReads = 0
+  test('cold：isSeeded 头部同样读缓存（web list 对 seeded/unseeded 一视同仁）', async () => {
     const catalog = createSessionCatalog(() => services({
       sessionQuery: { listSessions: async () => [{ header: { ...coldHeader, isSeeded: true } }] },
-      sessionProjectionCache: {
-        cachedSnapshot: () => { cacheReads++; return { values: { title: '不应读到' } } },
-        cachedPredecessorTitle: () => { cacheReads++; return { values: { title: '不应读到' } } },
-      },
     }))!
     const entries = await catalog.list('p')
-    expect(entries[1]).toEqual({ sessionId: 'sess-cold', title: 'demo' })
-    expect(cacheReads).toBe(0)
+    expect(entries[1]).toEqual({ sessionId: 'sess-cold', title: '冷会话标题' })
   })
 
   test('cold：缓存无标题时回退 cwd 末段；cwd 也缺时回退 id', async () => {
