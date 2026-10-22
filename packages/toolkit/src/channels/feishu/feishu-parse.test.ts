@@ -89,8 +89,44 @@ describe('parseMessageEvent', () => {
       message: { message_id: 'om_p', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'post', content, mentions: [] },
     }), BOT))).toEqual({
       messageId: 'om_p', chatId: 'oc_1', chatType: 'p2p', userId: 'ou_u1',
-      text: '图片消息\n帮我看 [链接文字](https://x)\n第二段',
+      text: '图片消息\n帮我看 [链接文字](https://x)[图片1]\n第二段[图片2]',
       imageKeys: ['img_v1_a', 'img_v1_b'],
+    })
+  })
+
+  test('纯图片段落 → 生成 [图片N] 行（编号按出现顺序）', () => {
+    const content = JSON.stringify({ content: [
+      [{ tag: 'img', image_key: 'img_a' }],
+      [{ tag: 'img', image_key: 'img_b' }],
+    ] })
+    expect(expectMessage(parseMessageEvent(event({
+      message: { message_id: 'om_ip', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'post', content, mentions: [] },
+    }), BOT))).toMatchObject({ text: '[图片1]\n[图片2]', imageKeys: ['img_a', 'img_b'] })
+  })
+
+  test('无 image_key 的 img 节点不占位、编号不跳号', () => {
+    const content = JSON.stringify({ content: [[
+      { tag: 'img' },
+      { tag: 'text', text: '中间' },
+      { tag: 'img', image_key: 'img_x' },
+    ]] })
+    expect(expectMessage(parseMessageEvent(event({
+      message: { message_id: 'om_ik', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'post', content, mentions: [] },
+    }), BOT))).toMatchObject({ text: '中间[图片1]', imageKeys: ['img_x'] })
+  })
+
+  test('图片与 media / code_block 混排：占位符保持原位置', () => {
+    const content = JSON.stringify({ content: [[
+      { tag: 'text', text: '看' },
+      { tag: 'img', image_key: 'img_m' },
+      { tag: 'media', file_key: 'file_x', file_name: '演示.mp4' },
+      { tag: 'code_block', language: 49, text: 'print(1)' },
+    ]] })
+    expect(expectMessage(parseMessageEvent(event({
+      message: { message_id: 'om_mix', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'post', content, mentions: [] },
+    }), BOT))).toMatchObject({
+      text: '看[图片1][附件: 演示.mp4]\n```python\nprint(1)\n```',
+      imageKeys: ['img_m'],
     })
   })
 

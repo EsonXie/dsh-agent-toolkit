@@ -63,7 +63,7 @@ const CODE_LANG: Readonly<Record<number, string>> = {
   68: 'yaml', 69: 'diff',
 }
 
-/** post 富文本节点：text/a 取文本，img 收 image_key，code_block 成围栏块，media 占位；其余跳过 + 日志。 */
+/** post 富文本节点：text/a 取文本，img 收 image_key 并插入 `[图片N]` 占位，code_block 成围栏块，media 占位；其余跳过 + 日志。 */
 interface PostNode {
   tag?: unknown
   text?: unknown
@@ -84,7 +84,7 @@ function parsePostContent(content: string, messageId: string, sink?: DebugSink):
     for (const paragraph of list) {
       if (!Array.isArray(paragraph)) continue
       let parts: string[] = []
-      // 冲刷行内 parts 为独立段落；空 parts 不产生空行（纯图片段落）。
+      // 冲刷行内 parts 为独立段落；空 parts 不产生空行（整段只有未知标签时）。
       const flush = (): void => {
         const joined = parts.join('')
         parts = []
@@ -93,7 +93,11 @@ function parsePostContent(content: string, messageId: string, sink?: DebugSink):
       for (const node of paragraph as PostNode[]) {
         if (node === null || typeof node !== 'object') continue
         if (node.tag === 'img') {
-          if (typeof node.image_key === 'string' && node.image_key.length > 0) imageKeys.push(node.image_key)
+          // 占位符编号 = 已收集图片数（与 imageKeys 下标一一对应），保留图片在文本中的位置。
+          if (typeof node.image_key === 'string' && node.image_key.length > 0) {
+            imageKeys.push(node.image_key)
+            parts.push(`[图片${imageKeys.length}]`)
+          }
         } else if (node.tag === 'text' && typeof node.text === 'string') {
           parts.push(node.text)
         } else if (node.tag === 'a' && typeof node.text === 'string') {
