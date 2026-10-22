@@ -13,3 +13,4 @@ packages/*/lib/
 
 # 隔离工作区
 .worktrees/
+.opencode/
