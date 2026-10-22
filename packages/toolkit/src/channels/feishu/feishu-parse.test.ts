@@ -123,6 +123,34 @@ describe('parseMessageEvent', () => {
     }), BOT)).text).toBe('看这个[附件: 演示.mp4][附件]')
   })
 
+  test('code_block：语言映射 + 独立成段（前后文不粘同段）', () => {
+    const content = JSON.stringify({ content: [
+      [{ tag: 'text', text: '报错如下' }, { tag: 'code_block', language: 49, text: 'print(1)' }, { tag: 'text', text: '帮忙看看' }],
+    ] })
+    expect(expectMessage(parseMessageEvent(event({
+      message: { message_id: 'om_c', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'post', content, mentions: [] },
+    }), BOT)).text).toBe('报错如下\n```python\nprint(1)\n```\n帮忙看看')
+  })
+
+  test('code_block：表外语言/缺 language → 省略语言名；连续代码块各自成段', () => {
+    const content = JSON.stringify({ content: [
+      [{ tag: 'code_block', language: 999, text: 'a' }],
+      [{ tag: 'code_block', text: 'b' }],
+    ] })
+    expect(expectMessage(parseMessageEvent(event({
+      message: { message_id: 'om_c2', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'post', content, mentions: [] },
+    }), BOT)).text).toBe('```\na\n```\n```\nb\n```')
+  })
+
+  test('code_block：不再记 skip-tag 日志', () => {
+    const events: { event: string; [key: string]: unknown }[] = []
+    const content = JSON.stringify({ content: [[{ tag: 'code_block', language: 63, text: 'let x = 1' }]] })
+    parseMessageEvent(event({
+      message: { message_id: 'om_c3', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'post', content, mentions: [] },
+    }), BOT, (e) => { events.push(e) })
+    expect(events).toEqual([])
+  })
+
   test('未知标签跳过 + feishu.parse.skip-tag 日志（at/emotion 同样记录）', () => {
     const events: { event: string; [key: string]: unknown }[] = []
     const content = JSON.stringify({ content: [[

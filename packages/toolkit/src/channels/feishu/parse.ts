@@ -54,6 +54,15 @@ interface RawEvent {
   }
 }
 
+/** code_block language 数字枚举 → 语言名（常用子集；表外与 PlainText(1) 省略语言名）。 */
+const CODE_LANG: Readonly<Record<number, string>> = {
+  7: 'bash', 8: 'csharp', 9: 'cpp', 10: 'c', 12: 'css', 15: 'dart', 18: 'dockerfile',
+  22: 'go', 24: 'html', 28: 'json', 29: 'java', 30: 'javascript', 32: 'kotlin', 36: 'lua',
+  38: 'makefile', 39: 'markdown', 40: 'nginx', 43: 'php', 46: 'powershell', 49: 'python',
+  52: 'ruby', 53: 'rust', 56: 'sql', 60: 'shell', 61: 'swift', 63: 'typescript', 66: 'xml',
+  68: 'yaml', 69: 'diff',
+}
+
 /** post 富文本节点：text/a 取文本，img 收 image_key，code_block 成围栏块，media 占位；其余跳过 + 日志。 */
 interface PostNode {
   tag?: unknown
@@ -90,6 +99,11 @@ function parsePostContent(content: string, messageId: string, sink?: DebugSink):
         } else if (node.tag === 'a' && typeof node.text === 'string') {
           const href = typeof node.href === 'string' ? node.href : ''
           parts.push(href.length > 0 && href !== node.text ? `[${node.text}](${href})` : node.text)
+        } else if (node.tag === 'code_block' && typeof node.text === 'string') {
+          // 围栏块独立成段：先冲刷行内 parts，后续文本另起新段，避免与代码粘同一行。
+          flush()
+          const lang = typeof node.language === 'number' ? CODE_LANG[node.language] ?? '' : ''
+          paragraphs.push(`\`\`\`${lang}\n${node.text}\n\`\`\``)
         } else if (node.tag === 'media') {
           const name = typeof node.file_name === 'string' && node.file_name.length > 0 ? `: ${node.file_name}` : ''
           parts.push(`[附件${name}]`)
