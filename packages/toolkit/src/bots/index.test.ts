@@ -34,6 +34,7 @@ function makeConfig(approval: boolean, questions = true): BotsModuleConfig {
     debugLog: false,
     debugLogDir: '',
     debugLogRetentionDays: 7,
+    imageUpload: true,
   }
 }
 

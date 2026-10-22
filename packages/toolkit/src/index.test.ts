@@ -172,6 +172,7 @@ describe('Config 默认值', () => {
       debugLog: true,
       debugLogDir: '',
       debugLogRetentionDays: 7,
+      imageUpload: true,
     })
     expect(config.agentTeamPreset).toEqual({
       enabled: true,
@@ -223,6 +224,11 @@ describe('Config 默认值', () => {
   test('schedule.permissionPreset：缺省 undefined（维持宿主默认预设），显式配置原样保留', () => {
     expect(Config({}).schedule.permissionPreset).toBeUndefined()
     expect(Config({ schedule: { permissionPreset: 'danger-full-access' } }).schedule.permissionPreset).toBe('danger-full-access')
+  })
+
+  test('feishu.imageUpload：默认开启（出站图片上传正显），显式关闭原样保留', () => {
+    expect(Config({}).feishu.imageUpload).toBe(true)
+    expect(Config({ feishu: { imageUpload: false } }).feishu.imageUpload).toBe(false)
   })
 
   test('feishu 调试日志三键：默认开启、默认目录为空（解析到 ~/.dsh/logs/feishu-debug）、默认保留 7 天', () => {

@@ -83,6 +83,8 @@ export interface ChannelTunables {
   /** 飞书流式打字机每次打印字符数。 */
   cardPrintStep: number
   processingReactionEmoji: string
+  /** 出站图片上传正显开关（false = 图片引用一律降级文案；见 Config feishu.imageUpload）。 */
+  imageUpload: boolean
   /** 生产调试日志 sink（feishu/debug-log.ts 装配；缺省不记录）。 */
   debugLog?: DebugSink
 }

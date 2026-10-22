@@ -61,6 +61,7 @@
 | `feishu.registerAppTimeoutMs` | number | `600000` | 扫码一键创建应用的轮询超时（毫秒，默认 10 分钟） |
 | `feishu.processingReactionEmoji` | string | `OneSecond` | 「处理中」表情回复的 emoji_type |
 | `feishu.errorDetailMaxChars` | number | `500` | 回传飞书的错误摘要最大字符数 |
+| `feishu.imageUpload` | boolean | `true` | 本地路径图片上传飞书换 `img_key` 内嵌正显；`false` 时图片引用一律降级为纯文本（无 `im:resource` 权限的应用可关） |
 | `feishu.injectSender` | boolean | `true` | 会话创建时注入「渠道 + 发起人 open_id」提示段（`dsh-agent-toolkit:channel:sender`），供 Agent 写多维表格人员字段等场景使用 |
 | `feishu.approval` | boolean | `true` | bot 会话工具提权申请改由飞书审批卡片处理（仅会话发起人可点）。注意：存量飞书应用需在开发者后台补开「卡片回传」(card.action.trigger) 订阅，否则卡片按钮无响应、审批会一直挂起；如无法开启可将该项设为 `false` 回退 web 审批弹窗 |
 | `feishu.questions` | boolean | `true` | bot 会话的 `ask_user_question` / plan 评审改由飞书问答卡片作答（仅会话发起人可答；见 [飞书渠道](../domains/feishu.md)）。注意：飞书应用需开启卡片回传订阅（同 `feishu.approval`），否则卡片按钮无响应、提问会一直挂起；如无法开启可将该项设为 `false` 回退 web 浏览器作答 |
