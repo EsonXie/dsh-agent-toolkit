@@ -25,8 +25,11 @@ export const feishuChannel: BotChannel = {
       'im.message.message_read_v1': async () => undefined,
       // WS 事件须 3 秒内返回：解析同步完成，业务投递 fire-and-forget（含图片懒下载）。
       'im.message.receive_v1': async (data: unknown) => {
-        const parsed = parseMessageEvent(data, botOpenId)
-        if (parsed === null || !dedup.check(parsed.messageId)) return
+        const result = parseMessageEvent(data, botOpenId, tunables.debugLog)
+        if (result === null) return
+        if (result.kind === 'unsupported') return // Task 4 接 notice
+        const parsed = result.message
+        if (!dedup.check(parsed.messageId)) return
         const reply = new FeishuReplyHandle(api, parsed.chatId, parsed.threadId !== undefined ? parsed.messageId : undefined, tunables, log, tunables.debugLog)
         const loadImages = parsed.imageKeys.length > 0
           ? async () => Promise.all(parsed.imageKeys.map(async (key) => api.downloadImage(parsed.messageId, key)))

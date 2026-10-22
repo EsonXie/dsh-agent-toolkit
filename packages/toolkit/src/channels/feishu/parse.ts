@@ -1,4 +1,5 @@
 /** im.message.receive_v1 事件解析：窄化为渠道无关的 ParsedMessage；message_id 去重。 */
+import type { DebugSink } from '../channel.ts'
 import { stripMentionPlaceholders } from '../directive.ts'
 
 export interface ParsedMessage {
@@ -11,6 +12,33 @@ export interface ParsedMessage {
   imageKeys: readonly string[]
   /** 话题群消息的话题 ID（omt_*）；非话题消息缺席。 */
   threadId?: string
+}
+
+/** 不支持的消息类型标记（渠道层据此回提示，不进核心）。 */
+export interface ParsedUnsupported {
+  messageId: string
+  chatId: string
+  chatType: 'p2p' | 'group'
+  userId: string
+  messageType: string
+  /** 话题群消息的话题 ID；非话题缺席。 */
+  threadId?: string
+}
+
+/** parseMessageEvent 三态：可入核心的消息 / 不支持的类型（渠道回提示） / null（忽略）。 */
+export type ParseResult =
+  | { kind: 'message'; message: ParsedMessage }
+  | { kind: 'unsupported'; unsupported: ParsedUnsupported }
+
+/** unsupported 消息的用户提示文案（渠道层直接回发）。 */
+export function unsupportedNoticeText(messageType: string): string {
+  switch (messageType) {
+    case 'file': return '暂不支持文件消息，请发送文字或截图'
+    case 'media': return '暂不支持视频消息'
+    case 'audio': return '暂不支持语音消息'
+    case 'merge_forward': return '暂不支持合并转发消息'
+    default: return `暂不支持该类型消息（${messageType}）`
+  }
 }
 
 interface RawEvent {
@@ -66,19 +94,34 @@ function parsePostContent(content: string): { text: string; imageKeys: string[] 
  * 群消息 @ 校验身份：mention 的 open_id 必须等于本机器人（应用若持全部群消息权限，
  * 会收到 @ 其他机器人的消息，不能误触发）。
  */
-export function parseMessageEvent(data: unknown, botOpenId: string): ParsedMessage | null {
+export function parseMessageEvent(data: unknown, botOpenId: string, sink?: DebugSink): ParseResult | null {
   const wrapped = data as { event?: RawEvent } & RawEvent
   const event: RawEvent = wrapped.event ?? wrapped
   if (event.sender?.sender_type !== 'user') return null
   const userId = event.sender.sender_id?.open_id
   const msg = event.message
   if (typeof userId !== 'string' || msg === undefined) return null
-  if (msg.message_type !== 'text' && msg.message_type !== 'post' && msg.message_type !== 'image') return null
-  if (typeof msg.content !== 'string') return null
+  if (typeof msg.message_type !== 'string') return null
   if (typeof msg.message_id !== 'string' || typeof msg.chat_id !== 'string') return null
   if (msg.chat_type !== 'p2p' && msg.chat_type !== 'group') return null
   if (msg.chat_type === 'group'
     && !(msg.mentions ?? []).some((m) => m.mentioned_type === 'bot' && m.id?.open_id === botOpenId)) return null
+
+  const threadId = typeof msg.thread_id === 'string' && msg.thread_id.length > 0 ? msg.thread_id : undefined
+  const withThread = threadId !== undefined ? { threadId } : {}
+
+  if (msg.message_type !== 'text' && msg.message_type !== 'post' && msg.message_type !== 'image') {
+    if (msg.message_type === 'sticker') {
+      // 表情贴图无语义价值：静默跳过，仅留日志可反查。
+      sink?.({ event: 'feishu.parse.ignored', reason: 'sticker', messageId: msg.message_id, chatId: msg.chat_id })
+      return null
+    }
+    return {
+      kind: 'unsupported',
+      unsupported: { messageId: msg.message_id, chatId: msg.chat_id, chatType: msg.chat_type, userId, messageType: msg.message_type, ...withThread },
+    }
+  }
+  if (typeof msg.content !== 'string') return null
 
   let text = ''
   let imageKeys: string[] = []
@@ -104,10 +147,9 @@ export function parseMessageEvent(data: unknown, botOpenId: string): ParsedMessa
   }
   if (text.length === 0 && imageKeys.length === 0) return null
 
-  const threadId = typeof msg.thread_id === 'string' && msg.thread_id.length > 0 ? msg.thread_id : undefined
   return {
-    messageId: msg.message_id, chatId: msg.chat_id, chatType: msg.chat_type, userId, text, imageKeys,
-    ...(threadId !== undefined ? { threadId } : {}),
+    kind: 'message',
+    message: { messageId: msg.message_id, chatId: msg.chat_id, chatType: msg.chat_type, userId, text, imageKeys, ...withThread },
   }
 }
 

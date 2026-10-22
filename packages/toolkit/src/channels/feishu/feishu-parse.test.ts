@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'vitest'
-import { MessageDedup, parseMessageEvent, parseRecallEvent } from './parse.ts'
+import { MessageDedup, parseMessageEvent, parseRecallEvent, unsupportedNoticeText } from './parse.ts'
+import type { ParsedMessage, ParseResult } from './parse.ts'
+
+/** 断言结果是 message 形态并取出。 */
+function expectMessage(result: ParseResult | null): ParsedMessage {
+  if (result === null || result.kind !== 'message') {
+    throw new Error(`expected message, got ${JSON.stringify(result)}`)
+  }
+  return result.message
+}
 
 /** 本机器人 open_id（渠道启动时经 bot/v3/info 取回）。 */
 const BOT = 'ou_bot_self'
@@ -32,7 +41,7 @@ function groupEvent(mentions: unknown[], text: string): unknown {
 
 describe('parseMessageEvent', () => {
   test('p2p 文本消息解析成功', () => {
-    expect(parseMessageEvent(event(), BOT)).toEqual({
+    expect(expectMessage(parseMessageEvent(event(), BOT))).toEqual({
       messageId: 'om_1', chatId: 'oc_1', chatType: 'p2p', userId: 'ou_u1', text: '你好', imageKeys: [],
     })
   })
@@ -40,7 +49,7 @@ describe('parseMessageEvent', () => {
   test('群消息：未 @机器人 → null；@人不算；@本机器人 → 剥占位符', () => {
     expect(parseMessageEvent(groupEvent([], '你好'), BOT)).toBeNull()
     expect(parseMessageEvent(groupEvent([mention('user', 'ou_u2')], '@_user_1 你好'), BOT)).toBeNull()
-    expect(parseMessageEvent(groupEvent([mention('bot', BOT)], '@_user_1 帮我看看'), BOT))
+    expect(expectMessage(parseMessageEvent(groupEvent([mention('bot', BOT)], '@_user_1 帮我看看'), BOT)))
       .toMatchObject({ text: '帮我看看', chatType: 'group' })
   })
 
@@ -76,9 +85,9 @@ describe('parseMessageEvent', () => {
         { tag: 'img', image_key: 'img_v1_b' },
       ]],
     })
-    expect(parseMessageEvent(event({
+    expect(expectMessage(parseMessageEvent(event({
       message: { message_id: 'om_p', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'post', content, mentions: [] },
-    }), BOT)).toEqual({
+    }), BOT))).toEqual({
       messageId: 'om_p', chatId: 'oc_1', chatType: 'p2p', userId: 'ou_u1',
       text: '帮我看 链接文字\n第二段',
       imageKeys: ['img_v1_a', 'img_v1_b'],
@@ -86,9 +95,9 @@ describe('parseMessageEvent', () => {
   })
 
   test('纯图片消息（image）：无文本但有 image_key', () => {
-    expect(parseMessageEvent(event({
+    expect(expectMessage(parseMessageEvent(event({
       message: { message_id: 'om_i', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'image', content: JSON.stringify({ image_key: 'img_v1_c' }), mentions: [] },
-    }), BOT)).toMatchObject({ text: '', imageKeys: ['img_v1_c'] })
+    }), BOT))).toMatchObject({ text: '', imageKeys: ['img_v1_c'] })
   })
 
   test('post 图片节点缺 image_key / image 消息缺 image_key → 忽略该图；全空 → null', () => {
@@ -109,6 +118,71 @@ describe('parseMessageEvent', () => {
         content: JSON.stringify({ content: [[{ tag: 'text', text: 'hi' }]] }), mentions: [],
       },
     }), BOT)).toBeNull()
+  })
+
+  test('不支持的消息类型 → unsupported 标记（字段完整，threadId 透传）', () => {
+    for (const messageType of ['file', 'media', 'audio', 'merge_forward']) {
+      const result = parseMessageEvent(event({
+        message: {
+          message_id: `om_${messageType}`, chat_id: 'oc_1', chat_type: 'p2p',
+          message_type: messageType, content: '{}', mentions: [],
+        },
+      }), BOT)
+      expect(result).toEqual({
+        kind: 'unsupported',
+        unsupported: {
+          messageId: `om_${messageType}`, chatId: 'oc_1', chatType: 'p2p',
+          userId: 'ou_u1', messageType,
+        },
+      })
+    }
+    // 未知类型同样 unsupported
+    const unknown = parseMessageEvent(event({
+      message: { message_id: 'om_u', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'hongbao', content: '{}', mentions: [] },
+    }), BOT)
+    expect(unknown).toMatchObject({ kind: 'unsupported', unsupported: { messageType: 'hongbao' } })
+    // 话题内 unsupported 透传 threadId
+    const threaded = parseMessageEvent(event({
+      message: {
+        message_id: 'om_ut', chat_id: 'oc_g', chat_type: 'group', message_type: 'file',
+        thread_id: 'omt_1', content: '{}', mentions: [mention('bot', BOT)],
+      },
+    }), BOT)
+    expect(threaded).toMatchObject({ kind: 'unsupported', unsupported: { threadId: 'omt_1' } })
+  })
+
+  test('群消息未 @机器人：unsupported 类型也不回提示（null）', () => {
+    expect(parseMessageEvent(event({
+      message: { message_id: 'om_f', chat_id: 'oc_g', chat_type: 'group', message_type: 'file', content: '{}', mentions: [] },
+    }), BOT)).toBeNull()
+  })
+
+  test('sticker → null + feishu.parse.ignored 日志', () => {
+    const events: { event: string; [key: string]: unknown }[] = []
+    const sink = (e: { event: string; [key: string]: unknown }): void => { events.push(e) }
+    const result = parseMessageEvent(event({
+      message: { message_id: 'om_s', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'sticker', content: '{}', mentions: [] },
+    }), BOT, sink)
+    expect(result).toBeNull()
+    expect(events).toEqual([{ event: 'feishu.parse.ignored', reason: 'sticker', messageId: 'om_s', chatId: 'oc_1' }])
+  })
+
+  test('群消息未 @机器人：sticker 也不写 ignored 日志（先过滤）', () => {
+    const events: { event: string; [key: string]: unknown }[] = []
+    parseMessageEvent(event({
+      message: { message_id: 'om_s2', chat_id: 'oc_g', chat_type: 'group', message_type: 'sticker', content: '{}', mentions: [] },
+    }), BOT, (e) => { events.push(e) })
+    expect(events).toEqual([])
+  })
+})
+
+describe('unsupportedNoticeText', () => {
+  test('各类型文案', () => {
+    expect(unsupportedNoticeText('file')).toBe('暂不支持文件消息，请发送文字或截图')
+    expect(unsupportedNoticeText('media')).toBe('暂不支持视频消息')
+    expect(unsupportedNoticeText('audio')).toBe('暂不支持语音消息')
+    expect(unsupportedNoticeText('merge_forward')).toBe('暂不支持合并转发消息')
+    expect(unsupportedNoticeText('hongbao')).toBe('暂不支持该类型消息（hongbao）')
   })
 })
 
@@ -141,8 +215,8 @@ test('话题群消息透传 threadId', () => {
       mentions: [{ mentioned_type: 'bot', id: { open_id: BOT } }],
     },
   }
-  const parsed = parseMessageEvent(event, BOT)
-  expect(parsed?.threadId).toBe('omt_abc')
+  const parsed = expectMessage(parseMessageEvent(event, BOT))
+  expect(parsed.threadId).toBe('omt_abc')
 })
 
 test('普通群消息 threadId 缺席', () => {
@@ -154,6 +228,6 @@ test('普通群消息 threadId 缺席', () => {
       mentions: [{ mentioned_type: 'bot', id: { open_id: BOT } }],
     },
   }
-  const parsed = parseMessageEvent(event, BOT)
-  expect(parsed?.threadId).toBeUndefined()
+  const parsed = expectMessage(parseMessageEvent(event, BOT))
+  expect(parsed.threadId).toBeUndefined()
 })
