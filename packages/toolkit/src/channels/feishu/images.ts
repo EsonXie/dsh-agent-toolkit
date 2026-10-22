@@ -1,5 +1,8 @@
 /** 出站图片渠道适配：markdown 图片引用净化（纯函数）+ 本地图片上传换 img_key（ImageResolver）。 */
+import { readFile } from 'node:fs/promises'
+import { isAbsolute, resolve as resolvePath } from 'node:path'
 import type { TurnSegment } from '../channel.ts'
+import { sniffImageMediaType, type FeishuApi } from './api.ts'
 
 /** 一张图片引用在卡片中的呈现状态。 */
 export type ImageResolution =
@@ -45,4 +48,45 @@ export function stripImages(text: string): string {
 /** 段序列净化：text 与 process 段同规则（reasoning 也可能复述图片语法）。 */
 export function sanitizeSegments(segments: readonly TurnSegment[], lookup: ImageLookup): TurnSegment[] {
   return segments.map((s) => ({ kind: s.kind, content: sanitizeText(s.content, lookup) }))
+}
+
+/** 飞书图片上传大小上限（平台限制 10MB）。 */
+export const IMAGE_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
+
+/** 本地图片 → img_key 上传器：绝对路径归一化做缓存键，三态永久定格，落定回调触发卡片重刷。 */
+export class ImageResolver {
+  private readonly cache = new Map<string, ImageResolution>()
+
+  constructor(
+    private readonly api: FeishuApi,
+    /** 相对路径解析基准（bot 项目根）。 */
+    private readonly projectRoot: string,
+    /** 上传落定（成功或失败）回调（reply 句柄重刷卡片用）。 */
+    private readonly onSettled: () => void,
+    private readonly maxBytes: number = IMAGE_UPLOAD_MAX_BYTES,
+  ) {}
+
+  resolve(localPath: string): ImageResolution {
+    const abs = isAbsolute(localPath) ? localPath : resolvePath(this.projectRoot, localPath)
+    const hit = this.cache.get(abs)
+    if (hit !== undefined) return hit
+    const pending: ImageResolution = { status: 'pending' }
+    this.cache.set(abs, pending)
+    void this.upload(abs)
+    return pending
+  }
+
+  private async upload(abs: string): Promise<void> {
+    let result: ImageResolution
+    try {
+      const data = new Uint8Array(await readFile(abs))
+      if (data.byteLength === 0 || data.byteLength > this.maxBytes) throw new Error(`图片大小越界（${data.byteLength} 字节）`)
+      if (sniffImageMediaType(data) === undefined) throw new Error('魔数不是受支持图片')
+      result = { status: 'ready', imgKey: await this.api.uploadImage(data) }
+    } catch {
+      result = { status: 'failed' }
+    }
+    this.cache.set(abs, result)
+    this.onSettled()
+  }
 }
