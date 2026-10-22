@@ -151,6 +151,23 @@ describe('parseMessageEvent', () => {
     expect(events).toEqual([])
   })
 
+  test('code_block：字符串语言（官方文档现行形态）小写化直用；未知字符串同样透传', () => {
+    const content = JSON.stringify({ content: [
+      [{ tag: 'code_block', language: 'PYTHON', text: 'print(1)' }],
+      [{ tag: 'code_block', language: 'BRAINFUCK', text: '+' }],
+    ] })
+    expect(expectMessage(parseMessageEvent(event({
+      message: { message_id: 'om_c4', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'post', content, mentions: [] },
+    }), BOT)).text).toBe('```python\nprint(1)\n```\n```brainfuck\n+\n```')
+  })
+
+  test('code_block：空字符串语言 → 省略语言名', () => {
+    const content = JSON.stringify({ content: [[{ tag: 'code_block', language: '', text: 'x' }]] })
+    expect(expectMessage(parseMessageEvent(event({
+      message: { message_id: 'om_c5', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'post', content, mentions: [] },
+    }), BOT)).text).toBe('```\nx\n```')
+  })
+
   test('未知标签跳过 + feishu.parse.skip-tag 日志（at/emotion 同样记录）', () => {
     const events: { event: string; [key: string]: unknown }[] = []
     const content = JSON.stringify({ content: [[

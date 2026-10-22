@@ -102,7 +102,9 @@ function parsePostContent(content: string, messageId: string, sink?: DebugSink):
         } else if (node.tag === 'code_block' && typeof node.text === 'string') {
           // 围栏块独立成段：先冲刷行内 parts，后续文本另起新段，避免与代码粘同一行。
           flush()
-          const lang = typeof node.language === 'number' ? CODE_LANG[node.language] ?? '' : ''
+          const lang = typeof node.language === 'number' ? CODE_LANG[node.language] ?? ''
+            : typeof node.language === 'string' ? node.language.toLowerCase()
+            : ''
           paragraphs.push(`\`\`\`${lang}\n${node.text}\n\`\`\``)
         } else if (node.tag === 'media') {
           const name = typeof node.file_name === 'string' && node.file_name.length > 0 ? `: ${node.file_name}` : ''
