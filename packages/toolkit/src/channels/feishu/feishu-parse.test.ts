@@ -89,9 +89,57 @@ describe('parseMessageEvent', () => {
       message: { message_id: 'om_p', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'post', content, mentions: [] },
     }), BOT))).toEqual({
       messageId: 'om_p', chatId: 'oc_1', chatType: 'p2p', userId: 'ou_u1',
-      text: '帮我看 链接文字\n第二段',
+      text: '图片消息\n帮我看 [链接文字](https://x)\n第二段',
       imageKeys: ['img_v1_a', 'img_v1_b'],
     })
+  })
+
+  test('a 标签：href 等于 text 或 href 空 → 退化为纯文本', () => {
+    const content = JSON.stringify({ content: [[
+      { tag: 'a', text: 'https://x', href: 'https://x' },
+      { tag: 'a', text: '裸文字', href: '' },
+      { tag: 'a', text: '无href' },
+    ]] })
+    expect(expectMessage(parseMessageEvent(event({
+      message: { message_id: 'om_a', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'post', content, mentions: [] },
+    }), BOT)).text).toBe('https://x裸文字无href')
+  })
+
+  test('post 空标题 / 无标题 → 不产生首行', () => {
+    const content = JSON.stringify({ title: '  ', content: [[{ tag: 'text', text: '正文' }]] })
+    expect(expectMessage(parseMessageEvent(event({
+      message: { message_id: 'om_t', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'post', content, mentions: [] },
+    }), BOT)).text).toBe('正文')
+  })
+
+  test('media 节点 → 行内占位；带 file_name 时附名', () => {
+    const content = JSON.stringify({ content: [[
+      { tag: 'text', text: '看这个' },
+      { tag: 'media', file_key: 'file_v1_x', file_name: '演示.mp4' },
+      { tag: 'media', file_key: 'file_v1_y' },
+    ]] })
+    expect(expectMessage(parseMessageEvent(event({
+      message: { message_id: 'om_m', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'post', content, mentions: [] },
+    }), BOT)).text).toBe('看这个[附件: 演示.mp4][附件]')
+  })
+
+  test('未知标签跳过 + feishu.parse.skip-tag 日志（at/emotion 同样记录）', () => {
+    const events: { event: string; [key: string]: unknown }[] = []
+    const content = JSON.stringify({ content: [[
+      { tag: 'text', text: 'hi' },
+      { tag: 'hr' },
+      { tag: 'at', user_id: 'ou_x' },
+      { tag: 'emotion', emoji_type: 'SMILE' },
+    ]] })
+    const msg = expectMessage(parseMessageEvent(event({
+      message: { message_id: 'om_k', chat_id: 'oc_1', chat_type: 'p2p', message_type: 'post', content, mentions: [] },
+    }), BOT, (e) => { events.push(e) }))
+    expect(msg.text).toBe('hi')
+    expect(events).toEqual([
+      { event: 'feishu.parse.skip-tag', tag: 'hr', messageId: 'om_k' },
+      { event: 'feishu.parse.skip-tag', tag: 'at', messageId: 'om_k' },
+      { event: 'feishu.parse.skip-tag', tag: 'emotion', messageId: 'om_k' },
+    ])
   })
 
   test('纯图片消息（image）：无文本但有 image_key', () => {

@@ -54,32 +54,50 @@ interface RawEvent {
   }
 }
 
-/** post 富文本节点：text/a 取文本，img 收 image_key，at（@占位）与其余标签跳过。 */
+/** post 富文本节点：text/a 取文本，img 收 image_key，code_block 成围栏块，media 占位；其余跳过 + 日志。 */
 interface PostNode {
   tag?: unknown
   text?: unknown
+  href?: unknown
   image_key?: unknown
+  language?: unknown
+  file_name?: unknown
 }
 
-/** 从 post content（段落数组）抽取文本与图片 key；段落间以换行连接。 */
-function parsePostContent(content: string): { text: string; imageKeys: string[] } {
+/** 从 post content 抽取文本与图片 key；title 非空作首行，段落间以换行连接。 */
+function parsePostContent(content: string, messageId: string, sink?: DebugSink): { text: string; imageKeys: string[] } {
   const imageKeys: string[] = []
   const paragraphs: string[] = []
   try {
-    const parsed = JSON.parse(content) as { content?: unknown }
+    const parsed = JSON.parse(content) as { title?: unknown; content?: unknown }
+    if (typeof parsed.title === 'string' && parsed.title.trim().length > 0) paragraphs.push(parsed.title.trim())
     const list = Array.isArray(parsed.content) ? parsed.content : []
     for (const paragraph of list) {
       if (!Array.isArray(paragraph)) continue
-      const parts: string[] = []
+      let parts: string[] = []
+      // 冲刷行内 parts 为独立段落；空 parts 不产生空行（纯图片段落）。
+      const flush = (): void => {
+        const joined = parts.join('')
+        parts = []
+        if (joined.length > 0) paragraphs.push(joined)
+      }
       for (const node of paragraph as PostNode[]) {
         if (node === null || typeof node !== 'object') continue
         if (node.tag === 'img') {
           if (typeof node.image_key === 'string' && node.image_key.length > 0) imageKeys.push(node.image_key)
-        } else if ((node.tag === 'text' || node.tag === 'a') && typeof node.text === 'string') {
+        } else if (node.tag === 'text' && typeof node.text === 'string') {
           parts.push(node.text)
+        } else if (node.tag === 'a' && typeof node.text === 'string') {
+          const href = typeof node.href === 'string' ? node.href : ''
+          parts.push(href.length > 0 && href !== node.text ? `[${node.text}](${href})` : node.text)
+        } else if (node.tag === 'media') {
+          const name = typeof node.file_name === 'string' && node.file_name.length > 0 ? `: ${node.file_name}` : ''
+          parts.push(`[附件${name}]`)
+        } else {
+          sink?.({ event: 'feishu.parse.skip-tag', tag: String(node.tag), messageId })
         }
       }
-      paragraphs.push(parts.join(''))
+      flush()
     }
   } catch {
     return { text: '', imageKeys: [] }
@@ -89,8 +107,8 @@ function parsePostContent(content: string): { text: string; imageKeys: string[] 
 
 /**
  * SDK handler 收到的 data 即事件体（README 示例 `data.message` 直接解构）；
- * 兼容包一层 { event } 的形态。过滤：机器人消息、非 text/post/image 类型、
- * 群内未 @机器人、无文本且无图片。
+ * 兼容包一层 { event } 的形态。过滤：机器人消息、群内未 @机器人、无文本且无图片；
+ * 非 text/post/image 类型回 unsupported 标记（sticker 静默忽略、仅留日志）。
  * 群消息 @ 校验身份：mention 的 open_id 必须等于本机器人（应用若持全部群消息权限，
  * 会收到 @ 其他机器人的消息，不能误触发）。
  */
@@ -134,7 +152,7 @@ export function parseMessageEvent(data: unknown, botOpenId: string, sink?: Debug
       return null
     }
   } else if (msg.message_type === 'post') {
-    const post = parsePostContent(msg.content)
+    const post = parsePostContent(msg.content, msg.message_id, sink)
     text = stripMentionPlaceholders(post.text)
     imageKeys = post.imageKeys
   } else {
