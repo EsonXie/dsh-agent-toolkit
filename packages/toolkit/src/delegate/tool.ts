@@ -1,13 +1,12 @@
 /** team_delegate 工具：查角色 → startActivation 前台委派 → 规范 JSON 返回。
- *  0.2.1：persona 与工具白名单由角色 preset 承载（role-preset.ts 生命周期），请求只按
- *  角色选 preset（agentPreset），不再内联 persona/toolFilter。 */
+ *  不选独立 agentPreset：子级继承父 preset 的完整工具面；角色 persona 与工具白名单由
+ *  role-composition 在 agent/created 时叠加到子 scope。 */
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { SubagentActivation, SubagentActivationSpec, SubagentResult } from '@deepseek-ai/dsh-subagent'
 import { isTeamVisible, type AgentRecord } from '../agents/store.ts'
-import { rolePresetId } from './role-preset.ts'
 import type { ActiveRoutes, DelegateRoute } from './active.ts'
 
 /** createDelegateTool 的外部依赖。 */
@@ -16,7 +15,7 @@ export interface DelegateToolDeps {
   readonly roster: () => readonly AgentRecord[]
   /** ctx.subagents 的 provider 名（默认 'spawn'）。 */
   readonly provider: string
-  /** 0.2.1：persona/白名单由角色 preset 承载，buildPersona 改由 role-preset 生命周期消费。 */
+  /** 0.2.1：persona/白名单由 role-composition 在 agent/created 时叠加到子 scope。 */
   readonly startActivation: (spec: SubagentActivationSpec) => Promise<SubagentActivation>
   /** 在途表：运行中委派卡 chip 的数据源。 */
   readonly active: ActiveRoutes
@@ -151,7 +150,8 @@ export function createDelegateTool(toolName: string, deps: DelegateToolDeps) {
         request: {
           prompt: [{ type: 'text', text: args.prompt } as ContentBlock],
           parent,
-          agentPreset: rolePresetId(role.id),
+          // 不选独立 preset：子级继承父 preset 的完整工具面；角色 persona/白名单由
+          // role-composition 在 agent/created 时叠加到子 scope。
           maxDepth: 1, // 禁止套娃：成员（深度 1）再委派时 childDepth 2 > 1，provider 响亮拒绝
           ...role.model !== undefined
             ? { agentOptions: { provider: role.model.provider, model: role.model.model } }

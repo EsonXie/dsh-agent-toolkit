@@ -8,7 +8,7 @@ Agent 注册表：UI 管理（**设置面板 → Agent 工具箱 → Agents**，
 
 ## 工具名册与白名单求交
 
-`/tools` 名册 = 动态枚举 agent-team standing 面（`agents/tool-catalog.ts`，agentPresets 缺席/枚举失败回退 `NATIVE_TOOL_NAMES` 兜底）；存量自定义白名单一次性并入「preset 面 − 内置常量」差集（`meta` 表 `tools_preset_catalog_migrated` 标记，幂等；内置角色不 widen，枚举失败下次启动重试）；白名单两条生效路径：bot 会话在 `channels/agent-setup.ts` 与该会话真实可见面求交、未知名 warn-drop、空交集抛错（不再抛 unknown global tools）；委派侧不经请求 toolFilter（0.2.1 已删该字段），改由角色 preset 的 `role-tools` 组合行 restrict——白名单在 `delegate/role-preset.ts` 注册 preset 时与全局工具面求交（未知名与 run_code warn-drop，求交为空不挂 tools 行 = 退化为不限制），详见 [delegation.md](delegation.md)。
+`/tools` 名册 = 动态枚举 agent-team standing 面（`agents/tool-catalog.ts`，agentPresets 缺席/枚举失败回退 `NATIVE_TOOL_NAMES` 兜底）；存量自定义白名单一次性并入「preset 面 − 内置常量」差集（`meta` 表 `tools_preset_catalog_migrated` 标记，幂等；内置角色只 widen，枚举失败下次启动重试）；白名单两条生效路径：bot 会话经 `channels/agent-setup.ts` 与该会话真实可见面求交、未知名 warn-drop、空交集抛错（不再抛 unknown global tools）；委派侧（0.2.1 已无 `toolFilter` 请求字段）在 `delegate/role-composition.ts` 的 `agent/created` 监听器里与**子会话真实可见面**求交后对子 scope `tools.restrict({ allow })`（未知名与 run_code warn-drop；空交集 fail-closed 为无工具；`role.tools` 省略 = 不限制），详见 [delegation.md](delegation.md)。
 
 ## 内置 preset 自动生成
 
@@ -16,4 +16,4 @@ Agent 注册表：UI 管理（**设置面板 → Agent 工具箱 → Agents**，
 
 ## 会话创建与工具面（setup / scope / restrict）
 
-内存 setup 建会话：`ctx.agents.create` + `setup` 建实时 agent；基础工具行（persona/instructions/shell/fs/fs-search）由 `tool-scope.ts` 的 standing scope 一次性挂载（祖先 scope 层），`setupAgentScope` 在 setup 里 join（`bindScopeParent`）后叠 persona/tools 白名单。bot 会话例外（preset 优先 joiner，`scope-joiner.ts` `createScopeJoiner`）：挂 `agent-team` preset（`agentTeamPreset.id`；`enabled: false` 时不下达 id、直接走 standing scope）mount 成功即挂、失败 warn 回退 `BASIC_TOOLS` standing scope；preset standing mount 父链让宿主 `composeFrom` 认父，bot 会话委派子会话继承同一 agent-team 工具面（角色白名单求交底面随 preset 从 bot 最小面变为 agent-team 面，`agent-setup.ts` / `role-preset.ts` 逻辑不变、「不限制」时行为变宽）。**restrict 只能过滤继承面（global + 祖先 scope 层），own 层（agentCtx 直挂）的名字既不可 restrict 也不受 restrict 影响**——直挂后 restrict 白名单会抛 unknown global tools（2026-09-03 第二起"fake 单测掩盖宿主语义"事故，第一起是未声明包的 tsx 兜底）。
+内存 setup 建会话：`ctx.agents.create` + `setup` 建实时 agent；基础工具行（persona/instructions/shell/fs/fs-search）由 `tool-scope.ts` 的 standing scope 一次性挂载（祖先 scope 层），`setupAgentScope` 在 setup 里 join（`bindScopeParent`）后叠 persona/tools 白名单。bot 会话例外（preset 优先 joiner，`scope-joiner.ts` `createScopeJoiner`）：挂 `agent-team` preset（`agentTeamPreset.id`；`enabled: false` 时不下达 id、直接走 standing scope）mount 成功即挂、失败 warn 回退 `BASIC_TOOLS` standing scope；preset standing mount 父链让宿主 `composeFrom` 认父，bot 会话委派子会话继承同一 agent-team 工具面（角色白名单求交底面随 preset 从 bot 最小面变为 agent-team 面，委派子会话继承 agent-team preset 后在子 scope 按该面求交并 restrict（`delegate/role-composition.ts`））。**restrict 只能过滤继承面（global + 祖先 scope 层），own 层（agentCtx 直挂）的名字既不可 restrict 也不受 restrict 影响**——直挂后 restrict 白名单会抛 unknown global tools（2026-09-03 第二起"fake 单测掩盖宿主语义"事故，第一起是未声明包的 tsx 兜底）。

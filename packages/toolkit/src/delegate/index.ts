@@ -1,5 +1,5 @@
 /** delegate 模块：注册表驱动的 team_delegate 委派工具 + 函数式团队提示段。
- *  0.2.1：persona/工具白名单迁出工具请求，经角色 preset 组合承载（role-preset.ts）。 */
+ *  角色 persona/工具白名单经 agent/created 叠加到子 Agent scope（role-composition.ts）。 */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import { isTeamVisible, type AgentRecord } from '../agents/store.ts'
@@ -7,7 +7,7 @@ import type { AgentRegistry } from '../agents/registry.ts'
 import { buildAgentPersona } from '../prompt/persona.ts'
 import type { Rule } from '../prompt/types.ts'
 import { createDelegateTool } from './tool.ts'
-import { setupRolePresets } from './role-preset.ts'
+import { setupRoleComposition } from './role-composition.ts'
 import type { ActiveRoutes, DelegateRoute } from './active.ts'
 
 export type { DelegateToolDeps } from './tool.ts'
@@ -58,7 +58,6 @@ export function setupDelegate(ctx: Context, config: DelegateConfig, registry: Ag
   let providerFailed = false
   const mountTool = (p: SubagentProvider): void => {
     const missing: string[] = []
-    if (!p.capabilities.agentPreset) missing.push('agentPreset')
     if (!p.capabilities.depthLimit) missing.push('depthLimit')
     if (!p.capabilities.agentOptions) missing.push('agentOptions')
     if (missing.length > 0) {
@@ -113,6 +112,6 @@ export function setupDelegate(ctx: Context, config: DelegateConfig, registry: Ag
       ctx.tools.get(config.toolName, context.scope) !== undefined,
     ),
   })
-  // 角色 preset 生命周期：persona 与工具白名单经 preset 组合承载，委派请求只按角色选 preset。
-  setupRolePresets(ctx, registry, (role) => buildAgentPersona({ rules: config.rules }, role, role.model))
+  // 角色组合：子级继承父 preset，再在 agent/created 时叠加角色 persona 与工具白名单。
+  setupRoleComposition(ctx, registry, (role) => buildAgentPersona({ rules: config.rules }, role, role.model))
 }

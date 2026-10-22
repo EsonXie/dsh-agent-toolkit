@@ -5,7 +5,6 @@ import type { AgentRecord } from '../agents/store.ts'
 import type { AgentRegistry } from '../agents/registry.ts'
 import { setupDelegate } from './index.ts'
 import { createActiveRoutes } from './active.ts'
-import { rolePresetId } from './role-preset.ts'
 import { teamSectionText } from './index.ts'
 
 const ROSTER = [
@@ -68,8 +67,8 @@ function fakeProvider(capabilities: Record<string, boolean>): SubagentProvider {
 function fakeDelegateCtx(provider: SubagentProvider | undefined) {
   const registeredTools: { name: string; execute?: (a: unknown, e: unknown) => Promise<unknown> }[] = []
   const errors: string[] = []
-  const presetIds: string[] = []
   const capturedSpecs: SubagentActivationSpec[] = []
+  const handlers: Record<string, (...args: never[]) => unknown> = {}
   const ctx = {
     tools: {
       register: (tool: { name: string; execute?: (a: unknown, e: unknown) => Promise<unknown> }) => {
@@ -96,14 +95,12 @@ function fakeDelegateCtx(provider: SubagentProvider | undefined) {
         } as unknown as SubagentActivation
       },
     },
-    on: () => () => {},
+    on: (name: string, listener: (...args: never[]) => unknown) => { handlers[name] = listener; return () => {} },
     systemPrompt: { section: () => () => {}, getSectionOrder: () => 2800 },
     effect: (fn: () => () => void) => fn(),
-    get: (name: string) => name === 'agentPresets'
-      ? { register: async (definition: { id: string }) => { presetIds.push(definition.id); return async () => {} } }
-      : undefined,
+    get: () => undefined,
   } as unknown as Context
-  return { ctx, registeredTools, errors, presetIds, capturedSpecs }
+  return { ctx, registeredTools, errors, handlers, capturedSpecs }
 }
 
 function setupWith(provider: SubagentProvider | undefined, registry = fakeRegistry(SETUP_ROSTER)) {
@@ -115,17 +112,14 @@ function setupWith(provider: SubagentProvider | undefined, registry = fakeRegist
   return fake
 }
 
-// setupRolePresets 的首次同步走 void 异步链， flush 微任务后再断言。
-const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
-
 describe('setupDelegate', () => {
   const parent = {
     options: { provider: 'deepseek', model: 'deepseek-chat' },
     session: { id: 'parent-session-1' },
   }
 
-  test('provider 具备 agentPreset/depthLimit/agentOptions：挂载工具；执行后 spec 经 ctx.subagents.startActivation 发出（agentPreset/maxDepth/delivery 正确）', async () => {
-    const fake = setupWith(fakeProvider({ agentPreset: true, depthLimit: true, agentOptions: true }))
+  test('执行 team_delegate：spec 经 ctx.subagents.startActivation 发出（继承父 preset/maxDepth/delivery）', async () => {
+    const fake = setupWith(fakeProvider({ depthLimit: true, agentOptions: true }))
     expect(fake.registeredTools.map(t => t.name)).toEqual(['team_delegate'])
     const tool = fake.registeredTools[0]!
     const result = await tool.execute!({ role: 'reviewer', description: '审查', prompt: '任务' },
@@ -135,31 +129,32 @@ describe('setupDelegate', () => {
     const spec = fake.capturedSpecs[0]!
     expect(spec.provider).toBe('spawn')
     expect(spec.delivery).toBe('caller')
-    expect(spec.request.agentPreset).toBe(rolePresetId('reviewer'))
+    expect('agentPreset' in spec.request).toBe(false)
     expect(spec.request.maxDepth).toBe(1)
     expect(fake.errors).toEqual([])
   })
 
-  test('provider 缺能力：初始在场即响亮抛错（能力清单）且不挂载工具', () => {
+  test('provider 缺 agentPreset：不再要求该能力，照常挂载（子级继承父 preset）', () => {
+    const fake = setupWith(fakeProvider({ agentPreset: false, depthLimit: true, agentOptions: true }))
+    expect(fake.registeredTools.map(t => t.name)).toEqual(['team_delegate'])
+    expect(fake.errors).toEqual([])
+  })
+
+  test('provider 缺 depthLimit/agentOptions：初始在场即响亮抛错且不挂载工具', () => {
     let registered: string[] = []
     try {
-      const fake = setupWith(fakeProvider({ agentPreset: false, depthLimit: true, agentOptions: true }))
+      const fake = setupWith(fakeProvider({ agentPreset: false, depthLimit: false, agentOptions: false }))
       registered = fake.registeredTools.map(t => t.name)
     } catch (error) {
       expect(error).toBeInstanceOf(Error)
-      expect((error as Error).message).toContain('缺少 team_delegate 委派必需能力 agentPreset')
+      expect((error as Error).message).toContain('缺少 team_delegate 委派必需能力 depthLimit/agentOptions')
     }
     expect(registered).toEqual([])
   })
 
-  test('provider 全部缺能力：抛齐全清单', () => {
-    expect(() => setupWith(fakeProvider({ agentPreset: false, depthLimit: false, agentOptions: false })))
-      .toThrowError(/缺少 team_delegate 委派必需能力 agentPreset\/depthLimit\/agentOptions/)
-  })
-
-  test('setupDelegate 后为团队角色注册对应 preset（断言收到 dsh-agent-toolkit-role-<id>）', async () => {
-    const fake = setupWith(fakeProvider({ agentPreset: true, depthLimit: true, agentOptions: true }))
-    await flush()
-    expect(fake.presetIds).toContain(rolePresetId('reviewer'))
+  test('setupDelegate 注册 agent/created 组合监听器，不再注册角色 preset', () => {
+    const fake = setupWith(fakeProvider({ depthLimit: true, agentOptions: true }))
+    expect(fake.handlers['agent/created']).toBeTypeOf('function')
+    expect(fake.handlers['agent/created']).toHaveLength(1)
   })
 })

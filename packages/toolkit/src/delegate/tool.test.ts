@@ -4,7 +4,6 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SubagentActivation, SubagentActivationSpec, SubagentResult } from '@deepseek-ai/dsh-subagent'
 import type { AgentRecord } from '../agents/store.ts'
 import { createActiveRoutes, type ActiveRoutes, type DelegateRoute } from './active.ts'
-import { rolePresetId } from './role-preset.ts'
 import { createDelegateTool, type DelegateToolDeps } from './tool.ts'
 
 const ROSTER: AgentRecord[] = [
@@ -77,7 +76,7 @@ test('成功委派：spec 字段正确（preset/maxDepth/delivery），返回规
   expect(spec.label).toBe('role:reviewer: 审查登录模块')
   expect(spec.signal).toBe(exec.signal)
   const request = spec.request
-  expect(request.agentPreset).toBe(rolePresetId('reviewer'))
+  expect('agentPreset' in request).toBe(false)
   expect(request.maxDepth).toBe(1)
   expect(request.parent).toBe(parent)
   expect(request.agentOptions).toEqual({ provider: 'deepseek', model: 'deepseek-reasoner' })
@@ -87,12 +86,12 @@ test('成功委派：spec 字段正确（preset/maxDepth/delivery），返回规
   expect(activation.disposed).toBe(true)
 })
 
-test('角色未配 model：不传 agentOptions；agentPreset 照常选择；无 persona/toolFilter 键', async () => {
+test('角色未配 model：不传 agentOptions；不选 preset；无 persona/toolFilter 键', async () => {
   const captured: Captured[] = []
   const tool = createDelegateTool('team_delegate', depsWith(fakeActivation({ stopReason: 'completed', output: [] } as SubagentResult), captured))
   await callTool(tool, { role: 'worker', description: '执行', prompt: '任务' })
   const request = captured[0]!.spec.request
-  expect(request.agentPreset).toBe(rolePresetId('worker'))
+  expect('agentPreset' in request).toBe(false)
   expect(request.agentOptions).toBeUndefined()
   expect('persona' in request).toBe(false)
   expect('toolFilter' in request).toBe(false)

@@ -1,6 +1,6 @@
 {
   "name": "dsh-agent-toolkit",
-  "version": "0.4.12",
+  "version": "0.4.13",
   "description": "DeepSeek Harness plugin: agent registry with layered prompts, parallel delegation, Feishu bots and token usage",
   "license": "MIT",
   "keywords": [
@@ -27,14 +27,6 @@
       "default": "./lib/index.js"
     },
     "./client": "./lib/client.js",
-    "./role-persona": {
-      "types": "./lib/role-persona.d.ts",
-      "default": "./lib/role-persona.js"
-    },
-    "./role-tools": {
-      "types": "./lib/role-tools.d.ts",
-      "default": "./lib/role-tools.js"
-    },
     "./package.json": "./package.json"
   },
   "files": [
