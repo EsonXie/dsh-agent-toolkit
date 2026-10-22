@@ -51,7 +51,7 @@ export type ParseResult =
 | `text` | 原样行内拼接（不变） |
 | `a` | href 非空且 ≠ text 时输出 `[text](href)`；否则退化为 text |
 | `code_block` | **冲刷当前段落**（已有 parts 先成段），围栏块作为独立 paragraph 插入，后续文本另起新段——避免代码与前后文粘连同行。格式：` ```lang\ntext\n``` `，语言名见映射表，表外省略 |
-| `img` | 收 image_key（不变）；段落只有图无文本时不产生空行段落 |
+| `img` | 收 image_key，并在原位置插入占位符 `[图片N]`（N = 消息内有效图片出现序号，从 1 起，与 imageKeys 下标一一对应）；无有效 image_key 的节点不占位、不入 imageKeys（编号不跳号）。纯图片段落生成 `[图片N]` 行（不再跳过空段落）。独立 `image` 消息（`msg_type=image`）不产生占位符，仍 `text: ''` |
 | `media` | 行内插入占位文本 `[附件]`；带 `file_name` 时用 `[附件: <file_name>]` |
 | `at`、`emotion`、其余未知标签 | 跳过 + debugLog（事件 `feishu.parse.skip-tag`，含 tag 名） |
 
@@ -59,7 +59,7 @@ export type ParseResult =
 
 常用子集映射（数字 → 语言名），表外省略语言名。覆盖约 25 种：PlainText(1)、Bash(7)、CSharp(8)、C++(9)、C(10)、CSS(12)、Dart(15)、Dockerfile(18)、Go(22)、HTML(24)、JSON(28)、Java(29)、JavaScript(30)、Kotlin(32)、Lua(36)、Makefile(38)、Markdown(39)、Nginx(40)、PHP(43)、PowerShell(46)、Python(49)、Ruby(52)、Rust(53)、SQL(56)、Shell(60)、Swift(61)、TypeScript(63)、XML(66)、YAML(68)、Diff(69)。
 
-枚举值以飞书官方 post 消息格式文档为准，实现时对照校验。
+实现按双兼容处理（官方现行文档的 `language` 为字符串枚举，如 `"GO"`、`"PYTHON"`，大小写不敏感）：`language` 为数字时查上表（表外省略）；为字符串时小写化后直接作语言名（表外字符串不丢弃）；其余省略语言名。
 
 ### 4. 渠道层（`src/channels/feishu/index.ts`）
 

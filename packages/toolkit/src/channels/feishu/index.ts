@@ -2,7 +2,7 @@
 import * as lark from '@larksuiteoapi/node-sdk'
 import type { BotChannel, ChannelHandle } from '../channel.ts'
 import { createFeishuApi } from './api.ts'
-import { MessageDedup, parseMessageEvent, parseRecallEvent } from './parse.ts'
+import { MessageDedup, parseMessageEvent, parseRecallEvent, unsupportedNoticeText } from './parse.ts'
 import { FeishuReplyHandle, makeAck } from './reply.ts'
 import { FeishuApprovalPresenter } from '../approval/feishu.ts'
 import { FeishuQuestionPresenter } from '../questions/feishu.ts'
@@ -25,8 +25,23 @@ export const feishuChannel: BotChannel = {
       'im.message.message_read_v1': async () => undefined,
       // WS 事件须 3 秒内返回：解析同步完成，业务投递 fire-and-forget（含图片懒下载）。
       'im.message.receive_v1': async (data: unknown) => {
-        const parsed = parseMessageEvent(data, botOpenId)
-        if (parsed === null || !dedup.check(parsed.messageId)) return
+        const result = parseMessageEvent(data, botOpenId, tunables.debugLog)
+        if (result === null) return
+        if (result.kind === 'unsupported') {
+          const u = result.unsupported
+          // dedup 照常消费：飞书重推不重复提示。
+          if (!dedup.check(u.messageId)) return
+          let noticed = true
+          try {
+            await api.sendText(u.chatId, unsupportedNoticeText(u.messageType), u.threadId !== undefined ? u.messageId : undefined)
+          } catch {
+            noticed = false
+          }
+          tunables.debugLog?.({ event: 'feishu.parse.unsupported', messageType: u.messageType, messageId: u.messageId, chatId: u.chatId, noticed })
+          return
+        }
+        const parsed = result.message
+        if (!dedup.check(parsed.messageId)) return
         const reply = new FeishuReplyHandle(api, parsed.chatId, parsed.threadId !== undefined ? parsed.messageId : undefined, tunables, log, tunables.debugLog)
         const loadImages = parsed.imageKeys.length > 0
           ? async () => Promise.all(parsed.imageKeys.map(async (key) => api.downloadImage(parsed.messageId, key)))
