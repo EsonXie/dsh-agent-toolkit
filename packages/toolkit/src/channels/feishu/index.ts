@@ -1,13 +1,29 @@
 /** 飞书渠道：WSClient 长连接收事件 → 解析 → 核心；出站走 FeishuReplyHandle。 */
 import * as lark from '@larksuiteoapi/node-sdk'
-import type { BotChannel, ChannelHandle } from '../channel.ts'
-import { createFeishuApi } from './api.ts'
-import { MessageDedup, parseMessageEvent, parseRecallEvent, unsupportedNoticeText } from './parse.ts'
+import type { BotChannel, ChannelHandle, ChannelTunables } from '../channel.ts'
+import { createFeishuApi, type FeishuApi } from './api.ts'
+import { MessageDedup, parseMessageEvent, parseRecallEvent, unsupportedNoticeText, type ParsedMessage } from './parse.ts'
 import { FeishuReplyHandle, makeAck } from './reply.ts'
 import { ImageResolver } from './images.ts'
 import { FeishuApprovalPresenter } from '../approval/feishu.ts'
 import { FeishuQuestionPresenter } from '../questions/feishu.ts'
 import { toCardActionInput, toastResponse } from './card-action.ts'
+
+/** 构造入站消息的出站句柄：imageUpload 开启时注入上传器（落定回调重刷卡片），关闭时图片引用全降级。 */
+export function createReplyHandle(
+  api: FeishuApi,
+  projectRoot: string,
+  parsed: Pick<ParsedMessage, 'chatId' | 'threadId' | 'messageId'>,
+  tunables: ChannelTunables,
+  log: (message: string) => void,
+): FeishuReplyHandle {
+  let reply!: FeishuReplyHandle
+  const resolver = tunables.imageUpload
+    ? new ImageResolver(api, projectRoot, () => reply.notifyImageSettled())
+    : undefined
+  reply = new FeishuReplyHandle(api, parsed.chatId, parsed.threadId !== undefined ? parsed.messageId : undefined, tunables, log, tunables.debugLog, resolver)
+  return reply
+}
 
 export const feishuChannel: BotChannel = {
   type: 'feishu',
@@ -43,11 +59,7 @@ export const feishuChannel: BotChannel = {
         }
         const parsed = result.message
         if (!dedup.check(parsed.messageId)) return
-        let reply!: FeishuReplyHandle
-        const resolver = tunables.imageUpload
-          ? new ImageResolver(api, bot.record.project, () => reply.notifyImageSettled())
-          : undefined
-        reply = new FeishuReplyHandle(api, parsed.chatId, parsed.threadId !== undefined ? parsed.messageId : undefined, tunables, log, tunables.debugLog, resolver)
+        const reply = createReplyHandle(api, bot.record.project, parsed, tunables, log)
         const loadImages = parsed.imageKeys.length > 0
           ? async () => Promise.all(parsed.imageKeys.map(async (key) => api.downloadImage(parsed.messageId, key)))
           : undefined

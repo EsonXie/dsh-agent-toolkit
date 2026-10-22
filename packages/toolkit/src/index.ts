@@ -85,7 +85,7 @@ export const Config: z<unknown, Config> = z.object({
   // feishu 19 个全局可调参数：9 个照归档 project-bot/src/index.ts:38-45 原样平移，docMaxBytes 与
   // debugLog/debugLogDir/debugLogRetentionDays 为 Task 5 新增（非 archive 平移），permissionPreset 为
   // 本特性新增（可选键），questionTimeoutMs/approvalTimeoutMs 为 0.4.7 新增（问答卡/审批卡超时自动结束），
-  // sessionsPageSize 为 /sessions 分页新增。
+  // sessionsPageSize 为 /sessions 分页新增，imageUpload 为出站图片上传正显新增。
   // cast 照 rules 的 `as z<Rule>` 先例：schemastery 的 ObjectT 要求对象级
   // `.default({...})` 字面量含全部 dict 键，而 permissionPreset 无默认值、缺省 undefined，只能经
   // `as z<unknown, BotsModuleConfig>`（BotsModuleConfig.permissionPreset 可选）让默认字面量不含该键。

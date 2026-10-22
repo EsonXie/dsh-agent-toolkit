@@ -40,7 +40,7 @@ import { createApiHandler } from './api.ts'
 import { RegisterAppService } from './register-app.ts'
 import type { Binding, BotRecord } from './store.ts'
 
-/** project-bot Config 的 19 个全局可调参数：9 个字段名不变（schemastery 定义与默认值源：archive/2026-08-26-merged-plugins/project-bot/src/index.ts:38-45，由 Task 15 平移进 suite Config）；docMaxBytes 与 debugLog/debugLogDir/debugLogRetentionDays 为 Task 5 新增（非 archive 平移）；questionTimeoutMs/approvalTimeoutMs 为 0.4.7 新增（问答卡/审批卡超时自动结束）；sessionsPageSize 为 /sessions 分页新增。 */
+/** project-bot Config 的 19 个全局可调参数：9 个字段名不变（schemastery 定义与默认值源：archive/2026-08-26-merged-plugins/project-bot/src/index.ts:38-45，由 Task 15 平移进 suite Config）；docMaxBytes 与 debugLog/debugLogDir/debugLogRetentionDays 为 Task 5 新增（非 archive 平移）；questionTimeoutMs/approvalTimeoutMs 为 0.4.7 新增（问答卡/审批卡超时自动结束）；sessionsPageSize 为 /sessions 分页新增；imageUpload 为出站图片上传正显新增。 */
 export interface BotsModuleConfig {
   /** 卡片流式更新节流间隔（毫秒）。 */
   cardUpdateThrottleMs: number

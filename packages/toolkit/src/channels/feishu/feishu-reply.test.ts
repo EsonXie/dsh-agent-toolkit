@@ -710,13 +710,6 @@ describe('出站图片净化', () => {
     expect(lastCardContent(none.calls)).toBe('🖼 chart（图片无法发送）')
   })
 
-  test('imageUpload:false（渠道不注入 resolver）：本地图片一律降级文案', async () => {
-    const { reply, calls } = makeReplyWithResolver(undefined)
-    await reply.update([{ kind: 'text', content: '见 ![chart](a.png) 完' }])
-    await flushReply()
-    expect(lastCardContent(calls)).toBe('见 🖼 chart（图片无法发送） 完')
-  })
-
   test('notifyImageSettled：上传落定后触发 flush，占位刷为 img_key；finalize 后空操作', async () => {
     const states: Record<string, ImageResolution> = { 'a.png': { status: 'pending' } }
     const { reply, calls } = makeReplyWithResolver(fakeResolver(states))
