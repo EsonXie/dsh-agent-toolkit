@@ -4,6 +4,7 @@ import type { BotChannel, ChannelHandle } from '../channel.ts'
 import { createFeishuApi } from './api.ts'
 import { MessageDedup, parseMessageEvent, parseRecallEvent, unsupportedNoticeText } from './parse.ts'
 import { FeishuReplyHandle, makeAck } from './reply.ts'
+import { ImageResolver } from './images.ts'
 import { FeishuApprovalPresenter } from '../approval/feishu.ts'
 import { FeishuQuestionPresenter } from '../questions/feishu.ts'
 import { toCardActionInput, toastResponse } from './card-action.ts'
@@ -42,7 +43,11 @@ export const feishuChannel: BotChannel = {
         }
         const parsed = result.message
         if (!dedup.check(parsed.messageId)) return
-        const reply = new FeishuReplyHandle(api, parsed.chatId, parsed.threadId !== undefined ? parsed.messageId : undefined, tunables, log, tunables.debugLog)
+        let reply!: FeishuReplyHandle
+        const resolver = tunables.imageUpload
+          ? new ImageResolver(api, bot.record.project, () => reply.notifyImageSettled())
+          : undefined
+        reply = new FeishuReplyHandle(api, parsed.chatId, parsed.threadId !== undefined ? parsed.messageId : undefined, tunables, log, tunables.debugLog, resolver)
         const loadImages = parsed.imageKeys.length > 0
           ? async () => Promise.all(parsed.imageKeys.map(async (key) => api.downloadImage(parsed.messageId, key)))
           : undefined

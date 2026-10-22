@@ -114,7 +114,7 @@ function* events(turn: number): Generator<Feed> {
   yield { kind: 'session', event: { type: 'turn/end', data: { turn, reason: { kind: 'completed' } } } }
 }
 
-const TUNABLES = { cardUpdateThrottleMs: 50, cardMaxBytes: 26_000, cardPrintStep: 5, processMaxBytes: 8_000, processingReactionEmoji: 'OneSecond' }
+const TUNABLES = { cardUpdateThrottleMs: 50, cardMaxBytes: 26_000, cardPrintStep: 5, processMaxBytes: 8_000, processingReactionEmoji: 'OneSecond', imageUpload: true }
 
 async function drive(failures: Map<string, number[]>) {
   vi.useFakeTimers()

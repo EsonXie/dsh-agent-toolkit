@@ -60,7 +60,7 @@ function harness(overrides: Partial<RuntimeDeps> = {}) {
     defaultModel: () => ({ provider: 'deepseek', model: 'deepseek-v4' }),
     workspace: { attach: async () => undefined },
     channels: new Map([['feishu', channel]]),
-    tunables: { cardUpdateThrottleMs: 10, cardMaxBytes: 1024, processMaxBytes: 1024, cardPrintStep: 5, processingReactionEmoji: 'OneSecond' },
+    tunables: { cardUpdateThrottleMs: 10, cardMaxBytes: 1024, processMaxBytes: 1024, cardPrintStep: 5, processingReactionEmoji: 'OneSecond', imageUpload: true },
     maxErrorDetailChars: 500,
     docMaxBytes: 1024,
     sessionsPageSize: 10,

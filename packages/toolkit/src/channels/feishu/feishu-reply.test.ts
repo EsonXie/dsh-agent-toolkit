@@ -5,7 +5,7 @@ import { buildCardJson, buildSegmentJson, initialStreamState, type StreamState }
 import type { ImageResolution, ImageResolverPort } from './images.ts'
 import { FeishuReplyHandle, makeAck, withRetry } from './reply.ts'
 
-const TUNABLES = { cardUpdateThrottleMs: 500, cardMaxBytes: 26_000, processMaxBytes: 8000, cardPrintStep: 5, processingReactionEmoji: 'OneSecond' }
+const TUNABLES = { cardUpdateThrottleMs: 500, cardMaxBytes: 26_000, processMaxBytes: 8000, cardPrintStep: 5, processingReactionEmoji: 'OneSecond', imageUpload: true }
 
 /** 飞书业务错误（模拟 lark SDK 的 axios error 形状）。 */
 const bizError = (code: number): Error => Object.assign(new Error(`biz ${code}`), { response: { data: { code } } })
@@ -708,6 +708,13 @@ describe('出站图片净化', () => {
     await none.reply.update([{ kind: 'text', content: '![chart](a.png)' }])
     await flushReply()
     expect(lastCardContent(none.calls)).toBe('🖼 chart（图片无法发送）')
+  })
+
+  test('imageUpload:false（渠道不注入 resolver）：本地图片一律降级文案', async () => {
+    const { reply, calls } = makeReplyWithResolver(undefined)
+    await reply.update([{ kind: 'text', content: '见 ![chart](a.png) 完' }])
+    await flushReply()
+    expect(lastCardContent(calls)).toBe('见 🖼 chart（图片无法发送） 完')
   })
 
   test('notifyImageSettled：上传落定后触发 flush，占位刷为 img_key；finalize 后空操作', async () => {
