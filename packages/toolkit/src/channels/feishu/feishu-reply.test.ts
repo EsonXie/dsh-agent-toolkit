@@ -737,6 +737,32 @@ describe('出站图片净化', () => {
     expect(JSON.stringify(replace?.args)).toContain('img_v3_ok')
     expect(JSON.stringify(replace?.args)).not.toContain('a.png')
   })
+
+  test('200570：剥离图片语法重规划，不 abandon 不建新卡，流式继续', async () => {
+    // 净化层漏网形态 = img_v* 原样放行但 key 非法（幂等规则的固有缝隙）。
+    const { api, calls } = fakeApi()
+    const guard = (content: unknown): void => {
+      if (typeof content === 'string' && content.includes('img_v3_bogus')) throw bizError(200570)
+    }
+    const guarded: FeishuApi = {
+      ...api,
+      updateCardElement: async (cardId, elementId, content, sequence) => { guard(content); await api.updateCardElement(cardId, elementId, content, sequence) },
+      insertElement: async (cardId, elementJson, target, sequence) => { guard(elementJson); await api.insertElement(cardId, elementJson, target, sequence) },
+    }
+    const reply = new FeishuReplyHandle(guarded, 'oc_1', undefined, TUNABLES, () => undefined)
+    await reply.update([{ kind: 'text', content: '前文 ![chart](img_v3_bogus) 后文' }])
+    await flushReply()
+    await reply.update([{ kind: 'text', content: '前文 ![chart](img_v3_bogus) 后文 追加' }])
+    await flushReply()
+    // 无新卡（createCard 只调一次）、无废弃提示、最终卡内容无图片语法
+    expect(calls.filter((c) => c.op === 'createCard').length).toBe(1)
+    expect(calls.some((c) => c.op === 'sendText' && String(c.args[1]).includes('卡片输出异常'))).toBe(false)
+    const last = lastCardContent(calls)
+    expect(last).not.toContain('![')
+    expect(last).not.toContain('img_v3_bogus')
+    expect(last).toContain('chart')
+    expect(last).toContain('追加')   // 命中后流式继续（第二次 flush 增量仍落卡）
+  })
 })
 
 test('带锚点句柄的 notice 与发卡均走锚点', async () => {

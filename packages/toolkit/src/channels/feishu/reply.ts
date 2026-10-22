@@ -185,7 +185,8 @@ export class FeishuReplyHandle implements ReplyHandle {
     for (let attempts = 0; ; attempts++) {
       let abandoned = false
       for (const planned of pending) {
-        if ((await this.execOne(planned)) === 'abandoned') {
+        const outcome = await this.execOne(planned)
+        if (outcome === 'abandoned' || outcome === 'replan') {
           abandoned = true
           break
         }
@@ -198,9 +199,9 @@ export class FeishuReplyHandle implements ReplyHandle {
 
   /**
    * 单个 op：成功（或 insert 300301 视同成功）才 commit；
-   * 失败按错误码分类：流式超时重激活重放 / 200860 废弃续写 / 未知错误 seq+2 重放一次。
+   * 失败按错误码分类：流式超时重激活重放 / 200860 废弃续写 / 200570 剥离图片重规划 / 未知错误 seq+2 重放一次。
    */
-  private async execOne(planned: PlannedOp): Promise<'ok' | 'abandoned'> {
+  private async execOne(planned: PlannedOp): Promise<'ok' | 'abandoned' | 'replan'> {
     const { op } = planned
     if (op.type === 'noop') {
       this.commit(planned)
@@ -261,6 +262,13 @@ export class FeishuReplyHandle implements ReplyHandle {
       if (code === 200860) {
         // 确定性超限：op 未被应用。废弃换卡，从确认点续写（不重演已显示部分）。
         return this.abandon('卡片超出平台大小上限', false)
+      }
+      if (code === 200570 && !this.stripAllImages) {
+        // 确定性内容校验失败（非法 image key）：op 未被应用；净化层漏网才走到这。
+        // 剥离图片语法从确认点重规划——不 abandon：换卡重放同样内容必然再失败。
+        this.stripAllImages = true
+        this.log('[project-bot] 卡片内容含非法图片引用，已剥离图片语法继续（200570）')
+        return 'replan'
       }
       // 未知/网络错误（op 可能已执行）：sequence 跳过可能已消耗的序号重放一次
       // （update/settings 幂等；insert 重演由 300301 兜底）。跳步按本次尝试的 sequence
