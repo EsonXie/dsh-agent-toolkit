@@ -2,6 +2,7 @@
 import type { ChannelTunables, DebugSink, Disposer, ReplyHandle, TurnSegment, TurnStatus } from '../channel.ts'
 import { feishuErrorCode, type FeishuApi } from './api.ts'
 import { preview } from './debug-log.ts'
+import { sanitizeSegments, stripImages, type ImageLookup, type ImageResolverPort } from './images.ts'
 import {
   buildClosedCardJson, initialStreamState, PENDING_CARD_ID, STATUS_BREAK, STATUS_ELEMENT_ID, STATUS_STREAMING,
   planFinalize, planSync, type CardOp, type PlannedOp, type StreamState,
@@ -39,6 +40,8 @@ export class FeishuReplyHandle implements ReplyHandle {
   private finalized = false
   /** settings 关流时捕获的真实 cardId（replace op 为 PENDING 占位时的解析锚点）。 */
   private closedCardId: string | null = null
+  /** 200570 兜底：命中后本句柄余下输出一律剥离图片语法（净化层漏网的防御纵深）。 */
+  private stripAllImages = false
 
   constructor(
     private readonly api: FeishuApi,
@@ -48,6 +51,8 @@ export class FeishuReplyHandle implements ReplyHandle {
     private readonly tunables: ChannelTunables,
     private readonly log: (message: string) => void,
     private readonly debugLog?: DebugSink,
+    /** 出站图片上传器（缺席 = 图片引用一律降级文案）。 */
+    private readonly resolver?: ImageResolverPort,
   ) {}
 
   beginTurn(): Promise<void> {
@@ -80,7 +85,7 @@ export class FeishuReplyHandle implements ReplyHandle {
     // 等 flush 定局（含失败恢复）后再规划定格：状态此刻是已确认态。
     await this.tail
     const hadCard = this.state.cardId !== null
-    const { ops } = planFinalize(this.state, status, this.segments, this.tunables.processMaxBytes)
+    const { ops } = planFinalize(this.state, status, this.sanitizedSegments(), this.tunables.processMaxBytes)
     // 定格批不触发废弃重规划（卡已在收尾）：遇 abandon 直接止步。
     this.enqueue(async () => {
       for (const op of ops) {
@@ -118,7 +123,7 @@ export class FeishuReplyHandle implements ReplyHandle {
       this.enqueue(() => withRetry(() => this.api.setCardStreaming(cardId, false, seq + 1)).then(() => undefined))
       await this.tail
       // 重放负载须取重置前的已提交内容（cardSegs/segments/tail），与卡片当前直显逐字节一致。
-      const replayJson = buildClosedCardJson(cardSegs, this.segments, tail, STATUS_BREAK, this.tunables.processMaxBytes)
+      const replayJson = buildClosedCardJson(cardSegs, this.sanitizedSegments(), tail, STATUS_BREAK, this.tunables.processMaxBytes)
       this.enqueue(() => withRetry(() => this.api.replaceCard(cardId, replayJson, seq + 2)).then(() => undefined))
       await this.tail
       this.closedCardId = cardId
@@ -134,6 +139,12 @@ export class FeishuReplyHandle implements ReplyHandle {
     }
   }
 
+  /** 图片上传落定回调（resolver 传入）：未 finalize 时触发一次 flush，占位刷为正显/降级。 */
+  notifyImageSettled(): void {
+    if (this.finalized) return
+    this.flush()
+  }
+
   notice(text: string): Promise<void> {
     this.enqueue(() => withRetry(() => this.api.sendText(this.chatId, text, this.replyToMessageId)).then(() => undefined))
     return this.tail.then(() => undefined)
@@ -147,6 +158,13 @@ export class FeishuReplyHandle implements ReplyHandle {
     })
   }
 
+  /** 卡片用段序列：原始 segments 经净化（200570 命中后整体剥离）。 */
+  private sanitizedSegments(): readonly TurnSegment[] {
+    if (this.stripAllImages) return this.segments.map((s) => ({ ...s, content: stripImages(s.content) }))
+    const lookup: ImageLookup = (p) => this.resolver?.resolve(p) ?? { status: 'failed' }
+    return sanitizeSegments(this.segments, lookup)
+  }
+
   /**
    * 规划入串行链：planSync 在执行点读最新已确认状态与最新 segments，
    * 在飞期间到达的 flush 只标位不重复规划（杜绝重复建卡/重复 insert）。
@@ -156,7 +174,7 @@ export class FeishuReplyHandle implements ReplyHandle {
     this.planQueued = true
     this.enqueue(async () => {
       this.planQueued = false
-      const { ops } = planSync(this.state, this.segments, this.tunables.cardMaxBytes, this.tunables.processMaxBytes, this.tunables.cardPrintStep)
+      const { ops } = planSync(this.state, this.sanitizedSegments(), this.tunables.cardMaxBytes, this.tunables.processMaxBytes, this.tunables.cardPrintStep)
       await this.exec(ops)
     })
   }
@@ -174,7 +192,7 @@ export class FeishuReplyHandle implements ReplyHandle {
       }
       if (!abandoned) return
       if (attempts >= MAX_ABANDON_PER_FLUSH) throw new Error('卡片连续废弃超限，本批输出放弃（下一 flush 继续）')
-      pending = planSync(this.state, this.segments, this.tunables.cardMaxBytes, this.tunables.processMaxBytes, this.tunables.cardPrintStep).ops
+      pending = planSync(this.state, this.sanitizedSegments(), this.tunables.cardMaxBytes, this.tunables.processMaxBytes, this.tunables.cardPrintStep).ops
     }
   }
 

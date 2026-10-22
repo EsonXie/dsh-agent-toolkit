@@ -13,6 +13,11 @@ export type ImageResolution =
 /** 净化期查询本地路径解析状态的端口（ImageResolver 实现；imageUpload 关闭时以恒 failed 替代）。 */
 export type ImageLookup = (localPath: string) => ImageResolution
 
+/** reply 句柄消费的上传器窄端口（imageUpload 关闭时缺席 → 恒 failed 降级）。 */
+export interface ImageResolverPort {
+  resolve(localPath: string): ImageResolution
+}
+
 /** alt 进占位/降级文案的截断上限（code point）。 */
 export const IMAGE_ALT_MAX_CHARS = 50
 
@@ -54,7 +59,7 @@ export function sanitizeSegments(segments: readonly TurnSegment[], lookup: Image
 export const IMAGE_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
 
 /** 本地图片 → img_key 上传器：绝对路径归一化做缓存键，三态永久定格，落定回调触发卡片重刷。 */
-export class ImageResolver {
+export class ImageResolver implements ImageResolverPort {
   private readonly cache = new Map<string, ImageResolution>()
 
   constructor(

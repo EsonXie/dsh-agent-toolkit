@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { ChannelTunables, TurnSegment } from '../channel.ts'
 import type { FeishuApi } from './api.ts'
 import { buildCardJson, buildSegmentJson, initialStreamState, type StreamState } from './cards.ts'
+import type { ImageResolution, ImageResolverPort } from './images.ts'
 import { FeishuReplyHandle, makeAck, withRetry } from './reply.ts'
 
 const TUNABLES = { cardUpdateThrottleMs: 500, cardMaxBytes: 26_000, processMaxBytes: 8000, cardPrintStep: 5, processingReactionEmoji: 'OneSecond' }
@@ -37,6 +38,26 @@ function make(api: FeishuApi, tunables: ChannelTunables = TUNABLES) {
   const logs: string[] = []
   const reply = new FeishuReplyHandle(api, 'oc_1', undefined, tunables, (m) => { logs.push(m) })
   return { reply, logs }
+}
+
+// 推一次节流 flush（本文件既有用法，抽名便于图片用例阅读）
+const flushReply = async (): Promise<void> => { await vi.advanceTimersByTimeAsync(500) }
+
+// 最后一次卡片段内容：首刷走 insertElement（整段插入），尾段增长走 updateCardElement
+function lastCardContent(calls: Call[]): string {
+  for (let i = calls.length - 1; i >= 0; i--) {
+    const c = calls[i]!
+    if (c.op === 'updateCardElement') return String(c.args[2])
+    if (c.op === 'insertElement') return String((JSON.parse(String(c.args[1])) as { content: string }).content)
+  }
+  return ''
+}
+
+// 构造带 resolver 的 reply（TUNABLES 复用文件顶部常量）
+function makeReplyWithResolver(resolver?: ImageResolverPort): { reply: FeishuReplyHandle; calls: Call[] } {
+  const { api, calls } = fakeApi()
+  const reply = new FeishuReplyHandle(api, 'oc_1', undefined, TUNABLES, () => undefined, undefined, resolver)
+  return { reply, calls }
 }
 
 beforeEach(() => { vi.useFakeTimers() })
@@ -664,6 +685,57 @@ describe('ReplyHandle.breakCard', () => {
     expect(inserts).toHaveLength(2)
     expect(inserts[1].args[0]).toBe('card_2')
     expect(JSON.parse(String(inserts[1].args[1])).content).toBe('第三段')
+  })
+})
+
+describe('出站图片净化', () => {
+  const fakeResolver = (states: Record<string, ImageResolution>): ImageResolverPort => ({
+    resolve: (p) => states[p] ?? { status: 'failed' },
+  })
+
+  test('ready 引用进卡为 img_key；failed 降级纯文本；无 resolver 全降级', async () => {
+    const ready = makeReplyWithResolver(fakeResolver({ 'a.png': { status: 'ready', imgKey: 'img_v3_ok' } }))
+    await ready.reply.update([{ kind: 'text', content: '见 ![chart](a.png) 完' }])
+    await flushReply()
+    expect(lastCardContent(ready.calls)).toBe('见 ![chart](img_v3_ok) 完')
+
+    const failed = makeReplyWithResolver(fakeResolver({}))
+    await failed.reply.update([{ kind: 'text', content: '![chart](a.png)' }])
+    await flushReply()
+    expect(lastCardContent(failed.calls)).toBe('🖼 chart（图片无法发送）')
+
+    const none = makeReplyWithResolver(undefined)
+    await none.reply.update([{ kind: 'text', content: '![chart](a.png)' }])
+    await flushReply()
+    expect(lastCardContent(none.calls)).toBe('🖼 chart（图片无法发送）')
+  })
+
+  test('notifyImageSettled：上传落定后触发 flush，占位刷为 img_key；finalize 后空操作', async () => {
+    const states: Record<string, ImageResolution> = { 'a.png': { status: 'pending' } }
+    const { reply, calls } = makeReplyWithResolver(fakeResolver(states))
+    await reply.update([{ kind: 'text', content: '![chart](a.png)' }])
+    await flushReply()
+    expect(lastCardContent(calls)).toBe('🖼 chart（图片上传中…）')
+    states['a.png'] = { status: 'ready', imgKey: 'img_v3_late' }
+    reply.notifyImageSettled()
+    await flushReply()
+    expect(lastCardContent(calls)).toBe('![chart](img_v3_late)')
+
+    await reply.finalize('done')
+    const before = calls.length
+    reply.notifyImageSettled()
+    await flushReply()
+    expect(calls.length).toBe(before)
+  })
+
+  test('整卡重放（finalize replace）用净化后内容', async () => {
+    const { reply, calls } = makeReplyWithResolver(fakeResolver({ 'a.png': { status: 'ready', imgKey: 'img_v3_ok' } }))
+    await reply.update([{ kind: 'text', content: '见 ![chart](a.png)' }])
+    await flushReply()
+    await reply.finalize('done')
+    const replace = calls.find((c) => c.op === 'replaceCard')
+    expect(JSON.stringify(replace?.args)).toContain('img_v3_ok')
+    expect(JSON.stringify(replace?.args)).not.toContain('a.png')
   })
 })
 
