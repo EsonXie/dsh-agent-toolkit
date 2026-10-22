@@ -20,6 +20,8 @@ export interface FeishuApi {
   getBotOpenId(): Promise<string>
   /** 上传文件到消息资源库（im/v1 files，file_type=stream），返回 file_key。 */
   uploadFile(name: string, data: Uint8Array): Promise<string>
+  /** 上传图片到消息资源库（im/v1 images，image_type=message），返回 image_key。 */
+  uploadImage(data: Uint8Array): Promise<string>
   /** 发送文件消息（msg_type=file）；replyToMessageId 提供时锚定回复该消息（im.message.reply），否则发到会话（im.message.create）。 */
   sendFile(chatId: string, fileKey: string, replyToMessageId?: string): Promise<void>
 }
@@ -155,6 +157,15 @@ export function createFeishuApi(client: lark.Client): FeishuApi {
         throw new Error('文件上传失败：飞书接口未返回 file_key（可能缺 im:resource 权限、文件超 30 MB 或为空文件）')
       }
       return fileKey
+    },
+    async uploadImage(data) {
+      const res = await client.im.image.create({ data: { image_type: 'message', image: Buffer.from(data) } })
+      // 与 uploadFile 同款：SDK 响应拦截器后再剥一层信封，resolve 的是内层 { image_key }。
+      const imageKey = res?.image_key
+      if (typeof imageKey !== 'string' || imageKey.length === 0) {
+        throw new Error('图片上传失败：飞书接口未返回 image_key（可能缺 im:resource 权限、图片超 10 MB 或为空图片）')
+      }
+      return imageKey
     },
     async sendFile(chatId, fileKey, replyToMessageId) {
       await sendMessage(client, chatId, replyToMessageId, 'file', JSON.stringify({ file_key: fileKey }))

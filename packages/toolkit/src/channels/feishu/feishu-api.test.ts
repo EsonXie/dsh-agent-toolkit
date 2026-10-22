@@ -43,6 +43,25 @@ describe('FeishuApi.uploadFile / sendFile', () => {
   })
 })
 
+describe('FeishuApi.uploadImage', () => {
+  test('im/v1 images 上传（image_type=message）并返回 image_key（SDK 剥信封取内层）', async () => {
+    const calls: unknown[] = []
+    const client = {
+      im: { image: { create: async (req: unknown) => { calls.push(req); return { image_key: 'img_v3_x1' } } } },
+    }
+    const api = createFeishuApi(client as never)
+    await expect(api.uploadImage(new Uint8Array([1, 2, 3]))).resolves.toBe('img_v3_x1')
+    expect(calls[0]).toMatchObject({ data: { image_type: 'message' } })
+    expect(((calls[0] as { data: { image: Buffer } }).data.image)).toBeInstanceOf(Buffer)
+  })
+
+  test('未返回 image_key → 抛错（缺权限/超限）', async () => {
+    const client = { im: { image: { create: async () => null } } }
+    const api = createFeishuApi(client as never)
+    await expect(api.uploadImage(new Uint8Array([1]))).rejects.toThrow('image_key')
+  })
+})
+
 describe('FeishuApi 出站锚点（replyToMessageId）', () => {
   test('sendText 带锚点时走 im.message.reply', async () => {
     const calls: { method: string; args: unknown }[] = []

@@ -27,6 +27,7 @@ function fakeApi() {
     downloadImage: async (...args) => { calls.push({ op: 'downloadImage', args }); return { data: new Uint8Array(), mediaType: 'image/png' } },
     getBotOpenId: async () => 'ou_bot_self',
     uploadFile: vi.fn(async (name: string) => { calls.push({ op: 'uploadFile', args: [name] }); return 'file_v3_xxx' }),
+    uploadImage: async (...args) => { calls.push({ op: 'uploadImage', args }); return 'img_v3_fake' },
     sendFile: vi.fn(async (...args) => { calls.push({ op: 'sendFile', args }) }),
   }
   return { api, calls }
